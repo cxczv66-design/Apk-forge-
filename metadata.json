@@ -1,0 +1,8 @@
+{
+  "name": "ApkForge",
+  "description": "منصة ApkForge المتكاملة لبناء وتوليد تطبيقات أندرويد APK من ملفات الويب HTML/ZIP مع محرك بناء متقدم وإدارة الصلاحيات الذكية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

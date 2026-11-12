@@ -1,0 +1,199 @@
+package com.example
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.repository.ProjectRepository
+import com.example.domain.model.*
+import com.example.engine.AdaptiveIconStudio
+import com.example.engine.ProjectExporter
+import com.example.engine.UrlScraperEngine
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.util.zip.ZipFile
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
+class ApkForgePowerFeaturesTest {
+
+    @Test
+    fun `full 9 step project with pro studio config persists and exports to apkforge json`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo1 = ProjectRepository(context)
+
+        val richProject = AppProject(
+            id = "proj_test_full_9",
+            name = "متجر النخبة",
+            description = "وصف كامل للمشروع",
+            sourceType = SourceType.WEB_URL,
+            sourceValue = "https://elite.example.com",
+            splashConfig = SplashConfig(enabled = true, backgroundColorHex = "#111827", indicatorStyle = "نبض"),
+            onboardingConfig = OnboardingConfig(
+                enabled = true,
+                slides = listOf(OnboardingSlide("مرحباً", "ابدأ التسوق", "bolt"))
+            ),
+            webViewConfig = WebViewConfig(fullScreen = true, pullToRefresh = true, offlineFallback = true),
+            bottomNavConfig = BottomNavConfig(
+                enabled = true,
+                destinations = listOf(
+                    BottomNavDestination("h", "الرئيسية", "/"),
+                    BottomNavDestination("c", "السلة", "/cart")
+                )
+            ),
+            packageConfig = PackageConfig(
+                packageName = "com.elite.shop",
+                versionName = "2.1.0",
+                versionCode = 14,
+                minSdk = 24,
+                targetSdk = 35
+            ),
+            permissionsConfig = PermissionsConfig(
+                camera = true,
+                location = true,
+                notifications = true,
+                vibration = true,
+                networkState = true
+            ),
+            pushConfig = PushNotificationConfig(
+                enabled = true,
+                provider = "OneSignal",
+                appId = "12345678-1234-1234-1234-1234567890ab"
+            ),
+            bridgeConfig = BridgeAndCloudConfig(
+                jsBridgeEnabled = true,
+                handleExternalIntents = true,
+                deepLinkDomain = "elite.example.com",
+                adMobAppId = "ca-app-pub-123456789~987654321",
+                gitHubCiEnabled = true
+            ),
+            proConfig = ProStudioConfig(
+                forceDarkCss = true,
+                customCss = "footer { display: none; }",
+                adAndPopupBlocker = true,
+                biometricAuthBridge = true,
+                qrScannerBridge = true,
+                inAppReviewBridge = true,
+                iconShape = "teardrop",
+                iconBgColorHex = "#0EA5E9",
+                flagSecureEnabled = true,
+                sslPinningEnabled = true,
+                drawerEnabled = true,
+                fabMenuEnabled = true,
+                fabWhatsappNumber = "966500000000"
+            )
+        )
+
+        repo1.saveProject(richProject)
+        repo1.updateBuildStatus(
+            projectId = richProject.id,
+            status = BuildStatus.SUCCESS,
+            apkPath = "/storage/emulated/0/Download/Elite_v2.1.0.apk",
+            customFileName = "Elite_v2.1.0.apk",
+            sizeText = "7.6 MB"
+        )
+
+        val repo2 = ProjectRepository(context)
+        val restored = repo2.getProjectById("proj_test_full_9")
+        assertNotNull(restored)
+        assertTrue(restored!!.proConfig.forceDarkCss)
+        assertTrue(restored.proConfig.flagSecureEnabled)
+        assertTrue(restored.proConfig.sslPinningEnabled)
+        assertTrue(restored.proConfig.drawerEnabled)
+        assertTrue(restored.proConfig.fabMenuEnabled)
+        assertEquals("teardrop", restored.proConfig.iconShape)
+        assertEquals("966500000000", restored.proConfig.fabWhatsappNumber)
+        assertEquals(1, restored.buildHistory.size)
+
+        val exportedJson = repo2.exportProjectToJson(restored)
+        val imported = repo2.importProjectFromJson(exportedJson)
+        assertNotNull(imported)
+        assertEquals("teardrop", imported!!.proConfig.iconShape)
+        assertTrue(imported.proConfig.flagSecureEnabled)
+        assertNotEquals(restored.id, imported.id)
+    }
+
+    @Test
+    fun `project exporter includes adaptive icon pngs security guard css injector adblocker and bridge v2`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val exporter = ProjectExporter(context)
+        val template = SmartTemplatesCatalog.getAll().first().buildProject().let {
+            it.copy(
+                proConfig = it.proConfig.copy(
+                    forceDarkCss = true,
+                    adAndPopupBlocker = true,
+                    flagSecureEnabled = true,
+                    sslPinningEnabled = true,
+                    fabMenuEnabled = true,
+                    fabWhatsappNumber = "966555555555",
+                    biometricAuthBridge = true,
+                    qrScannerBridge = true,
+                    inAppReviewBridge = true
+                )
+            )
+        }
+
+        val iconPack = AdaptiveIconStudio.generateIconPack(template)
+        assertTrue(iconPack.densityPngs.containsKey("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"))
+        assertTrue(iconPack.adaptiveXml.contains("<adaptive-icon"))
+
+        val result = exporter.exportAndroidStudioProjectZip(template)
+        assertTrue(result.zipFile.exists())
+
+        val entries = mutableMapOf<String, String>()
+        ZipFile(result.zipFile).use { zip ->
+            val enumEntries = zip.entries()
+            while (enumEntries.hasMoreElements()) {
+                val entry = enumEntries.nextElement()
+                if (!entry.name.endsWith(".png")) {
+                    entries[entry.name] = zip.getInputStream(entry).bufferedReader().readText()
+                } else {
+                    entries[entry.name] = "PNG_BYTES"
+                }
+            }
+        }
+
+        assertTrue(entries.containsKey(".github/workflows/apkforge-build.yml"))
+        assertTrue(entries.containsKey("app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"))
+        assertTrue(entries.containsKey("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"))
+
+        val mainKt = entries.entries.first { it.key.endsWith("MainActivity.kt") }.value
+        assertTrue(mainKt.contains("class ApkForgeBridge"))
+        assertTrue(mainKt.contains("authenticateBiometric"))
+        assertTrue(mainKt.contains("scanQrCode"))
+        assertTrue(mainKt.contains("requestStoreRating"))
+        assertTrue(mainKt.contains("FLAG_SECURE"))
+        assertTrue(mainKt.contains("shouldInterceptRequest"))
+        assertTrue(mainKt.contains("FloatingActionButton"))
+    }
+
+    @Test
+    fun `url scraper extracts metadata theme color and package id from html`() {
+        val scraper = UrlScraperEngine()
+        val html = """
+            <html>
+              <head>
+                <title>متجر المستقبل | Future Shop</title>
+                <meta name="description" content="أفضل تطبيق للتسوق السريع" />
+                <meta name="theme-color" content="#10B981" />
+                <link rel="manifest" href="/manifest.webmanifest" />
+                <link rel="icon" href="/assets/logo.png" />
+              </head>
+              <body></body>
+            </html>
+        """.trimIndent()
+
+        val identity = scraper.parseHtmlMetadata("https://shop.futuristic.sa", html)
+        assertEquals("متجر المستقبل | Future Shop", identity.title)
+        assertEquals("#10B981", identity.themeColorHex)
+        assertEquals("https://shop.futuristic.sa/assets/logo.png", identity.iconUrl)
+        assertEquals("sa.futuristic.shop", identity.suggestedPackageName)
+        assertTrue(identity.hasPwaManifest)
+
+        val proj = scraper.toPreConfiguredProject(identity)
+        assertEquals(SourceType.WEB_URL, proj.sourceType)
+        assertEquals("#10B981", proj.accentColorHex)
+        assertEquals("shop.futuristic.sa", proj.bridgeConfig.deepLinkDomain)
+    }
+}
