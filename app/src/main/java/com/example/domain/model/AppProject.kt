@@ -204,6 +204,7 @@ data class AppProject(
     val accentColorHex: String = "#FF7A2F",
     val sourceType: SourceType = SourceType.ZIP_ARCHIVE,
     val sourceValue: String = "MegaEditor_New.zip",
+    val localWorkspacePath: String? = null,
     val splashConfig: SplashConfig = SplashConfig(),
     val onboardingConfig: OnboardingConfig = OnboardingConfig(),
     val webViewConfig: WebViewConfig = WebViewConfig(),

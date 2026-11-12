@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.accounts.AccountManager
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,16 +60,51 @@ fun AccountScreen(
     var showGoogleAccountChooser by remember { mutableStateOf(false) }
     var showTermsDialog by remember { mutableStateOf(false) }
     var selectedPendingAccount by remember { mutableStateOf<GoogleUser?>(null) }
-    var isTermsAccepted by remember { mutableStateOf(true) }
+    var isTermsAccepted by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var isCloudSyncEnabled by remember { mutableStateOf(true) }
+    var manualGmailInput by remember { mutableStateOf("") }
 
-    // Mock realistic user accounts on the device
-    val deviceAccounts = remember {
-        listOf(
-            GoogleUser(name = "Amina Urac", email = "aminauracaminaurac@gmail.com", avatarLetter = "A"),
-            GoogleUser(name = "Android Developer", email = "developer.android@gmail.com", avatarLetter = "D")
-        )
+    // Discover any cached Google accounts visible to the OS or let user pick via Android System Chooser
+    val systemGoogleAccountLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val email = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)?.trim().orEmpty()
+            if (email.isNotBlank()) {
+                val cleanName = email.substringBefore("@")
+                    .replace('.', ' ')
+                    .split(' ')
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+                    .ifBlank { email }
+                selectedPendingAccount = GoogleUser(
+                    name = cleanName,
+                    email = email,
+                    avatarLetter = cleanName.take(1).uppercase().ifBlank { "G" }
+                )
+                isTermsAccepted = false
+                showGoogleAccountChooser = false
+                showTermsDialog = true
+            }
+        }
+    }
+
+    fun launchSystemGoogleAccountPicker() {
+        try {
+            val chooserIntent = AccountManager.newChooseAccountIntent(
+                null,
+                null,
+                arrayOf("com.google"),
+                null,
+                null,
+                null,
+                null
+            )
+            systemGoogleAccountLauncher.launch(chooserIntent)
+        } catch (e: Exception) {
+            showGoogleAccountChooser = true
+        }
     }
 
     // Real file importer from device storage
@@ -278,7 +319,7 @@ fun AccountScreen(
 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
-                                        onClick = { showGoogleAccountChooser = true },
+                                        onClick = { launchSystemGoogleAccountPicker() },
                                         modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
@@ -347,7 +388,7 @@ fun AccountScreen(
                                         .fillMaxWidth()
                                         .height(50.dp)
                                         .clickable {
-                                            showGoogleAccountChooser = true
+                                            launchSystemGoogleAccountPicker()
                                         }
                                         .testTag("google_sign_in_button")
                                 ) {
@@ -513,10 +554,23 @@ fun AccountScreen(
                         )
                         HorizontalDivider(color = GlassBorderSubtle)
                         AccountRowItem(
-                            title = "الدعم والمساعدة",
-                            icon = Icons.Default.Chat,
+                            title = "الدعم والتواصل مع المطور",
+                            subtitle = "ziorio950@gmail.com",
+                            icon = Icons.Default.Email,
                             onClick = {
-                                Toast.makeText(context, "فريق الدعم الفني لـ ApkForge في خدمتك دائماً", Toast.LENGTH_SHORT).show()
+                                val developerEmail = "ziorio950@gmail.com"
+                                val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                                    data = Uri.parse("mailto:$developerEmail")
+                                    putExtra(Intent.EXTRA_EMAIL, arrayOf(developerEmail))
+                                    putExtra(Intent.EXTRA_SUBJECT, "الدعم الفني - ApkForge")
+                                }
+                                try {
+                                    context.startActivity(Intent.createChooser(emailIntent, "مراسلة المطور"))
+                                } catch (_: Exception) {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("Developer Email", developerEmail))
+                                    Toast.makeText(context, "تم نسخ البريد: $developerEmail", Toast.LENGTH_LONG).show()
+                                }
                             }
                         )
                         HorizontalDivider(color = GlassBorderSubtle)
@@ -549,7 +603,7 @@ fun AccountScreen(
             }
         }
 
-        // Google Account Chooser Dialog (matching authentic Android system account picker)
+        // Fallback Google Account Entry / Retry Chooser when system picker isn't available
         if (showGoogleAccountChooser) {
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showGoogleAccountChooser = false },
@@ -573,7 +627,8 @@ fun AccountScreen(
                         Column(
                             modifier = Modifier
                                 .padding(20.dp)
-                                .fillMaxWidth()
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Image(
@@ -591,68 +646,54 @@ fun AccountScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "أدخل بريد حسابك في Google أو افتح قائمة حسابات النظام لاختيار حسابك الفعلي:",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
 
-                            deviceAccounts.forEach { acc ->
-                                Surface(
-                                    color = Color(0xFF161822),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable {
-                                            selectedPendingAccount = acc
+                            OutlinedTextField(
+                                value = manualGmailInput,
+                                onValueChange = { manualGmailInput = it },
+                                label = { Text("بريد Gmail الفعلي") },
+                                placeholder = { Text("example@gmail.com") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { showGoogleAccountChooser = false },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(AppStrings.cancel(currentLang), fontFamily = CairoFontFamily, color = TextMuted)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val cleanEmail = manualGmailInput.trim()
+                                        if (cleanEmail.contains("@") && cleanEmail.contains(".")) {
+                                            val name = cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                                            selectedPendingAccount = GoogleUser(name = name, email = cleanEmail)
+                                            isTermsAccepted = false
                                             showGoogleAccountChooser = false
                                             showTermsDialog = true
+                                        } else {
+                                            Toast.makeText(context, "يرجى إدخال بريد إلكتروني صحيح", Toast.LENGTH_SHORT).show()
                                         }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                    modifier = Modifier.weight(1.4f),
+                                    shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(if (acc.email.startsWith("amina")) Color(0xFF4285F4) else Color(0xFF34A853)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = acc.avatarLetter,
-                                                fontFamily = CairoFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 18.sp,
-                                                color = Color.White
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
-                                            Text(
-                                                text = acc.name,
-                                                fontFamily = CairoFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
-                                                color = TextPrimary
-                                            )
-                                            Text(
-                                                text = acc.email,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 11.sp,
-                                                color = TextSecondary
-                                            )
-                                        }
-                                    }
+                                    Text("متابعة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            TextButton(
-                                onClick = { showGoogleAccountChooser = false },
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text(AppStrings.cancel(currentLang), fontFamily = CairoFontFamily, color = TextMuted)
                             }
                         }
                     }

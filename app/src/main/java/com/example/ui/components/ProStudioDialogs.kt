@@ -53,25 +53,28 @@ fun SmartUrlScraperDialog(
 
     var urlInput by remember { mutableStateOf("https://") }
     var isScanning by remember { mutableStateOf(false) }
+    var scanError by remember { mutableStateOf<String?>(null) }
     var scraped by remember { mutableStateOf<ScrapedSiteIdentity?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             Surface(
                 color = Color(0xFF141A26),
                 shape = RoundedCornerShape(22.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(0.94f)
             ) {
                 Column(
-                    modifier = Modifier.padding(18.dp),
+                    modifier = Modifier
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = OrangePrimary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "تحويل رابط موقع ذكي (PWA Scraper)",
+                            text = "تحليل واستخراج هوية الموقع الحقيقية 🌐",
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
@@ -80,7 +83,7 @@ fun SmartUrlScraperDialog(
                     }
 
                     Text(
-                        text = "أدخل رابط موقعك وسيقوم ApkForge باستخراج الاسم، اللون الأساسي، الأيقونة، واسم الحزمة تلقائياً.",
+                        text = "يجلب الاسم الفعلي، الشعار، الألوان، الأزرار، الروابط، وأذونات الأجهزة المكتشفة مباشرة من خادم الموقع.",
                         fontFamily = TajawalFontFamily,
                         fontSize = 12.sp,
                         color = TextSecondary
@@ -88,7 +91,10 @@ fun SmartUrlScraperDialog(
 
                     OutlinedTextField(
                         value = urlInput,
-                        onValueChange = { urlInput = it },
+                        onValueChange = {
+                            urlInput = it
+                            scanError = null
+                        },
                         label = { Text("رابط الموقع (URL)") },
                         placeholder = { Text("https://example.com") },
                         singleLine = true,
@@ -100,66 +106,162 @@ fun SmartUrlScraperDialog(
                         onClick = {
                             scope.launch {
                                 isScanning = true
-                                val res = scraper.scrapeSiteIdentity(urlInput)
+                                scanError = null
+                                val res = scraper.scrapeSiteIdentity(urlInput, context)
                                 isScanning = false
                                 res.onSuccess { scraped = it }
-                                    .onFailure {
-                                        Toast.makeText(context, "يرجى إدخال رابط صحيح مثل https://example.com", Toast.LENGTH_SHORT).show()
+                                    .onFailure { err ->
+                                        scraped = null
+                                        scanError = err.message ?: "تعذر الاتصال بالموقع أو تحليله"
+                                        Toast.makeText(context, "فشل التحليل: $scanError", Toast.LENGTH_LONG).show()
                                     }
                             }
                         },
                         enabled = !isScanning && urlInput.trim().length > 4,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         if (isScanning) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("جارٍ تحليل الموقع والـ Manifest...", fontFamily = CairoFontFamily, color = Color.White)
+                            Text("جارٍ الجلب الفعلي للبيانات والأيقونة...", fontFamily = CairoFontFamily, color = Color.White)
                         } else {
                             Icon(Icons.Default.TravelExplore, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("تحليل واستخراج الهوية تلقائياً", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("تحليل واستخراج حقيقي للموقع ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    if (scanError != null) {
+                        Surface(
+                            color = ErrorRed.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, ErrorRed.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "✗ تعذر استخراج بيانات الموقع: $scanError\nتأكد من صحة الرابط وتوفر الاتصال بالإنترنت.",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = ErrorRed,
+                                modifier = Modifier.padding(10.dp)
+                            )
                         }
                     }
 
                     scraped?.let { id ->
                         val themeColor = parseColorSafe(id.themeColorHex, OrangePrimary)
+                        val effectiveIcon = id.localCachedIconUri ?: id.iconUrl
                         Surface(
                             color = Color(0xFF0E131D),
                             shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, themeColor.copy(alpha = 0.6f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(themeColor),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!id.iconUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = id.iconUrl,
-                                            contentDescription = id.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(52.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(themeColor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (!effectiveIcon.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = effectiveIcon,
+                                                contentDescription = id.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        } else {
+                                            Text(id.title.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(id.title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
+                                        Text(id.suggestedPackageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = themeColor)
+                                        Text(
+                                            text = "HTTP ${id.httpStatusCode} • ${if (id.hasPwaManifest) "PWA Manifest ✓" else "HTML Meta ✓"} • ${id.themeColorHex}",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            color = StatusGreen
                                         )
-                                    } else {
-                                        Text(id.title.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(id.title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                                    Text(id.suggestedPackageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = themeColor)
+
+                                Text(
+                                    text = id.description,
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary,
+                                    maxLines = 2
+                                )
+
+                                // Extracted Structure Telemetry Row
+                                Text(
+                                    text = "العناصر المستخرجة: ${id.detectedLinks.size} روابط تنقل • ${id.detectedButtons.size} أزرار • ${id.formsCount} نماذج • ${id.scriptsCount} سكربت",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 11.sp,
+                                    color = GoldAccent
+                                )
+
+                                if (id.detectedLinks.isNotEmpty()) {
+                                    Text("روابط القوائم المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        id.detectedLinks.forEach { link ->
+                                            Surface(
+                                                color = Color(0xFF172033),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, themeColor.copy(alpha = 0.4f))
+                                            ) {
+                                                Text(
+                                                    text = "${link.title} (${link.relativePath})",
+                                                    fontFamily = TajawalFontFamily,
+                                                    fontSize = 10.sp,
+                                                    color = TextPrimary,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (id.detectedButtons.isNotEmpty()) {
+                                    Text("الأزرار التفاعلية المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        id.detectedButtons.forEach { btnLabel ->
+                                            Surface(
+                                                color = themeColor.copy(alpha = 0.16f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = btnLabel,
+                                                    fontFamily = CairoFontFamily,
+                                                    fontSize = 10.sp,
+                                                    color = themeColor,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (id.detectedPermissions.isNotEmpty() || id.detectedExternalSchemes.isNotEmpty()) {
+                                    val permsSummary = (id.detectedPermissions + id.detectedExternalSchemes).joinToString(" • ")
                                     Text(
-                                        text = if (id.hasPwaManifest) "PWA Manifest ✓ • ${id.themeColorHex}" else "Meta Auto-Detect • ${id.themeColorHex}",
+                                        text = "الأذونات والروابط الخارجية المطلوبة: $permsSummary",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 10.sp,
                                         color = StatusGreen
@@ -179,7 +281,7 @@ fun SmartUrlScraperDialog(
                         ) {
                             Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("تعبئة المعالج والبدء فوراً ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("تعبئة جميع البيانات الحقيقية والبدء ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
 
@@ -533,22 +635,11 @@ fun AdaptiveIconAndUiStudioDialog(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(62.dp)
-                                    .clip(RoundedCornerShape(previewRadius))
-                                    .background(previewBg)
-                                    .border(1.5.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(previewRadius)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = project.name.take(2).uppercase().ifBlank { "AF" },
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 20.sp,
-                                    color = Color.White
-                                )
-                            }
+                            RealAppIconAvatar(
+                                project = project,
+                                size = 62.dp,
+                                cornerRadius = previewRadius.dp
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(project.name, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
@@ -616,12 +707,12 @@ fun AdaptiveIconAndUiStudioDialog(
                         )
                     }
 
-                    StudioSwitchTile("الزر العائم السريع (Floating Action Menu)", "زر عائم فوق WebView للتواصل عبر واتساب أو التحديث", fabEnabled) { fabEnabled = it }
+                    StudioSwitchTile("الزر العائم السريع (Floating Action Menu)", "زر عائم فوق WebView للتحديث السريع أو مراسلة البريد المحدد", fabEnabled) { fabEnabled = it }
                     if (fabEnabled) {
                         OutlinedTextField(
                             value = fabWhatsapp,
                             onValueChange = { fabWhatsapp = it },
-                            label = { Text("رقم واتساب للدعم السريع (اختياري مثل 966500000000)") },
+                            label = { Text("بريد الدعم أو رابط تواصل اختياري (مثال: ziorio950@gmail.com)") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)

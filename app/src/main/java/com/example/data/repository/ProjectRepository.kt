@@ -275,6 +275,7 @@ class ProjectRepository(private val context: Context) {
             put("accentColorHex", proj.accentColorHex)
             put("sourceType", proj.sourceType.name)
             put("sourceValue", proj.sourceValue)
+            put("localWorkspacePath", proj.localWorkspacePath ?: "")
             put("createdAt", proj.createdAt)
             put("lastBuiltAt", proj.lastBuiltAt ?: 0L)
             put("lastBuildStatus", proj.lastBuildStatus.name)
@@ -677,6 +678,7 @@ class ProjectRepository(private val context: Context) {
             accentColorHex = obj.optString("accentColorHex", "#FF7A2F"),
             sourceType = st,
             sourceValue = obj.optString("sourceValue", "MegaEditor_New.zip"),
+            localWorkspacePath = obj.optString("localWorkspacePath").takeIf { it.isNotBlank() },
             splashConfig = splash,
             onboardingConfig = onboarding,
             webViewConfig = webView,

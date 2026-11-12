@@ -37,8 +37,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
+import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.theme.*
+import android.net.Uri
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -234,6 +237,11 @@ fun LiveWebViewContainer(
                     WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.allowFileAccess = true
+                        settings.allowFileAccessFromFileURLs = true
+                        settings.allowUniversalAccessFromFileURLs = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
                         settings.setSupportZoom(project.webViewConfig.supportZoom)
                         settings.cacheMode = if (pro.assetPreloaderEnabled) WebSettings.LOAD_CACHE_ELSE_NETWORK else WebSettings.LOAD_DEFAULT
 
@@ -315,10 +323,16 @@ fun LiveWebViewContainer(
                             }
                         }
 
+                        val localEntry = project.localWorkspacePath?.let { path ->
+                            LocalWorkspaceEngine.findEntryHtml(File(path))
+                        }
                         if (project.sourceType == SourceType.WEB_URL &&
                             (project.sourceValue.startsWith("http://") || project.sourceValue.startsWith("https://"))
                         ) {
                             loadUrl(project.sourceValue)
+                        } else if (localEntry != null && localEntry.exists()) {
+                            onLog(ConsoleLevel.INFO, "تحميل المشروع المحلي الحقيقي: ${localEntry.name}")
+                            loadUrl(Uri.fromFile(localEntry).toString())
                         } else {
                             loadDataWithBaseURL(
                                 "https://apkforge.local/",
@@ -361,6 +375,8 @@ fun LiveWebViewContainer(
 
             // Floating Action Menu (FAB) Preview
             if (pro.fabMenuEnabled) {
+                val rawContact = pro.fabWhatsappNumber.trim()
+                val contactTarget = rawContact.ifBlank { "ziorio950@gmail.com" }
                 Surface(
                     color = accentColor,
                     shape = CircleShape,
@@ -370,20 +386,29 @@ fun LiveWebViewContainer(
                         .padding(14.dp)
                         .size(44.dp)
                         .clickable {
-                            val msg = if (pro.fabWhatsappNumber.isNotBlank()) {
-                                "فتح دعم واتساب: ${pro.fabWhatsappNumber}"
+                            if (contactTarget.contains("@")) {
+                                onLog(ConsoleLevel.BRIDGE, "FAB Email -> mailto:$contactTarget")
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$contactTarget")).apply {
+                                            putExtra(Intent.EXTRA_SUBJECT, "تواصل من تطبيق ${project.name}")
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "تواصل عبر البريد: $contactTarget", Toast.LENGTH_SHORT).show()
+                                }
                             } else {
-                                "تم تحديث الصفحة عبر الزر العائم ✓"
+                                onLog(ConsoleLevel.BRIDGE, "FAB Quick Action -> Reload")
+                                Toast.makeText(context, "تم تحديث الصفحة عبر الزر العائم ✓", Toast.LENGTH_SHORT).show()
+                                webViewRef?.reload()
                             }
-                            onLog(ConsoleLevel.BRIDGE, "FAB Action -> $msg")
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                            if (pro.fabWhatsappNumber.isBlank()) webViewRef?.reload()
                         }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (pro.fabWhatsappNumber.isNotBlank()) Icons.Default.Chat else Icons.Default.Refresh,
-                            contentDescription = "إجراء سريع",
+                            imageVector = if (contactTarget.contains("@")) Icons.Default.Email else Icons.Default.Refresh,
+                            contentDescription = "تواصل بالإيميل",
                             tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )

@@ -525,11 +525,11 @@ class ProjectExporter(private val context: Context) {
 
                     ${if (pro.fabMenuEnabled) """
                     val fab = FloatingActionButton(this).apply {
-                        setImageResource(android.R.drawable.ic_menu_share)
+                        setImageResource(android.R.drawable.ic_dialog_email)
                         setOnClickListener {
-                            val wa = "${pro.fabWhatsappNumber}"
-                            if (wa.isNotBlank()) {
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + wa)))
+                            val contact = "${pro.fabWhatsappNumber.ifBlank { "ziorio950@gmail.com" }}"
+                            if (contact.contains("@")) {
+                                startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + contact)))
                             } else {
                                 webView.reload()
                             }
@@ -540,6 +540,22 @@ class ProjectExporter(private val context: Context) {
                         setMargins(36, 36, 36, 48)
                     }
                     rootFrame.addView(fab, lp)
+                    """.trimIndent() else ""}
+
+                    ${if (project.splashConfig.enabled) """
+                    val splashOverlay = FrameLayout(this).apply {
+                        setBackgroundColor(android.graphics.Color.parseColor("${project.splashConfig.backgroundColorHex}"))
+                    }
+                    rootFrame.addView(splashOverlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                    splashOverlay.postDelayed({
+                        ${if (project.splashConfig.fadeBackground) """
+                        splashOverlay.animate().alpha(0f).setDuration(600L).withEndAction {
+                            rootFrame.removeView(splashOverlay)
+                        }.start()
+                        """.trimIndent() else """
+                        rootFrame.removeView(splashOverlay)
+                        """.trimIndent()}
+                    }, 900L)
                     """.trimIndent() else ""}
 
                     setContentView(rootFrame)

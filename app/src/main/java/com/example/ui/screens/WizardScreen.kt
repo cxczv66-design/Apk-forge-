@@ -4,7 +4,10 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.engine.LocalWorkspaceEngine
+import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -61,10 +64,12 @@ fun WizardScreen(
     var currentStep by remember { mutableIntStateOf(2) }
     var isPhoneExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     // Step 1: Source
     var sourceType by remember { mutableStateOf(initialProject?.sourceType ?: SourceType.ZIP_ARCHIVE) }
     var sourceValue by remember { mutableStateOf(initialProject?.sourceValue ?: "archive.zip") }
+    var localWorkspacePath by remember { mutableStateOf(initialProject?.localWorkspacePath) }
 
     // Step 2: Identity (matching screenshots with real data and modern features)
     var appName by remember { mutableStateOf(initialProject?.name ?: "") }
@@ -75,23 +80,45 @@ fun WizardScreen(
     var iconBgColorHex by remember { mutableStateOf(initialProject?.proConfig?.iconBgColorHex ?: "#FFFFFF") }
     var showLiveSystemPreview by remember { mutableStateOf(true) }
 
-    // Real Gallery image picker
+    // Real Gallery image picker (Zero-Permission Android Photo Picker + internal copy persistence)
     val galleryPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        uri?.let {
-            selectedIconUri = it.toString()
-            Toast.makeText(context, "تم تحديد أيقونة التطبيق من المعرض بنجاح ✓", Toast.LENGTH_SHORT).show()
+        uri?.let { pickedUri ->
+            scope.launch {
+                val persisted = LocalWorkspaceEngine.persistImageUriToInternalFile(context, pickedUri)
+                selectedIconUri = persisted ?: pickedUri.toString()
+                Toast.makeText(context, "تم حفظ أيقونة التطبيق الحقيقية بنجاح ✓", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    // Real Source archive picker
+    // Real Source archive / HTML picker
     val sourceArchivePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            sourceValue = it.lastPathSegment?.substringAfterLast("/") ?: "archive.zip"
-            Toast.makeText(context, "تم استيراد المصدر: $sourceValue ✓", Toast.LENGTH_SHORT).show()
+        uri?.let { pickedUri ->
+            scope.launch {
+                val displayName = LocalWorkspaceEngine.getDisplayName(context, pickedUri, "source")
+                val isZip = displayName.endsWith(".zip", ignoreCase = true)
+                val res = if (isZip) {
+                    LocalWorkspaceEngine.importZipUri(context, pickedUri)
+                } else {
+                    LocalWorkspaceEngine.importHtmlUri(context, pickedUri)
+                }
+                res.onSuccess { ws ->
+                    sourceType = if (isZip) SourceType.ZIP_ARCHIVE else SourceType.HTML_FOLDER
+                    sourceValue = ws.displayFileName
+                    localWorkspacePath = ws.workspaceDirPath
+                    if (appName.isBlank() && ws.detectedTitle.isNotBlank()) {
+                        appName = ws.detectedTitle.take(28)
+                    }
+                    Toast.makeText(context, "✓ تم استيراد ${ws.displayFileName} (${ws.assets.size} ملفات)", Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    sourceValue = displayName
+                    Toast.makeText(context, "تم تحديد الملف: ${err.message ?: displayName}", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -130,18 +157,21 @@ fun WizardScreen(
     var showImageShapeDialog by remember { mutableStateOf(false) }
     var showIconPickerDialogForSlideIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Launcher for selecting a slide image from device storage
+    // Launcher for selecting a slide image using Photo Picker + persistent internal file copy
     val slideImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        uri?.let {
+        uri?.let { pickedUri ->
             val idx = showIconPickerDialogForSlideIndex ?: onboardingActiveSlideIndex
-            if (idx in onboardingSlides.indices) {
-                val updated = onboardingSlides.toMutableList()
-                updated[idx] = updated[idx].copy(imageUri = it.toString())
-                onboardingSlides = updated
+            scope.launch {
+                val persisted = LocalWorkspaceEngine.persistImageUriToInternalFile(context, pickedUri)
+                if (idx in onboardingSlides.indices) {
+                    val updated = onboardingSlides.toMutableList()
+                    updated[idx] = updated[idx].copy(imageUri = persisted ?: pickedUri.toString())
+                    onboardingSlides = updated
+                }
+                showIconPickerDialogForSlideIndex = null
             }
-            showIconPickerDialogForSlideIndex = null
         }
     }
 
@@ -415,7 +445,11 @@ fun WizardScreen(
                                     id = "proj_${System.currentTimeMillis()}",
                                     name = appName
                                 )).copy(
-                                    name = appName,
+                                    name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
+                                    sourceType = sourceType,
+                                    sourceValue = sourceValue,
+                                    localWorkspacePath = localWorkspacePath,
+                                    iconImageUri = selectedIconUri,
                                     accentColorHex = accentColorHex,
                                     primaryColorHex = accentColorHex,
                                     splashConfig = SplashConfig(
@@ -581,7 +615,10 @@ fun WizardScreen(
                                             .background(parseColorSafe(accentColorHex, OrangePrimary).copy(alpha = 0.15f))
                                             .clickable {
                                                 val currentProj = (initialProject ?: AppProject(id = "preview_proj", name = appName)).copy(
-                                                    name = appName,
+                                                    name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
+                                                    sourceType = sourceType,
+                                                    sourceValue = sourceValue,
+                                                    localWorkspacePath = localWorkspacePath,
                                                     accentColorHex = accentColorHex,
                                                     iconImageUri = selectedIconUri,
                                                     splashConfig = SplashConfig(
@@ -804,9 +841,9 @@ fun WizardScreen(
                             Button(
                                 onClick = {
                                     try {
-                                        sourceArchivePicker.launch("*/*")
+                                        sourceArchivePicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "text/html", "*/*"))
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "تم تحديد المصدر", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "تعذر فتح منتقي الملفات", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = DarkSurface),
@@ -991,7 +1028,9 @@ fun WizardScreen(
                                         modifier = Modifier
                                             .clickable {
                                                 try {
-                                                    galleryPicker.launch("image/*")
+                                                    galleryPicker.launch(
+                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                    )
                                                 } catch (e: Exception) {
                                                     Toast.makeText(context, "الرجاء اختيار صورة من المعرض", Toast.LENGTH_SHORT).show()
                                                 }
@@ -1482,12 +1521,37 @@ fun WizardScreen(
                                     .border(2.5.dp, Color(0xFF282C3D), RoundedCornerShape(32.dp))
                                     .padding(6.dp)
                             ) {
-                                // Inner screen with splash background
+                                // Inner screen with splash background & live fade preview
+                                val splashTransition = rememberInfiniteTransition(label = "step3_splash_fade")
+                                val step3FadeAlpha by splashTransition.animateFloat(
+                                    initialValue = 1f,
+                                    targetValue = 0.25f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(1600, easing = FastOutSlowInEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "step3_veil"
+                                )
+                                val splashBaseColor = parseColorSafe(splashBgColorHex, Color(0xFF0F1318))
+                                val splashIndicatorColor = parseColorSafe(accentColorHex, OrangePrimary)
+
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .clip(RoundedCornerShape(26.dp))
-                                        .background(parseColorSafe(splashBgColorHex, Color(0xFF0F1318)))
+                                        .background(
+                                            if (splashFadeBg) {
+                                                Brush.radialGradient(
+                                                    colors = listOf(
+                                                        splashIndicatorColor.copy(alpha = 0.22f * step3FadeAlpha),
+                                                        splashBaseColor.copy(alpha = step3FadeAlpha),
+                                                        Color(0xFF0A0C12)
+                                                    )
+                                                )
+                                            } else {
+                                                Brush.verticalGradient(listOf(splashBaseColor, splashBaseColor))
+                                            }
+                                        )
                                 ) {
                                     // Top speaker ear-piece slit
                                     Box(
@@ -5719,7 +5783,9 @@ fun WizardScreen(
 
                     Button(
                         onClick = {
-                            slideImagePicker.launch("image/*")
+                            slideImagePicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
                         shape = RoundedCornerShape(12.dp),

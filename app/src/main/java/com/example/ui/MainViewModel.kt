@@ -7,6 +7,7 @@ import com.example.data.repository.ProjectRepository
 import com.example.domain.model.AppProject
 import com.example.domain.usecase.*
 import com.example.engine.TermuxEngine
+import com.example.engine.ToolchainManager
 import android.content.Context
 import com.example.ui.util.AppLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +26,12 @@ sealed class AppScreen {
     data object Dashboard : AppScreen()
     data object HtmlPicker : AppScreen()
     data object ZipPicker : AppScreen()
-    data class Preview(val previousScreen: AppScreen = ZipPicker) : AppScreen()
+    data class Preview(
+        val fileName: String = "index.html",
+        val workspacePath: String? = null,
+        val entryHtmlPath: String? = null,
+        val previousScreen: AppScreen = ZipPicker
+    ) : AppScreen()
     data class Wizard(val projectToEdit: AppProject? = null) : AppScreen()
     data class BuildCenter(val project: AppProject) : AppScreen()
     data class InteractivePhone(val project: AppProject, val fromScreen: AppScreen = AppScreen.Dashboard) : AppScreen()
@@ -39,6 +45,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ProjectRepository(application)
     val termuxEngine = TermuxEngine(application)
+    val toolchainManager = ToolchainManager(application)
 
     private val getProjectsUseCase = GetProjectsUseCase(repository)
     private val saveProjectUseCase = SaveProjectUseCase(repository)
@@ -53,14 +60,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val currentLanguage: StateFlow<AppLanguage> = _currentLanguage.asStateFlow()
 
-    // Persistent Google user authentication
+    // Persistent real Google user authentication (no hardcoded fake account)
     private val _currentUser = MutableStateFlow<GoogleUser?>(
-        if (prefs.getBoolean("user_logged_in", false)) {
-            GoogleUser(
-                name = prefs.getString("user_name", "Amina Urac") ?: "Amina Urac",
-                email = prefs.getString("user_email", "aminauracaminaurac@gmail.com") ?: "aminauracaminaurac@gmail.com"
-            )
-        } else null
+        run {
+            val logged = prefs.getBoolean("user_logged_in", false)
+            val savedEmail = prefs.getString("user_email", "")?.trim().orEmpty()
+            val savedName = prefs.getString("user_name", "")?.trim().orEmpty()
+            if (logged && savedEmail.isNotBlank()) {
+                val displayName = savedName.ifBlank { savedEmail.substringBefore("@") }
+                GoogleUser(
+                    name = displayName,
+                    email = savedEmail,
+                    avatarLetter = displayName.take(1).uppercase().ifBlank { "G" }
+                )
+            } else null
+        }
     )
     val currentUser: StateFlow<GoogleUser?> = _currentUser.asStateFlow()
 
@@ -78,6 +92,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _hasTermuxPermission = MutableStateFlow(false)
     val hasTermuxPermission: StateFlow<Boolean> = _hasTermuxPermission.asStateFlow()
+
+    private val _termuxReport = MutableStateFlow(termuxEngine.runRealDiagnostic())
+    val termuxReport: StateFlow<TermuxEngine.TermuxDiagnosticReport> = _termuxReport.asStateFlow()
 
     private val _showDiagnosticDialog = MutableStateFlow(false)
     val showDiagnosticDialog: StateFlow<Boolean> = _showDiagnosticDialog.asStateFlow()
@@ -132,8 +149,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkTermuxStatus() {
-        _isTermuxInstalled.value = termuxEngine.isTermuxInstalled()
-        _hasTermuxPermission.value = termuxEngine.hasRunCommandPermission()
+        val report = termuxEngine.runRealDiagnostic()
+        _termuxReport.value = report
+        _isTermuxInstalled.value = report.isTermuxInstalled
+        _hasTermuxPermission.value = report.hasRunCommandPermission
+        toolchainManager.refreshInstalledToolsStatus()
     }
 
     fun saveProject(project: AppProject) {

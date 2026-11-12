@@ -95,34 +95,101 @@ class TermuxEngine(private val context: Context) {
         BuildStageInfo("package", 6, "المحاذاة والتوقيع والتغليف", "APKSIGNER", "ZipAlign وتوقيع وإخراج الحزمة النهائية")
     )
 
-    /**
-     * فحص هل تطبيق Termux مثبت على الهاتف
-     */
-    fun isTermuxInstalled(): Boolean {
+    data class TermuxDiagnosticReport(
+        val isTermuxInstalled: Boolean,
+        val termuxVersion: String?,
+        val hasRunCommandPermission: Boolean,
+        val isRunCommandServiceReachable: Boolean,
+        val isTermuxApiInstalled: Boolean,
+        val isTermuxTaskerInstalled: Boolean,
+        val diagnosticSummaryAr: String,
+        val checkTimestamp: Long = System.currentTimeMillis()
+    ) {
+        val isFullyConnected: Boolean
+            get() = isTermuxInstalled && hasRunCommandPermission && isRunCommandServiceReachable
+    }
+
+    private fun isPackagePresent(packageName: String): String? {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageInfo(
-                    Constants.TERMUX_PACKAGE_NAME,
+                    packageName,
                     PackageManager.PackageInfoFlags.of(0)
                 )
             } else {
                 @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(Constants.TERMUX_PACKAGE_NAME, 0)
+                context.packageManager.getPackageInfo(packageName, 0)
             }
-            true
-        } catch (e: PackageManager.NameNotFoundException) {
-            false
+            info.versionName ?: "installed"
+        } catch (_: Exception) {
+            null
         }
     }
 
     /**
-     * فحص صلاحية إرسال الأوامر RUN_COMMAND
+     * فحص هل تطبيق Termux مثبت فعلياً على الهاتف (متوافق مع Android 11+ عبر <queries>)
+     */
+    fun isTermuxInstalled(): Boolean = isPackagePresent(Constants.TERMUX_PACKAGE_NAME) != null
+
+    /**
+     * فحص صلاحية إرسال الأوامر RUN_COMMAND مع التأكد من وجود تطبيق Termux المزوّد للصلاحية
      */
     fun hasRunCommandPermission(): Boolean {
+        if (!isTermuxInstalled()) return false
         return ContextCompat.checkSelfPermission(
             context,
             Constants.TERMUX_PERMISSION_RUN_COMMAND
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * فحص اتصال وتشخيص حقيقي متقدم لمحرك Termux والخدمات والإضافات
+     */
+    fun runRealDiagnostic(): TermuxDiagnosticReport {
+        val termuxVer = isPackagePresent(Constants.TERMUX_PACKAGE_NAME)
+        val termuxInstalled = termuxVer != null
+        val taskerVer = isPackagePresent("com.termux.tasker")
+        val apiVer = isPackagePresent("com.termux.api")
+
+        val rawPerm = ContextCompat.checkSelfPermission(
+            context,
+            Constants.TERMUX_PERMISSION_RUN_COMMAND
+        ) == PackageManager.PERMISSION_GRANTED
+        val effectivePerm = termuxInstalled && rawPerm
+
+        val serviceResolvable = if (termuxInstalled) {
+            try {
+                val probe = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
+                    setClassName(Constants.TERMUX_PACKAGE_NAME, "com.termux.app.RunCommandService")
+                }
+                val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.resolveService(probe, PackageManager.ResolveInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.resolveService(probe, 0)
+                }
+                resolved != null
+            } catch (_: Exception) {
+                false
+            }
+        } else false
+
+        val summary = when {
+            !termuxInstalled -> "تطبيق Termux غير مثبت على هذا الجهاز — يمكنك استخدام أدوات البناء المدمجة أو تثبيت Termux من F-Droid."
+            !effectivePerm -> "تطبيق Termux مثبت (v$termuxVer)، لكن إذن RUN_COMMAND غير ممنوح أو يتطلب تفعيل allow-external-apps=true داخل Termux."
+            !serviceResolvable -> "Termux مثبت (v$termuxVer)، لكن خدمة RunCommandService غير متاحة للتواصل الخارجي."
+            else -> "✅ اتصال Termux حقيقي نشط وجاهز (الإصدار: $termuxVer • خدمة RunCommand متصلة)."
+        }
+
+        return TermuxDiagnosticReport(
+            isTermuxInstalled = termuxInstalled,
+            termuxVersion = termuxVer,
+            hasRunCommandPermission = effectivePerm,
+            isRunCommandServiceReachable = serviceResolvable,
+            isTermuxApiInstalled = apiVer != null,
+            isTermuxTaskerInstalled = taskerVer != null,
+            diagnosticSummaryAr = summary
+        )
     }
 
     /**

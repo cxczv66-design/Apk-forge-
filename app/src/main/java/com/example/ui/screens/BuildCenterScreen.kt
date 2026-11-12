@@ -44,12 +44,14 @@ import com.example.engine.BuildOptimizationOptions
 import com.example.engine.GitHubCloudBuildEngine
 import com.example.engine.ProjectExporter
 import com.example.engine.TermuxEngine
+import com.example.engine.ToolchainManager
 import com.example.ui.components.AdaptiveBuildPipelineBoard
 import com.example.ui.components.AdaptiveIconAndUiStudioDialog
 import com.example.ui.components.BridgeAndCloudConfigDialog
 import com.example.ui.components.BuildHistoryCard
 import com.example.ui.components.CloudAndBridgeFactoryCard
 import com.example.ui.components.GitHubCloudBuildDialog
+import com.example.ui.components.InAppToolchainTerminalCard
 import com.example.ui.components.PlayStorePrepDialog
 import com.example.ui.components.ProStudioHubCard
 import com.example.ui.components.SecurityAndBridgeV2Dialog
@@ -62,6 +64,7 @@ import kotlinx.coroutines.launch
 fun BuildCenterScreen(
     project: AppProject,
     termuxEngine: TermuxEngine,
+    toolchainManager: ToolchainManager? = null,
     isTermuxReady: Boolean,
     onOpenDiagnostic: () -> Unit,
     onEditProject: () -> Unit,
@@ -74,6 +77,7 @@ fun BuildCenterScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val effectiveToolchain = toolchainManager ?: remember(context) { ToolchainManager(context) }
     val projectExporter = remember(context) { ProjectExporter(context) }
     val githubCloudEngine = remember(context) { GitHubCloudBuildEngine(context) }
     val engineState by termuxEngine.engineState.collectAsState()
@@ -375,6 +379,26 @@ fun BuildCenterScreen(
                                 item { BuildProgressCard(running) }
                             }
                             item {
+                                InAppToolchainTerminalCard(
+                                    toolchainManager = effectiveToolchain,
+                                    activeProject = activeProject,
+                                    compactMode = false
+                                )
+                            }
+                            if (telemetry.lastOutputPath != null) {
+                                item {
+                                    InspectOutputPackageCard(
+                                        fileName = telemetry.lastOutputFileName ?: "output.apk",
+                                        onInspect = {
+                                            coroutineScope.launch {
+                                                effectiveToolchain.inspectApkOrZipFile(telemetry.lastOutputPath!!)
+                                                Toast.makeText(context, "تم فحص الحزمة وعرض التقرير في الترمينال ✓", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                            item {
                                 TermuxDirectCard(
                                     isTermuxReady = isTermuxReady,
                                     onRunInTermux = {
@@ -569,6 +593,29 @@ fun BuildCenterScreen(
                         }
                     }
 
+                    // In-App Build & Signing Toolchain Installer + Organized Linear Terminal
+                    item {
+                        InAppToolchainTerminalCard(
+                            toolchainManager = effectiveToolchain,
+                            activeProject = activeProject,
+                            compactMode = false
+                        )
+                    }
+
+                    if (telemetry.lastOutputPath != null) {
+                        item {
+                            InspectOutputPackageCard(
+                                fileName = telemetry.lastOutputFileName ?: "output.apk",
+                                onInspect = {
+                                    coroutineScope.launch {
+                                        effectiveToolchain.inspectApkOrZipFile(telemetry.lastOutputPath!!)
+                                        Toast.makeText(context, "تم فحص الحزمة وعرض التقرير في الترمينال ✓", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                     // Direct Termux RunCommand Action
                     item {
                         TermuxDirectCard(
@@ -585,7 +632,7 @@ fun BuildCenterScreen(
                     // Terminal Logs Window
                     item {
                         Text(
-                            text = "سجل أوامر البناء (Termux Console):",
+                            text = "سجل أوامر البناء (Build Engine Log):",
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
@@ -803,22 +850,34 @@ fun BuildCenterScreen(
 
                                 Button(
                                     onClick = {
-                                        val updatedProj = activeProject.copy(
-                                            signingConfig = activeProject.signingConfig.copy(
-                                                useDebugKey = false,
-                                                keyAlias = keyAlias.trim().ifBlank { "release" },
-                                                keystorePath = "${com.example.utils.Constants.DOWNLOADS_DIR}/$keyAlias.keystore"
+                                        val cleanAlias = keyAlias.trim().ifBlank { "release" }
+                                        coroutineScope.launch {
+                                            val genRes = effectiveToolchain.generateRealKeystore(
+                                                alias = cleanAlias,
+                                                password = keyPassword,
+                                                org = keyOrg
                                             )
-                                        )
-                                        activeProject = updatedProj
-                                        onUpdateProject(updatedProj)
-                                        keystoreGenerated = true
-                                        showKeystoreDialog = false
-                                        Toast.makeText(
-                                            context,
-                                            "🎉 تم إنشاء وتصدير $keyAlias.keystore بنجاح!",
-                                            Toast.LENGTH_LONG
-                                        ).show()
+                                            genRes.onSuccess { info ->
+                                                val updatedProj = activeProject.copy(
+                                                    signingConfig = activeProject.signingConfig.copy(
+                                                        useDebugKey = false,
+                                                        keyAlias = info.alias,
+                                                        keystorePath = info.filePath
+                                                    )
+                                                )
+                                                activeProject = updatedProj
+                                                onUpdateProject(updatedProj)
+                                                keystoreGenerated = true
+                                                showKeystoreDialog = false
+                                                Toast.makeText(
+                                                    context,
+                                                    "🔐 تم توليد وحفظ مفتاح RSA-2048 في الجهاز (${info.alias}) ✓",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }.onFailure { err ->
+                                                Toast.makeText(context, "تعذر توليد المفتاح: ${err.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
                                     modifier = Modifier.weight(1.5f),
@@ -1400,3 +1459,51 @@ private fun BuildCenterCard(
         }
     }
 }
+
+@Composable
+private fun InspectOutputPackageCard(
+    fileName: String,
+    onInspect: () -> Unit
+) {
+    Surface(
+        color = Color(0xFF0E1826),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.ManageSearch, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "فحص الحزمة النهائية (APK Inspector)",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "تحليل classes.dex و AndroidManifest لـ $fileName",
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = onInspect,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("فحص ✓", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+            }
+        }
+    }
+}
+

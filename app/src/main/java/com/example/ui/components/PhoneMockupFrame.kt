@@ -107,6 +107,7 @@ fun PhoneMockupFrame(
                         accentColor = accentColor,
                         iconUri = iconUri,
                         bgColor = splashBgColor,
+                        fadeBg = splashFadeBg,
                         indicatorStyle = splashIndicatorStyle,
                         iconSize = splashIconSize,
                         iconCorner = splashIconCorner,
@@ -116,7 +117,7 @@ fun PhoneMockupFrame(
                     4 -> PhoneOnboardingStepPreview(appName, accentColor, onboardingEnabled, onboardingSlides)
                     5 -> PhoneFeaturesStepPreview(appName, accentColor, fullScreen, pullToRefresh)
                     6 -> PhoneBottomNavStepPreview(appName, accentColor, bottomNavEnabled, bottomDestinations)
-                    7 -> PhonePackagingStepPreview(appName, packageName, versionName, accentColor)
+                    7 -> PhonePackagingStepPreview(appName, iconUri, packageName, versionName, accentColor)
                     8 -> PhonePermissionsStepPreview(appName, permCamera, permLocation, permMicrophone, accentColor)
                     9 -> PhonePushStepPreview(appName, iconUri, accentColor, pushEnabled)
                     else -> PhoneLauncherStepPreview(appName, accentColor, iconUri)
@@ -338,16 +339,40 @@ private fun PhoneSplashStepPreview(
     accentColor: Color,
     iconUri: String?,
     bgColor: Color,
+    fadeBg: Boolean,
     indicatorStyle: String,
     iconSize: Int,
     iconCorner: Int,
     indicatorSize: Int,
     spacing: Int
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "phone_splash_fade")
+    val fadeVeilAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "veil_alpha"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgColor)
+            .background(
+                if (fadeBg) {
+                    Brush.radialGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.22f * fadeVeilAlpha),
+                            bgColor.copy(alpha = fadeVeilAlpha),
+                            Color(0xFF0A0C12)
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(listOf(bgColor, bgColor))
+                }
+            )
             .padding(top = 28.dp, bottom = 14.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -411,6 +436,16 @@ private fun PhoneSplashStepPreview(
                         strokeWidth = 2.5.dp
                     )
                 }
+            }
+
+            if (fadeBg) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "تلاشي ناعم للواجهة ✓",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 9.sp,
+                    color = Color.White.copy(alpha = fadeVeilAlpha)
+                )
             }
         }
     }
@@ -683,6 +718,7 @@ private fun PhoneBottomNavStepPreview(
 @Composable
 private fun PhonePackagingStepPreview(
     appName: String,
+    iconUri: String?,
     packageName: String,
     versionName: String,
     accentColor: Color
@@ -706,7 +742,16 @@ private fun PhonePackagingStepPreview(
                     .background(accentColor),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                if (!iconUri.isNullOrBlank()) {
+                    AsyncImage(
+                        model = iconUri,
+                        contentDescription = appName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                }
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(text = appName, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White)
@@ -835,7 +880,16 @@ private fun PhonePushStepPreview(
                             .background(accentColor),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        if (!iconUri.isNullOrBlank()) {
+                            AsyncImage(
+                                model = iconUri,
+                                contentDescription = appName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {

@@ -1,8 +1,12 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,19 +22,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import com.example.R
 import com.example.domain.model.AppProject
 import com.example.domain.model.SmartTemplatesCatalog
 import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.ImportApkForgeDialog
+import com.example.ui.components.RealAppIconAvatar
 import com.example.ui.components.SmartUrlScraperDialog
 import com.example.ui.theme.*
 import com.example.ui.util.AppStrings
@@ -96,29 +104,36 @@ fun DashboardScreen(
             }
         },
         floatingActionButton = {
-            // WhatsApp Support Button
+            // Direct Contact Developer Email Button (ziorio950@gmail.com)
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(56.dp)
+                    .shadow(12.dp, CircleShape, spotColor = OrangePrimary.copy(alpha = 0.5f))
                     .clip(CircleShape)
-                    .background(WhatsAppGreen)
+                    .background(Color(0xFF1A202E))
+                    .border(1.5.dp, OrangePrimary.copy(alpha = 0.65f), CircleShape)
                     .clickable {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                data = Uri.parse("https://wa.me/1234567890?text=Hello%20ApkForge")
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "واتساب غير مثبت", Toast.LENGTH_SHORT).show()
+                        val developerEmail = "ziorio950@gmail.com"
+                        val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = Uri.parse("mailto:$developerEmail")
+                            putExtra(Intent.EXTRA_EMAIL, arrayOf(developerEmail))
+                            putExtra(Intent.EXTRA_SUBJECT, "تواصل مع مطور ApkForge")
                         }
-                    },
+                        try {
+                            context.startActivity(Intent.createChooser(emailIntent, "مراسلة المطور عبر البريد"))
+                        } catch (e: Exception) {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Developer Email", developerEmail))
+                            Toast.makeText(context, "تم نسخ بريد المطور: $developerEmail", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .testTag("contact_developer_email_fab"),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Chat,
-                    contentDescription = "WhatsApp",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_email_dev),
+                    contentDescription = "تواصل مع المطور عبر البريد ziorio950@gmail.com",
+                    modifier = Modifier.size(30.dp)
                 )
             }
         },
@@ -565,22 +580,11 @@ private fun RecentProjectItem(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF261B2E))
-                        .border(1.dp, OrangePrimary.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = project.name.take(2).uppercase(),
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = OrangePrimary
-                    )
-                }
+                RealAppIconAvatar(
+                    project = project,
+                    size = 44.dp,
+                    cornerRadius = 12.dp
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 

@@ -47,6 +47,7 @@ fun AppRoot(
     val hasPreviewedHtml by viewModel.hasPreviewedHtml.collectAsState()
     val isTermuxInstalled by viewModel.isTermuxInstalled.collectAsState()
     val hasTermuxPermission by viewModel.hasTermuxPermission.collectAsState()
+    val termuxReport by viewModel.termuxReport.collectAsState()
     val showDiagnostic by viewModel.showDiagnosticDialog.collectAsState()
     val currentLanguage by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -101,6 +102,17 @@ fun AppRoot(
                                 viewModel.markPreviewed(isZip = false)
                                 viewModel.navigateTo(AppScreen.Preview(previousScreen = AppScreen.HtmlPicker))
                             },
+                            onPreviewWorkspace = { ws ->
+                                viewModel.markPreviewed(isZip = false)
+                                viewModel.navigateTo(
+                                    AppScreen.Preview(
+                                        fileName = ws.displayFileName,
+                                        workspacePath = ws.workspaceDirPath,
+                                        entryHtmlPath = ws.entryHtmlPath,
+                                        previousScreen = AppScreen.HtmlPicker
+                                    )
+                                )
+                            },
                             onCreateApp = {
                                 viewModel.navigateTo(
                                     AppScreen.Wizard(
@@ -125,6 +137,22 @@ fun AppRoot(
                                         )
                                     )
                                 )
+                            },
+                            onCreateAppWithWorkspace = { ws ->
+                                val cleanName = ws.detectedTitle.take(28).ifBlank {
+                                    ws.displayFileName.substringBeforeLast(".").filter { it.isLetterOrDigit() }.ifEmpty { "WebPage" }
+                                }
+                                viewModel.navigateTo(
+                                    AppScreen.Wizard(
+                                        AppProject(
+                                            id = "proj_${System.currentTimeMillis()}",
+                                            name = cleanName,
+                                            sourceType = SourceType.HTML_FOLDER,
+                                            sourceValue = ws.displayFileName,
+                                            localWorkspacePath = ws.workspaceDirPath
+                                        )
+                                    )
+                                )
                             }
                         )
                     }
@@ -136,6 +164,17 @@ fun AppRoot(
                             onPreview = {
                                 viewModel.markPreviewed(isZip = true)
                                 viewModel.navigateTo(AppScreen.Preview(previousScreen = AppScreen.ZipPicker))
+                            },
+                            onPreviewWorkspace = { ws ->
+                                viewModel.markPreviewed(isZip = true)
+                                viewModel.navigateTo(
+                                    AppScreen.Preview(
+                                        fileName = ws.displayFileName,
+                                        workspacePath = ws.workspaceDirPath,
+                                        entryHtmlPath = ws.entryHtmlPath,
+                                        previousScreen = AppScreen.ZipPicker
+                                    )
+                                )
                             },
                             onCreateApp = {
                                 viewModel.navigateTo(
@@ -161,13 +200,31 @@ fun AppRoot(
                                         )
                                     )
                                 )
+                            },
+                            onCreateAppWithWorkspace = { ws ->
+                                val cleanName = ws.detectedTitle.take(28).ifBlank {
+                                    ws.displayFileName.substringBeforeLast(".").filter { it.isLetterOrDigit() }.ifEmpty { "ArchiveApp" }
+                                }
+                                viewModel.navigateTo(
+                                    AppScreen.Wizard(
+                                        AppProject(
+                                            id = "proj_${System.currentTimeMillis()}",
+                                            name = cleanName,
+                                            sourceType = SourceType.ZIP_ARCHIVE,
+                                            sourceValue = ws.displayFileName,
+                                            localWorkspacePath = ws.workspaceDirPath
+                                        )
+                                    )
+                                )
                             }
                         )
                     }
 
                     is AppScreen.Preview -> {
                         PreviewScreen(
-                            fileName = "index.html",
+                            fileName = screen.fileName,
+                            workspacePath = screen.workspacePath,
+                            entryHtmlPath = screen.entryHtmlPath,
                             onBack = {
                                 viewModel.navigateTo(screen.previousScreen)
                             }
@@ -194,6 +251,7 @@ fun AppRoot(
                         BuildCenterScreen(
                             project = screen.project,
                             termuxEngine = viewModel.termuxEngine,
+                            toolchainManager = viewModel.toolchainManager,
                             isTermuxReady = isTermuxReady,
                             onOpenDiagnostic = { viewModel.openDiagnosticDialog() },
                             onEditProject = {
@@ -276,8 +334,8 @@ fun AppRoot(
 
             if (showDiagnostic) {
                 TermuxDiagnosticDialog(
-                    isInstalled = isTermuxInstalled,
-                    hasPermission = hasTermuxPermission,
+                    report = termuxReport,
+                    toolchainManager = viewModel.toolchainManager,
                     onDismiss = { viewModel.closeDiagnosticDialog() },
                     onTestConnection = {
                         viewModel.checkTermuxStatus()

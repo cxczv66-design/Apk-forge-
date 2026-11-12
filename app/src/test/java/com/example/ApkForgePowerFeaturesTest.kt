@@ -169,10 +169,10 @@ class ApkForgePowerFeaturesTest {
     }
 
     @Test
-    fun `url scraper extracts metadata theme color and package id from html`() {
+    fun `url scraper extracts metadata links buttons permissions and package id from html`() {
         val scraper = UrlScraperEngine()
         val html = """
-            <html>
+            <html lang="ar">
               <head>
                 <title>متجر المستقبل | Future Shop</title>
                 <meta name="description" content="أفضل تطبيق للتسوق السريع" />
@@ -180,7 +180,15 @@ class ApkForgePowerFeaturesTest {
                 <link rel="manifest" href="/manifest.webmanifest" />
                 <link rel="icon" href="/assets/logo.png" />
               </head>
-              <body></body>
+              <body>
+                <nav>
+                  <a href="/products">المنتجات</a>
+                  <a href="/cart">السلة</a>
+                </nav>
+                <button>اشترك الآن</button>
+                <a href="mailto:ziorio950@gmail.com">راسلنا</a>
+                <script>navigator.geolocation.getCurrentPosition(() => {});</script>
+              </body>
             </html>
         """.trimIndent()
 
@@ -190,10 +198,55 @@ class ApkForgePowerFeaturesTest {
         assertEquals("https://shop.futuristic.sa/assets/logo.png", identity.iconUrl)
         assertEquals("sa.futuristic.shop", identity.suggestedPackageName)
         assertTrue(identity.hasPwaManifest)
+        assertTrue(identity.detectedLinks.any { it.relativePath == "/products" })
+        assertTrue(identity.detectedButtons.contains("اشترك الآن"))
+        assertTrue(identity.detectedPermissions.contains("location"))
+        assertTrue(identity.detectedExternalSchemes.contains("mailto:"))
 
         val proj = scraper.toPreConfiguredProject(identity)
         assertEquals(SourceType.WEB_URL, proj.sourceType)
         assertEquals("#10B981", proj.accentColorHex)
         assertEquals("shop.futuristic.sa", proj.bridgeConfig.deepLinkDomain)
+        assertTrue(proj.permissionsConfig.location)
+    }
+
+    @Test
+    fun `toolchain manager installs verifies tools generates RSA keystore and Termux diagnostic reports honest state`() = kotlinx.coroutines.test.runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val toolchain = com.example.engine.ToolchainManager(context)
+        val installed = toolchain.installAndVerifyAllTools()
+        assertTrue(installed)
+        assertEquals(8, toolchain.tools.value.size)
+        assertTrue(toolchain.tools.value.all { it.isInstalled && it.verifiedSha256.isNotBlank() && it.sizeBytes > 0L })
+
+        val ksRes = toolchain.generateRealKeystore("release_test", "pass1234", "ApkForge")
+        assertTrue(ksRes.isSuccess)
+        val ksInfo = ksRes.getOrThrow()
+        assertTrue(java.io.File(ksInfo.filePath).exists())
+        assertTrue(ksInfo.sha256Fingerprint.isNotBlank())
+
+        val termux = com.example.engine.TermuxEngine(context)
+        val report = termux.runRealDiagnostic()
+        assertFalse(report.isTermuxInstalled)
+        assertFalse(report.hasRunCommandPermission)
+    }
+
+    @Test
+    fun `local workspace engine locates nested entry html and lists assets`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val tmpDir = java.io.File(context.cacheDir, "ws_test_${System.currentTimeMillis()}").apply { mkdirs() }
+        val nestedDir = java.io.File(tmpDir, "dist").apply { mkdirs() }
+        val htmlFile = java.io.File(nestedDir, "index.html").apply {
+            writeText("<html><head><title>Nested Site</title></head><body>Hi</body></html>")
+        }
+        val cssFile = java.io.File(nestedDir, "style.css").apply { writeText("body { color: #fff; }") }
+
+        val found = com.example.engine.LocalWorkspaceEngine.findEntryHtml(tmpDir)
+        assertNotNull(found)
+        assertEquals(htmlFile.absolutePath, found!!.absolutePath)
+
+        val assets = com.example.engine.LocalWorkspaceEngine.listWorkspaceAssets(tmpDir.absolutePath)
+        assertTrue(assets.any { it.relativePath.endsWith("style.css") })
+        assertTrue(assets.any { it.relativePath.endsWith("index.html") })
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,8 +30,17 @@ import kotlinx.coroutines.delay
 fun SplashScreen(
     onSplashFinished: () -> Unit
 ) {
+    var isFadingOut by remember { mutableStateOf(false) }
+    val screenAlpha by animateFloatAsState(
+        targetValue = if (isFadingOut) 0f else 1f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "splashFadeOut"
+    )
+
     LaunchedEffect(Unit) {
-        delay(1200)
+        delay(950)
+        isFadingOut = true
+        delay(320)
         onSplashFinished()
     }
 
@@ -49,6 +59,7 @@ fun SplashScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
+            .graphicsLayer { alpha = screenAlpha }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

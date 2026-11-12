@@ -468,6 +468,7 @@ fun FullInteractivePhoneScreen(
                             accentColor = accentColor,
                             iconUri = project.iconImageUri,
                             splashBgColor = parseColorSafe(project.splashConfig.backgroundColorHex, Color(0xFF0F1318)),
+                            fadeBackground = project.splashConfig.fadeBackground,
                             indicatorStyle = project.splashConfig.indicatorStyle,
                             iconSize = project.splashConfig.iconSizeDp
                         )
@@ -554,7 +555,16 @@ fun FullInteractivePhoneScreen(
                                         .background(accentColor),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.Notifications, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    if (!project.iconImageUri.isNullOrBlank() && project.iconImageUri != "preset_anime") {
+                                        AsyncImage(
+                                            model = project.iconImageUri,
+                                            contentDescription = project.name,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.Notifications, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    }
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -804,21 +814,50 @@ private fun SplashSimulation(
     accentColor: Color,
     iconUri: String?,
     splashBgColor: Color,
+    fadeBackground: Boolean,
     indicatorStyle: String,
     iconSize: Int
 ) {
+    var startFadeOut by remember { mutableStateOf(false) }
+    LaunchedEffect(fadeBackground) {
+        startFadeOut = false
+        if (fadeBackground) {
+            delay(1350)
+            startFadeOut = true
+        }
+    }
+
+    val splashAlpha by animateFloatAsState(
+        targetValue = if (fadeBackground && startFadeOut) 0f else 1f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "splashSimFade"
+    )
+
     val infiniteTransition = rememberInfiniteTransition(label = "splash")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing)),
-        label = "rotation"
+    val haloPulse by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(tween(900), repeatMode = RepeatMode.Reverse),
+        label = "haloPulse"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(splashBgColor),
+            .background(splashBgColor.copy(alpha = splashAlpha))
+            .let { mod ->
+                if (fadeBackground) {
+                    mod.background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = 0.22f * haloPulse * splashAlpha),
+                                splashBgColor.copy(alpha = splashAlpha),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                } else mod
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

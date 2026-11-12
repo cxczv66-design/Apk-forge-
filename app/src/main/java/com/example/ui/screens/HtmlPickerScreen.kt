@@ -22,31 +22,51 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.engine.ImportedWorkspaceResult
+import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.GlowingButton
 import com.example.ui.theme.*
 import com.example.ui.util.AppStrings
 import com.example.ui.util.LocalAppLanguage
+import kotlinx.coroutines.launch
 
 @Composable
 fun HtmlPickerScreen(
     hasPreviewed: Boolean,
     onBack: () -> Unit,
-    onPreview: () -> Unit,
-    onCreateApp: () -> Unit,
-    onCreateAppWithFile: ((String) -> Unit)? = null
+    onPreview: () -> Unit = {},
+    onPreviewWorkspace: ((ImportedWorkspaceResult) -> Unit)? = null,
+    onCreateApp: () -> Unit = {},
+    onCreateAppWithFile: ((String) -> Unit)? = null,
+    onCreateAppWithWorkspace: ((ImportedWorkspaceResult) -> Unit)? = null
 ) {
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    var selectedHtml by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    var importedWorkspace by remember { mutableStateOf<ImportedWorkspaceResult?>(null) }
+    var isImporting by remember { mutableStateOf(false) }
 
     val htmlPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            val name = it.lastPathSegment?.substringAfterLast("/") ?: "custom_page.html"
-            selectedHtml = name
-            Toast.makeText(context, "تم استيراد $name بنجاح ✓", Toast.LENGTH_SHORT).show()
+        uri?.let { pickedUri ->
+            scope.launch {
+                isImporting = true
+                val res = LocalWorkspaceEngine.importHtmlUri(context, pickedUri)
+                isImporting = false
+                res.onSuccess { ws ->
+                    importedWorkspace = ws
+                    Toast.makeText(
+                        context,
+                        "✓ تم فحص واستيراد ${ws.displayFileName} (${(ws.totalSizeBytes / 1024).coerceAtLeast(1)} KB)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }.onFailure { err ->
+                    Toast.makeText(context, "تعذر قراءة ملف HTML: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -105,7 +125,7 @@ fun HtmlPickerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = AppStrings.htmlFolder(lang),
                             fontFamily = CairoFontFamily,
@@ -142,15 +162,17 @@ fun HtmlPickerScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             GlowingButton(
-                text = if (selectedHtml == null) "اختر ملف HTML من ذاكرة الهاتف" else "استيراد ملف HTML آخر",
+                text = when {
+                    isImporting -> "جارٍ الاستيراد والتحليل..."
+                    importedWorkspace == null -> "اختر ملف HTML من ذاكرة الهاتف"
+                    else -> "استيراد ملف HTML آخر"
+                },
                 icon = Icons.Default.FileUpload,
                 onClick = {
-                    try {
-                        htmlPickerLauncher.launch("text/html")
-                    } catch (e: Exception) {
+                    if (!isImporting) {
                         try {
-                            htmlPickerLauncher.launch("*/*")
-                        } catch (e2: Exception) {
+                            htmlPickerLauncher.launch(arrayOf("text/html", "text/plain", "*/*"))
+                        } catch (e: Exception) {
                             Toast.makeText(context, "الرجاء اختيار ملف HTML", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -161,42 +183,51 @@ fun HtmlPickerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (selectedHtml != null) {
+            val ws = importedWorkspace
+            if (ws != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(DarkSurfaceElevated)
-                        .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
+                        .border(1.dp, StatusGreen.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Code,
-                                contentDescription = null,
-                                tint = OrangePrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = OrangePrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = ws.displayFileName,
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimary
+                                )
+                            }
+
                             Text(
-                                text = selectedHtml ?: "",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = TextPrimary
+                                text = "✓ مستورد فعلياً",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 12.sp,
+                                color = StatusGreen
                             )
                         }
-
                         Text(
-                            text = "✓ تم الفحص والاستيراد",
+                            text = "العنوان المستخرج: ${ws.detectedTitle} • الحجم: ${(ws.totalSizeBytes / 1024.0).let { "%.1f KB".format(it) }}",
                             fontFamily = TajawalFontFamily,
-                            fontSize = 12.sp,
-                            color = StatusGreen
+                            fontSize = 11.sp,
+                            color = TextSecondary
                         )
                     }
                 }
@@ -223,7 +254,7 @@ fun HtmlPickerScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "عاين أولاً - يفتح إنشاء التطبيق عند عودتك من المعاينة.",
+                text = "عاين صفحة الويب الحقيقية قبل الإنشاء أو انتقل مباشرة لمعالج التخصيص.",
                 fontFamily = TajawalFontFamily,
                 fontSize = 13.sp,
                 color = TextSecondary
@@ -236,8 +267,15 @@ fun HtmlPickerScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
-                    onClick = onPreview,
-                    enabled = selectedHtml != null,
+                    onClick = {
+                        val currentWs = importedWorkspace ?: return@Button
+                        if (onPreviewWorkspace != null) {
+                            onPreviewWorkspace(currentWs)
+                        } else {
+                            onPreview()
+                        }
+                    },
+                    enabled = ws != null && !isImporting,
                     colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                     border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
                     shape = RoundedCornerShape(14.dp),
@@ -248,28 +286,29 @@ fun HtmlPickerScreen(
                     Icon(
                         imageVector = Icons.Default.Visibility,
                         contentDescription = null,
-                        tint = if (selectedHtml != null) OrangePrimary else TextMuted,
+                        tint = if (ws != null) OrangePrimary else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "معاينة",
+                        text = "معاينة حية",
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = if (selectedHtml != null) TextPrimary else TextMuted
+                        color = if (ws != null) TextPrimary else TextMuted
                     )
                 }
 
                 Button(
                     onClick = {
-                        if (onCreateAppWithFile != null && selectedHtml != null) {
-                            onCreateAppWithFile(selectedHtml!!)
-                        } else {
-                            onCreateApp()
+                        val currentWs = importedWorkspace ?: return@Button
+                        when {
+                            onCreateAppWithWorkspace != null -> onCreateAppWithWorkspace(currentWs)
+                            onCreateAppWithFile != null -> onCreateAppWithFile(currentWs.displayFileName)
+                            else -> onCreateApp()
                         }
                     },
-                    enabled = selectedHtml != null,
+                    enabled = ws != null && !isImporting,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OrangePrimary,
                         disabledContainerColor = DarkSurfaceElevated.copy(alpha = 0.5f)
@@ -282,7 +321,7 @@ fun HtmlPickerScreen(
                     Icon(
                         imageVector = Icons.Default.Android,
                         contentDescription = null,
-                        tint = if (selectedHtml != null) Color.White else TextMuted,
+                        tint = if (ws != null) Color.White else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -291,7 +330,7 @@ fun HtmlPickerScreen(
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = if (selectedHtml != null) Color.White else TextMuted
+                        color = if (ws != null) Color.White else TextMuted
                     )
                 }
             }

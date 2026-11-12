@@ -6,7 +6,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,33 +22,51 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.engine.ImportedWorkspaceResult
+import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.GlowingButton
 import com.example.ui.theme.*
 import com.example.ui.util.AppStrings
 import com.example.ui.util.LocalAppLanguage
+import kotlinx.coroutines.launch
 
 @Composable
 fun ZipPickerScreen(
     hasPreviewed: Boolean,
     onBack: () -> Unit,
-    onPreview: () -> Unit,
-    onCreateApp: () -> Unit,
-    onCreateAppWithFile: ((String) -> Unit)? = null
+    onPreview: () -> Unit = {},
+    onPreviewWorkspace: ((ImportedWorkspaceResult) -> Unit)? = null,
+    onCreateApp: () -> Unit = {},
+    onCreateAppWithFile: ((String) -> Unit)? = null,
+    onCreateAppWithWorkspace: ((ImportedWorkspaceResult) -> Unit)? = null
 ) {
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    var selectedZip by remember { mutableStateOf<String?>(null) }
-    var fileSizeText by remember { mutableStateOf("0 KB") }
+    val scope = rememberCoroutineScope()
+
+    var importedWorkspace by remember { mutableStateOf<ImportedWorkspaceResult?>(null) }
+    var isExtracting by remember { mutableStateOf(false) }
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            val name = it.lastPathSegment?.substringAfterLast("/") ?: "archive.zip"
-            selectedZip = name
-            fileSizeText = "أرشيف مستورد • جاهز للبناء"
-            Toast.makeText(context, "تم استيراد $name من تخزين الهاتف بنجاح ✓", Toast.LENGTH_SHORT).show()
+        uri?.let { pickedUri ->
+            scope.launch {
+                isExtracting = true
+                val res = LocalWorkspaceEngine.importZipUri(context, pickedUri)
+                isExtracting = false
+                res.onSuccess { ws ->
+                    importedWorkspace = ws
+                    Toast.makeText(
+                        context,
+                        "✓ تم فك واستخراج ${ws.assets.size} عنصر من ${ws.displayFileName}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }.onFailure { err ->
+                    Toast.makeText(context, "خطأ في الأرشيف: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -109,7 +126,7 @@ fun ZipPickerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = AppStrings.zipWebsite(lang),
                             fontFamily = CairoFontFamily,
@@ -147,15 +164,17 @@ fun ZipPickerScreen(
 
             // Big Upload Button
             GlowingButton(
-                text = if (selectedZip == null) "اختر ملف ZIP من ذاكرة الهاتف" else "استيراد ملف ZIP آخر",
+                text = when {
+                    isExtracting -> "جارٍ فك الضغط واستخراج الأصول..."
+                    importedWorkspace == null -> "اختر ملف ZIP من ذاكرة الهاتف"
+                    else -> "استيراد ملف ZIP آخر"
+                },
                 icon = Icons.Default.FileUpload,
                 onClick = {
-                    try {
-                        zipPickerLauncher.launch("application/zip")
-                    } catch (e: Exception) {
+                    if (!isExtracting) {
                         try {
-                            zipPickerLauncher.launch("*/*")
-                        } catch (e2: Exception) {
+                            zipPickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
+                        } catch (e: Exception) {
                             Toast.makeText(context, "الرجاء اختيار ملف ZIP", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -166,23 +185,23 @@ fun ZipPickerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Selected File Box or Empty State
-            if (selectedZip != null) {
+            val ws = importedWorkspace
+            if (ws != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(DarkSurfaceElevated)
-                        .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
+                        .border(1.dp, StatusGreen.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(
                                     imageVector = Icons.Default.Archive,
                                     contentDescription = null,
@@ -191,7 +210,7 @@ fun ZipPickerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = selectedZip ?: "",
+                                    text = ws.displayFileName,
                                     fontFamily = CairoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
@@ -200,7 +219,7 @@ fun ZipPickerScreen(
                             }
 
                             IconButton(
-                                onClick = { selectedZip = null },
+                                onClick = { importedWorkspace = null },
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
@@ -212,18 +231,18 @@ fun ZipPickerScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val fileCount = ws.assets.count { !it.isDirectory }
+                            val kbText = (ws.totalSizeBytes / 1024.0).let { "%.1f KB".format(it) }
                             Text(
-                                text = fileSizeText,
+                                text = "$fileCount ملف مستخرج • $kbText • ${ws.detectedTitle}",
                                 fontFamily = TajawalFontFamily,
-                                fontSize = 12.sp,
-                                color = TextMuted
+                                fontSize = 11.sp,
+                                color = TextSecondary
                             )
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,9 +254,9 @@ fun ZipPickerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "جاهز للمعاينة والبناء",
+                                    text = "مستخرج وجاهز",
                                     fontFamily = TajawalFontFamily,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = StatusGreen
                                 )
                             }
@@ -255,7 +274,7 @@ fun ZipPickerScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "لم يتم اختيار أرشيف ZIP بعد. اضغط أعلاه لاختيار ملف مضغوط من ذاكرة الهاتف.",
+                        text = "لم يتم اختيار أرشيف ZIP بعد. اضغط أعلاه لاختيار ملف مضغوط يحتوي على موقعك من ذاكرة الهاتف.",
                         fontFamily = TajawalFontFamily,
                         fontSize = 12.sp,
                         color = TextMuted,
@@ -267,7 +286,7 @@ fun ZipPickerScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "عاين أولاً - يفتح إنشاء التطبيق عند عودتك من المعاينة.",
+                text = "عاين موقعك المستخرج بجودة كاملة قبل الإنشاء، أو ابدأ المعالج مباشرة.",
                 fontFamily = TajawalFontFamily,
                 fontSize = 13.sp,
                 color = TextSecondary
@@ -282,8 +301,15 @@ fun ZipPickerScreen(
             ) {
                 // Preview
                 Button(
-                    onClick = onPreview,
-                    enabled = selectedZip != null,
+                    onClick = {
+                        val currentWs = importedWorkspace ?: return@Button
+                        if (onPreviewWorkspace != null) {
+                            onPreviewWorkspace(currentWs)
+                        } else {
+                            onPreview()
+                        }
+                    },
+                    enabled = ws != null && !isExtracting,
                     colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                     border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
                     shape = RoundedCornerShape(14.dp),
@@ -295,29 +321,30 @@ fun ZipPickerScreen(
                     Icon(
                         imageVector = Icons.Default.Visibility,
                         contentDescription = null,
-                        tint = if (selectedZip != null) OrangePrimary else TextMuted,
+                        tint = if (ws != null) OrangePrimary else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "معاينة",
+                        text = "معاينة حية",
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = if (selectedZip != null) TextPrimary else TextMuted
+                        color = if (ws != null) TextPrimary else TextMuted
                     )
                 }
 
                 // Create App
                 Button(
                     onClick = {
-                        if (onCreateAppWithFile != null && selectedZip != null) {
-                            onCreateAppWithFile(selectedZip!!)
-                        } else {
-                            onCreateApp()
+                        val currentWs = importedWorkspace ?: return@Button
+                        when {
+                            onCreateAppWithWorkspace != null -> onCreateAppWithWorkspace(currentWs)
+                            onCreateAppWithFile != null -> onCreateAppWithFile(currentWs.displayFileName)
+                            else -> onCreateApp()
                         }
                     },
-                    enabled = selectedZip != null,
+                    enabled = ws != null && !isExtracting,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OrangePrimary,
                         disabledContainerColor = DarkSurfaceElevated.copy(alpha = 0.5f)
@@ -331,7 +358,7 @@ fun ZipPickerScreen(
                     Icon(
                         imageVector = Icons.Default.Android,
                         contentDescription = null,
-                        tint = if (selectedZip != null) Color.White else TextMuted,
+                        tint = if (ws != null) Color.White else TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -340,7 +367,7 @@ fun ZipPickerScreen(
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = if (selectedZip != null) Color.White else TextMuted
+                        color = if (ws != null) Color.White else TextMuted
                     )
                 }
             }

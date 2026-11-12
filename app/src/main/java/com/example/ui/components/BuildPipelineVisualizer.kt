@@ -308,21 +308,11 @@ private fun LiveAppAssemblyBlueprint(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Brush.linearGradient(listOf(accent, OrangePrimary))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = project.name.trim().take(1).uppercase().ifBlank { "A" },
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 17.sp,
-                            color = Color.White
-                        )
-                    }
+                    RealAppIconAvatar(
+                        project = project,
+                        size = 42.dp,
+                        cornerRadius = 12.dp
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
