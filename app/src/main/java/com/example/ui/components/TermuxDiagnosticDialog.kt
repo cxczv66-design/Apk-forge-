@@ -47,6 +47,7 @@ fun TermuxDiagnosticDialog(
     report: TermuxEngine.TermuxDiagnosticReport,
     toolchainManager: ToolchainManager? = null,
     termuxEngine: TermuxEngine? = null,
+    onRequestRunCommandPermission: () -> Unit = {},
     onDismiss: () -> Unit,
     onTestConnection: () -> Unit
 ) {
@@ -192,6 +193,26 @@ fun TermuxDiagnosticDialog(
                             lineHeight = 18.sp,
                             modifier = Modifier.padding(12.dp)
                         )
+                    }
+
+                    if (report.isTermuxInstalled && !report.hasRunCommandPermission) {
+                        Button(
+                            onClick = onRequestRunCommandPermission,
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("request_run_command_perm_btn")
+                        ) {
+                            Text(
+                                text = "طلب / منح إذن RUN_COMMAND الآن ⚡",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                        }
                     }
 
                     // 1-Tap Fix Box for Termux Error (2) allow-external-apps=true

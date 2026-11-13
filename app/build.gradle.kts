@@ -15,6 +15,7 @@ android {
   defaultConfig {
     applicationId = "com.aistudio.appforge.zvykp"
     minSdk = 24
+    // متوافق مع أندرويد 11+ (<queries>) وطلب صلاحية Termux RUN_COMMAND في وقت التشغيل
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"

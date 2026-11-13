@@ -151,4 +151,17 @@ class TermuxEngineTest {
         assertTrue(engine.buildStages.value.all { it.status == BuildStageStatus.DONE })
         assertEquals(6, engine.telemetry.value.assembledLayers)
     }
+
+    @Test
+    fun `verifyBridgePrerequisites blocks dispatch when Termux or RUN_COMMAND permission is missing`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val engine = TermuxEngine(context)
+
+        val check = engine.verifyBridgePrerequisites()
+        assertFalse(check.isReadyToDispatch)
+        assertEquals(com.example.engine.TermuxConnectionState.NOT_INSTALLED, check.connectionState)
+
+        val pingCheck = engine.pingTermuxConnection()
+        assertFalse(pingCheck.isReadyToDispatch)
+    }
 }

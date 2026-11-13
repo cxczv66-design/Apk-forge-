@@ -2,18 +2,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- صلاحية تنفيذ أوامر Termux من تطبيقات خارجية -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" tools:ignore="ScopedStorage" />
 
+    <!-- Android 11+ (API 30+) Package Visibility لكي يرى ApkForge تطبيق Termux وخدمة RunCommandService -->
     <queries>
         <package android:name="com.termux" />
         <package android:name="com.termux.tasker" />
         <package android:name="com.termux.api" />
         <intent>
             <action android:name="com.termux.RUN_COMMAND" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.intent.action.SENDTO" />

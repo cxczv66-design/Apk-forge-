@@ -67,6 +67,7 @@ fun BuildCenterScreen(
     toolchainManager: ToolchainManager? = null,
     isTermuxReady: Boolean,
     onOpenDiagnostic: () -> Unit,
+    onRequestRunCommandPermission: () -> Unit = {},
     onEditProject: () -> Unit,
     onOpenInteractivePhone: () -> Unit = {},
     onOpenDownloads: () -> Unit,
@@ -407,13 +408,28 @@ fun BuildCenterScreen(
                                 TermuxDirectCard(
                                     termuxReport = termuxReport,
                                     onRunInTermux = {
-                                        termuxEngine.dispatchBuildToTermux(activeProject, "release", buildOptions) {
+                                        termuxEngine.dispatchBuildToTermux(
+                                            project = activeProject,
+                                            buildType = "release",
+                                            options = buildOptions,
+                                            onMissingPrerequisites = { missing ->
+                                                Toast.makeText(context, missing.messageAr, Toast.LENGTH_LONG).show()
+                                                if (missing.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
+                                                    onRequestRunCommandPermission()
+                                                } else {
+                                                    onOpenDiagnostic()
+                                                }
+                                            }
+                                        ) {
                                             Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     onPingTermux = {
-                                        termuxEngine.pingTermuxConnection()
-                                        Toast.makeText(context, "تم إرسال نبضة اختبار تنفيذ إلى Termux...", Toast.LENGTH_SHORT).show()
+                                        val res = termuxEngine.pingTermuxConnection()
+                                        Toast.makeText(context, res.messageAr, Toast.LENGTH_SHORT).show()
+                                        if (!res.isReadyToDispatch && res.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
+                                            onRequestRunCommandPermission()
+                                        }
                                     },
                                     onCopyFixCommand = {
                                         val cmd = termuxEngine.getEnableExternalAppsCommand()
@@ -425,6 +441,7 @@ fun BuildCenterScreen(
                                             context.startActivity(it)
                                         }
                                     },
+                                    onRequestPermission = onRequestRunCommandPermission,
                                     onOpenDiagnostic = onOpenDiagnostic
                                 )
                             }
@@ -640,13 +657,28 @@ fun BuildCenterScreen(
                         TermuxDirectCard(
                             termuxReport = termuxReport,
                             onRunInTermux = {
-                                termuxEngine.dispatchBuildToTermux(activeProject, "release", buildOptions) {
+                                termuxEngine.dispatchBuildToTermux(
+                                    project = activeProject,
+                                    buildType = "release",
+                                    options = buildOptions,
+                                    onMissingPrerequisites = { missing ->
+                                        Toast.makeText(context, missing.messageAr, Toast.LENGTH_LONG).show()
+                                        if (missing.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
+                                            onRequestRunCommandPermission()
+                                        } else {
+                                            onOpenDiagnostic()
+                                        }
+                                    }
+                                ) {
                                     Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             onPingTermux = {
-                                termuxEngine.pingTermuxConnection()
-                                Toast.makeText(context, "تم إرسال نبضة اختبار تنفيذ إلى Termux...", Toast.LENGTH_SHORT).show()
+                                val res = termuxEngine.pingTermuxConnection()
+                                Toast.makeText(context, res.messageAr, Toast.LENGTH_SHORT).show()
+                                if (!res.isReadyToDispatch && res.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
+                                    onRequestRunCommandPermission()
+                                }
                             },
                             onCopyFixCommand = {
                                 val cmd = termuxEngine.getEnableExternalAppsCommand()
@@ -658,6 +690,7 @@ fun BuildCenterScreen(
                                     context.startActivity(it)
                                 }
                             },
+                            onRequestPermission = onRequestRunCommandPermission,
                             onOpenDiagnostic = onOpenDiagnostic
                         )
                     }
@@ -1364,6 +1397,7 @@ private fun TermuxDirectCard(
     onRunInTermux: () -> Unit,
     onPingTermux: () -> Unit,
     onCopyFixCommand: () -> Unit,
+    onRequestPermission: () -> Unit,
     onOpenDiagnostic: () -> Unit
 ) {
     val state = termuxReport.connectionState
@@ -1456,6 +1490,21 @@ private fun TermuxDirectCard(
                         ) {
                             Text(
                                 text = "اختبار الاتصال",
+                                fontFamily = CairoFontFamily,
+                                fontSize = 12.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION -> {
+                        Button(
+                            onClick = onRequestPermission,
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(
+                                text = "منح الإذن",
                                 fontFamily = CairoFontFamily,
                                 fontSize = 12.sp,
                                 color = Color.White

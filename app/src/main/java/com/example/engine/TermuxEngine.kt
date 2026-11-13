@@ -78,6 +78,12 @@ enum class TermuxConnectionState {
     VERIFIED_READY
 }
 
+data class TermuxBridgeCheckResult(
+    val isReadyToDispatch: Boolean,
+    val connectionState: TermuxConnectionState,
+    val messageAr: String
+)
+
 /**
  * المحرك البرمجي المسؤول عن:
  * 1) التجميع والتغليف والتوقيع الفعلي على القرص via BuildPackageAssembler
@@ -190,10 +196,9 @@ class TermuxEngine(private val context: Context) {
 
     fun getEnableExternalAppsCommand(): String {
         return "mkdir -p ~/.termux && touch ~/.termux/termux.properties && " +
-            "(grep -q '^allow-external-apps' ~/.termux/termux.properties && " +
-            "sed -i 's/^allow-external-apps.*/allow-external-apps=true/' ~/.termux/termux.properties || " +
-            "echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && " +
-            "termux-reload-settings && pkg install -y openjdk-17 aapt2 dx apksigner zip wget"
+            "sed -i 's/^#*\\s*allow-external-apps.*/allow-external-apps=true/' ~/.termux/termux.properties && " +
+            "(grep -q '^allow-external-apps=true' ~/.termux/termux.properties || printf '\\nallow-external-apps=true\\n' >> ~/.termux/termux.properties) && " +
+            "termux-reload-settings"
     }
 
     private fun isPackagePresent(packageName: String): String? {
@@ -295,30 +300,104 @@ class TermuxEngine(private val context: Context) {
     }
 
     /**
+     * التحقق المسبق الإلزامي قبل إرسال أي أمر إلى Termux:
+     * 1) التأكد من تثبيت تطبيق com.termux
+     * 2) التأكد من توفر خدمة com.termux.app.RunCommandService وأنها مفعّلة ومصدّرة
+     * 3) التأكد من منح صلاحية com.termux.permission.RUN_COMMAND فعلياً
+     */
+    fun verifyBridgePrerequisites(): TermuxBridgeCheckResult {
+        val report = runRealDiagnostic()
+        return when {
+            !report.isTermuxInstalled -> TermuxBridgeCheckResult(
+                isReadyToDispatch = false,
+                connectionState = TermuxConnectionState.NOT_INSTALLED,
+                messageAr = "❌ تعذر الإرسال: تطبيق Termux غير مثبت على الجهاز."
+            )
+            !report.hasRunCommandPermission -> TermuxBridgeCheckResult(
+                isReadyToDispatch = false,
+                connectionState = TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION,
+                messageAr = "❌ تعذر الإرسال: صلاحية com.termux.permission.RUN_COMMAND غير ممنوحة بعد."
+            )
+            !report.isRunCommandServiceReachable -> TermuxBridgeCheckResult(
+                isReadyToDispatch = false,
+                connectionState = TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION,
+                messageAr = "❌ تعذر الإرسال: خدمة com.termux.app.RunCommandService غير مستجيبة أو غير متاحة."
+            )
+            else -> TermuxBridgeCheckResult(
+                isReadyToDispatch = true,
+                connectionState = report.connectionState,
+                messageAr = "✅ التحقق المسبق مكتمل: Termux و RunCommandService وإذن RUN_COMMAND جاهزون."
+            )
+        }
+    }
+
+    private fun buildRunCommandIntent(
+        commandArguments: Array<String>,
+        background: Boolean,
+        sessionAction: String,
+        pendingIntent: PendingIntent
+    ): Intent {
+        return Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
+            setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
+            putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
+            putExtra(Constants.EXTRA_ARGUMENTS, commandArguments)
+            putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
+            putExtra(Constants.EXTRA_BACKGROUND, background)
+            putExtra(Constants.EXTRA_SESSION_ACTION, sessionAction)
+            putExtra(Constants.EXTRA_PENDING_INTENT, pendingIntent)
+        }
+    }
+
+    private fun startTermuxRunCommandService(intent: Intent): Result<Unit> {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (_: Exception) {
+                    context.startService(intent)
+                }
+            } else {
+                context.startService(intent)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * اختبار اتصال حي عبر تنفيذ أمر فعلي في Termux واستلام النتيجة بـ PendingIntent
      */
-    fun pingTermuxConnection() {
-        try {
-            val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
-                action = Constants.ACTION_TERMUX_EXEC_RESULT
-                putExtra(Constants.EXTRA_EXEC_MODE, "ping")
-            }
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-            val pendingIntent = PendingIntent.getBroadcast(context, 4101, callbackIntent, flags)
+    fun pingTermuxConnection(): TermuxBridgeCheckResult {
+        val check = verifyBridgePrerequisites()
+        if (!check.isReadyToDispatch) {
+            addLog(check.messageAr)
+            return check
+        }
 
-            val intent = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
-                setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
-                putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
-                putExtra(Constants.EXTRA_ARGUMENTS, arrayOf("-c", "echo APKFORGE_PING_OK && termux-reload-settings >/dev/null 2>&1 || true"))
-                putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
-                putExtra(Constants.EXTRA_BACKGROUND, true)
-                putExtra(Constants.EXTRA_PENDING_INTENT, pendingIntent)
-            }
-            context.startService(intent)
-            addLog("🔍 تم إرسال نبضة اختبار تنفيذ إلى Termux RunCommandService...")
-        } catch (e: Exception) {
-            addLog("⚠️ تعذر إرسال نبضة الاختبار إلى Termux: ${e.message}")
+        val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
+            action = Constants.ACTION_TERMUX_EXEC_RESULT
+            putExtra(Constants.EXTRA_EXEC_MODE, "ping")
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        val pendingIntent = PendingIntent.getBroadcast(context, 4101, callbackIntent, flags)
+
+        val intent = buildRunCommandIntent(
+            commandArguments = arrayOf("-c", "echo APKFORGE_PING_OK && termux-reload-settings >/dev/null 2>&1 || true"),
+            background = true,
+            sessionAction = "0",
+            pendingIntent = pendingIntent
+        )
+
+        val launchRes = startTermuxRunCommandService(intent)
+        return if (launchRes.isSuccess) {
+            addLog("🔍 تم التحقق وإرسال نبضة اختبار تنفيذ إلى Termux RunCommandService...")
+            check
+        } else {
+            val err = launchRes.exceptionOrNull()?.message ?: "unknown"
+            addLog("⚠️ تعذر تشغيل خدمة Termux RunCommandService: $err")
+            TermuxBridgeCheckResult(false, check.connectionState, "تعذر تشغيل RunCommandService: $err")
         }
     }
 
@@ -570,15 +649,23 @@ APKFORGE_EOF
     }
 
     /**
-     * تجهيز ملفات المشروع الكاملة على القرص ثم إرسال أمر التنفيذ إلى Termux مع PendingIntent لاستقبال الأخطاء والمخرجات
+     * تجهيز ملفات المشروع الكاملة على القرص ثم التحقق من الجسر وإرسال أمر التنفيذ إلى Termux مع PendingIntent
      */
     fun dispatchBuildToTermux(
         project: AppProject,
         buildType: String = "debug",
         options: BuildOptimizationOptions = BuildOptimizationOptions(),
+        onMissingPrerequisites: ((TermuxBridgeCheckResult) -> Unit)? = null,
         onDirectIntentSent: () -> Unit
     ) {
         engineScope.launch {
+            val check = verifyBridgePrerequisites()
+            if (!check.isReadyToDispatch) {
+                addLog(check.messageAr)
+                onMissingPrerequisites?.invoke(check)
+                return@launch
+            }
+
             val sanitizedName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
             val bashScript = generateBashBuildScript(project, buildType, options)
 
@@ -591,30 +678,28 @@ APKFORGE_EOF
                 "bash \"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\"; " +
                 "else echo '❌ Missing staged script. Please run termux-setup-storage in Termux first.'; read -r; fi"
 
-            try {
-                val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
-                    action = Constants.ACTION_TERMUX_EXEC_RESULT
-                    putExtra(Constants.EXTRA_EXEC_MODE, "build")
-                }
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-                val pendingIntent = PendingIntent.getBroadcast(context, 4102, callbackIntent, flags)
+            val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
+                action = Constants.ACTION_TERMUX_EXEC_RESULT
+                putExtra(Constants.EXTRA_EXEC_MODE, "build")
+            }
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+            val pendingIntent = PendingIntent.getBroadcast(context, 4102, callbackIntent, flags)
 
-                val intent = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
-                    setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
-                    putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
-                    putExtra(Constants.EXTRA_ARGUMENTS, arrayOf("-c", launcherCmd))
-                    putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
-                    putExtra(Constants.EXTRA_BACKGROUND, false)
-                    putExtra(Constants.EXTRA_SESSION_ACTION, "0")
-                    putExtra(Constants.EXTRA_PENDING_INTENT, pendingIntent)
-                }
+            val intent = buildRunCommandIntent(
+                commandArguments = arrayOf("-c", launcherCmd),
+                background = false,
+                sessionAction = "0",
+                pendingIntent = pendingIntent
+            )
 
-                context.startService(intent)
+            val launchRes = startTermuxRunCommandService(intent)
+            if (launchRes.isSuccess) {
                 addLog("🚀 تم إرسال حزمة البناء الكاملة ($sanitizedName) إلى Termux RunCommandService")
                 onDirectIntentSent()
-            } catch (e: Exception) {
-                addLog("⚠️ تعذر تشغيل خدمة Termux المباشرة: ${e.message}")
+            } else {
+                val err = launchRes.exceptionOrNull()?.message ?: "unknown"
+                addLog("⚠️ تعذر تشغيل خدمة Termux المباشرة: $err")
                 try {
                     val launchIntent = context.packageManager.getLaunchIntentForPackage(Constants.TERMUX_PACKAGE_NAME)
                     if (launchIntent != null) {
