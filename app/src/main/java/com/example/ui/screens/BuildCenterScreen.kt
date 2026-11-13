@@ -73,11 +73,13 @@ fun BuildCenterScreen(
     onOpenDownloads: () -> Unit,
     onUpdateProject: (AppProject) -> Unit = {},
     onExportProjectJson: (AppProject) -> String = { "{}" },
+    onStartAutomatedBuild: ((AppProject, String, BuildOptimizationOptions, Boolean) -> Unit)? = null,
+    onGenerateKeystore: ((AppProject, String, String, String, (Boolean, AppProject?) -> Unit) -> Unit)? = null,
+    onInspectPackage: ((String) -> Unit)? = null,
     onBuildCompleted: (updatedProject: AppProject, fileName: String, outputPath: String, sizeText: String) -> Unit = { _, _, _, _ -> },
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val effectiveToolchain = toolchainManager ?: remember(context) { ToolchainManager(context) }
     val projectExporter = remember(context) { ProjectExporter(context) }
     val githubCloudEngine = remember(context) { GitHubCloudBuildEngine(context) }
@@ -133,31 +135,36 @@ fun BuildCenterScreen(
     val isBuilding = engineState is TermuxEngine.EngineStatus.Running
 
     fun launchAutomatedBuild(targetType: String) {
-        coroutineScope.launch {
-            val projToBuild = if (autoBumpVersion) {
-                activeProject.copy(
-                    packageConfig = activeProject.packageConfig.copy(
-                        versionCode = activeProject.packageConfig.versionCode + 1
-                    )
-                ).also {
-                    activeProject = it
-                    onUpdateProject(it)
+        if (onStartAutomatedBuild != null) {
+            onStartAutomatedBuild.invoke(activeProject, targetType, buildOptions, autoBumpVersion)
+        } else {
+            // Safe background fallback when invoked without ViewModel
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate).launch {
+                val projToBuild = if (autoBumpVersion) {
+                    activeProject.copy(
+                        packageConfig = activeProject.packageConfig.copy(
+                            versionCode = activeProject.packageConfig.versionCode + 1
+                        )
+                    ).also {
+                        activeProject = it
+                        onUpdateProject(it)
+                    }
+                } else {
+                    activeProject
                 }
-            } else {
-                activeProject
-            }
 
-            val success = termuxEngine.executeBuildWithProgress(
-                project = projToBuild,
-                buildType = targetType,
-                options = buildOptions
-            ) { fileName, outputPath, sizeText ->
-                onBuildCompleted(projToBuild, fileName, outputPath, sizeText)
-            }
-            if (success) {
-                Toast.makeText(context, "🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(context, "⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه", Toast.LENGTH_LONG).show()
+                val success = termuxEngine.executeBuildWithProgress(
+                    project = projToBuild,
+                    buildType = targetType,
+                    options = buildOptions
+                ) { fileName, outputPath, sizeText ->
+                    onBuildCompleted(projToBuild, fileName, outputPath, sizeText)
+                }
+                if (success) {
+                    Toast.makeText(context, "🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -396,9 +403,11 @@ fun BuildCenterScreen(
                                     InspectOutputPackageCard(
                                         fileName = telemetry.lastOutputFileName ?: "output.apk",
                                         onInspect = {
-                                            coroutineScope.launch {
-                                                effectiveToolchain.inspectApkOrZipFile(telemetry.lastOutputPath!!)
-                                                Toast.makeText(context, "تم فحص الحزمة وعرض التقرير في الترمينال ✓", Toast.LENGTH_SHORT).show()
+                                            val path = telemetry.lastOutputPath ?: return@InspectOutputPackageCard
+                                            if (onInspectPackage != null) {
+                                                onInspectPackage.invoke(path)
+                                            } else {
+                                                effectiveToolchain.launchInteractiveCommand("verify", activeProject)
                                             }
                                         }
                                     )
@@ -643,9 +652,11 @@ fun BuildCenterScreen(
                             InspectOutputPackageCard(
                                 fileName = telemetry.lastOutputFileName ?: "output.apk",
                                 onInspect = {
-                                    coroutineScope.launch {
-                                        effectiveToolchain.inspectApkOrZipFile(telemetry.lastOutputPath!!)
-                                        Toast.makeText(context, "تم فحص الحزمة وعرض التقرير في الترمينال ✓", Toast.LENGTH_SHORT).show()
+                                    val path = telemetry.lastOutputPath ?: return@InspectOutputPackageCard
+                                    if (onInspectPackage != null) {
+                                        onInspectPackage.invoke(path)
+                                    } else {
+                                        effectiveToolchain.launchInteractiveCommand("verify", activeProject)
                                     }
                                 }
                             )
@@ -917,32 +928,18 @@ fun BuildCenterScreen(
                                 Button(
                                     onClick = {
                                         val cleanAlias = keyAlias.trim().ifBlank { "release" }
-                                        coroutineScope.launch {
-                                            val genRes = effectiveToolchain.generateRealKeystore(
-                                                alias = cleanAlias,
-                                                password = keyPassword,
-                                                org = keyOrg
-                                            )
-                                            genRes.onSuccess { info ->
-                                                val updatedProj = activeProject.copy(
-                                                    signingConfig = activeProject.signingConfig.copy(
-                                                        useDebugKey = false,
-                                                        keyAlias = info.alias,
-                                                        keystorePath = info.filePath
-                                                    )
-                                                )
-                                                activeProject = updatedProj
-                                                onUpdateProject(updatedProj)
-                                                keystoreGenerated = true
-                                                showKeystoreDialog = false
-                                                Toast.makeText(
-                                                    context,
-                                                    "🔐 تم توليد وحفظ مفتاح RSA-2048 في الجهاز (${info.alias}) ✓",
-                                                    Toast.LENGTH_LONG
-                                                ).show()
-                                            }.onFailure { err ->
-                                                Toast.makeText(context, "تعذر توليد المفتاح: ${err.message}", Toast.LENGTH_LONG).show()
+                                        if (onGenerateKeystore != null) {
+                                            onGenerateKeystore.invoke(activeProject, cleanAlias, keyPassword, keyOrg) { ok, updated ->
+                                                if (ok && updated != null) {
+                                                    activeProject = updated
+                                                    keystoreGenerated = true
+                                                    showKeystoreDialog = false
+                                                }
                                             }
+                                        } else {
+                                            effectiveToolchain.launchInteractiveCommand("gen-key", activeProject)
+                                            keystoreGenerated = true
+                                            showKeystoreDialog = false
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),

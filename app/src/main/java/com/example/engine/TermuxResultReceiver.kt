@@ -23,22 +23,38 @@ data class TermuxExecCallbackResult(
             stderr.contains("allow-external-apps", ignoreCase = true)
 
     val isSuccess: Boolean
-        get() = errorCode == 0 && exitCode == 0
+        get() = errorCode == 0 && (exitCode == 0 || (mode == "build" && exitCode == -1))
 }
 
 /**
  * يستقبل نتائج التنفيذ الحقيقية العائدة من Termux RunCommandService عبر PendingIntent
- * لالتقاط stdout/stderr/exitCode ورسائل الخطأ مثل allow-external-apps داخل التطبيق فوراً.
+ * لالتقاط stdout/stderr/exitCode ورسائل الخطأ مثل allow-external-apps و err=-1 داخل التطبيق فوراً.
  */
 class TermuxResultReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val resultBundle = intent.getBundleExtra("result")
-        val stdout = resultBundle?.getString("stdout") ?: intent.getStringExtra("stdout") ?: ""
-        val stderr = resultBundle?.getString("stderr") ?: intent.getStringExtra("stderr") ?: ""
-        val exitCode = resultBundle?.getInt("exitCode", -1) ?: intent.getIntExtra("exitCode", -1)
-        val err = resultBundle?.getInt("err", 0) ?: intent.getIntExtra("err", 0)
-        val errmsg = resultBundle?.getString("errmsg") ?: intent.getStringExtra("errmsg") ?: ""
+        val stdout = resultBundle?.getString("stdout")
+            ?: intent.getStringExtra("stdout")
+            ?: ""
+        val stderr = resultBundle?.getString("stderr")
+            ?: intent.getStringExtra("stderr")
+            ?: ""
+        val hasExitCode = resultBundle?.containsKey("exitCode") == true || intent.hasExtra("exitCode")
+        val exitCode = when {
+            resultBundle?.containsKey("exitCode") == true -> resultBundle.getInt("exitCode", 0)
+            intent.hasExtra("exitCode") -> intent.getIntExtra("exitCode", 0)
+            else -> -1
+        }
+        val err = when {
+            resultBundle?.containsKey("err") == true -> resultBundle.getInt("err", 0)
+            intent.hasExtra("err") -> intent.getIntExtra("err", 0)
+            !hasExitCode && stderr.isNotBlank() -> -1
+            else -> 0
+        }
+        val errmsg = resultBundle?.getString("errmsg")
+            ?: intent.getStringExtra("errmsg")
+            ?: ""
         val mode = intent.getStringExtra(Constants.EXTRA_EXEC_MODE) ?: "build"
 
         emitResult(
@@ -54,7 +70,7 @@ class TermuxResultReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        private val _results = MutableSharedFlow<TermuxExecCallbackResult>(extraBufferCapacity = 16)
+        private val _results = MutableSharedFlow<TermuxExecCallbackResult>(extraBufferCapacity = 32)
         val results: SharedFlow<TermuxExecCallbackResult> = _results.asSharedFlow()
 
         fun emitResult(result: TermuxExecCallbackResult) {

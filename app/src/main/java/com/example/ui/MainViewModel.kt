@@ -7,12 +7,16 @@ import com.example.data.repository.DownloadedApk
 import com.example.data.repository.ProjectRepository
 import com.example.domain.model.AppProject
 import com.example.domain.usecase.*
+import com.example.engine.BuildOptimizationOptions
 import com.example.engine.TermuxEngine
 import com.example.engine.ToolchainManager
 import android.content.Context
 import com.example.ui.util.AppLanguage
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -101,6 +105,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showDiagnosticDialog = MutableStateFlow(false)
     val showDiagnosticDialog: StateFlow<Boolean> = _showDiagnosticDialog.asStateFlow()
 
+    private val _uiToastEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val uiToastEvents: SharedFlow<String> = _uiToastEvents.asSharedFlow()
+
     init {
         checkTermuxStatus()
         viewModelScope.launch {
@@ -167,6 +174,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProject(project: AppProject) {
         saveProjectUseCase(project)
+    }
+
+    fun startAutomatedBuild(
+        project: AppProject,
+        targetType: String,
+        options: BuildOptimizationOptions,
+        autoBumpVersion: Boolean
+    ) {
+        viewModelScope.launch {
+            val ksInfo = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                toolchainManager.ensureProjectKeystoreExists(project)
+            }
+            val baseProject = if (project.signingConfig.keystorePath.isBlank()) {
+                project.copy(
+                    signingConfig = project.signingConfig.copy(
+                        useDebugKey = false,
+                        keyAlias = ksInfo.alias,
+                        keystorePath = ksInfo.filePath
+                    )
+                )
+            } else {
+                project
+            }
+            val projToBuild = if (autoBumpVersion) {
+                baseProject.copy(
+                    packageConfig = baseProject.packageConfig.copy(
+                        versionCode = baseProject.packageConfig.versionCode + 1
+                    )
+                )
+            } else {
+                baseProject
+            }
+            saveProjectUseCase(projToBuild)
+
+            val success = termuxEngine.executeBuildWithProgress(
+                project = projToBuild,
+                buildType = targetType,
+                options = options
+            ) { fileName, outputPath, sizeText ->
+                recordCompletedBuild(projToBuild, fileName, outputPath, sizeText)
+            }
+
+            if (success) {
+                _uiToastEvents.tryEmit("🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!")
+            } else {
+                _uiToastEvents.tryEmit("⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه")
+            }
+        }
+    }
+
+    fun generateProjectKeystore(
+        project: AppProject,
+        alias: String,
+        password: String,
+        org: String,
+        onDone: (Boolean, AppProject?) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            val res = toolchainManager.generateRealKeystore(alias, password, org)
+            res.onSuccess { info ->
+                val updated = project.copy(
+                    signingConfig = project.signingConfig.copy(
+                        useDebugKey = false,
+                        keyAlias = info.alias,
+                        keystorePath = info.filePath
+                    )
+                )
+                saveProjectUseCase(updated)
+                _uiToastEvents.tryEmit("🔐 تم توليد وحفظ مفتاح RSA-2048 في الجهاز (${info.alias}) ✓")
+                onDone(true, updated)
+            }.onFailure { err ->
+                _uiToastEvents.tryEmit("تعذر توليد المفتاح: ${err.message}")
+                onDone(false, null)
+            }
+        }
+    }
+
+    fun inspectBuiltPackage(outputPath: String) {
+        viewModelScope.launch {
+            toolchainManager.inspectApkOrZipFile(outputPath)
+            _uiToastEvents.tryEmit("تم فحص الحزمة وعرض التقرير في الترمينال ✓")
+        }
     }
 
     fun recordCompletedBuild(

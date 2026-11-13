@@ -147,6 +147,13 @@ fun AppRoot(
         }
     }
 
+    // عرض إشعارات نتائج البناء الخلفي الصادرة من ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.uiToastEvents.collect { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
     CompositionLocalProvider(LocalAppLanguage provides currentLanguage) {
         Box(
             modifier = Modifier
@@ -155,6 +162,15 @@ fun AppRoot(
         ) {
             AnimatedContent(
                 targetState = currentScreen,
+                contentKey = { s ->
+                    when (s) {
+                        is AppScreen.BuildCenter -> "build_center_${s.project.id}"
+                        is AppScreen.Wizard -> "wizard_${s.projectToEdit?.id ?: "new"}"
+                        is AppScreen.InteractivePhone -> "phone_${s.project.id}"
+                        is AppScreen.Preview -> "preview_${s.fileName}"
+                        else -> s::class.simpleName ?: "screen"
+                    }
+                },
                 transitionSpec = {
                     fadeIn() togetherWith fadeOut()
                 },
@@ -341,28 +357,37 @@ fun AppRoot(
                     }
 
                     is AppScreen.BuildCenter -> {
+                        val liveProject = projects.find { it.id == screen.project.id } ?: screen.project
                         BuildCenterScreen(
-                            project = screen.project,
+                            project = liveProject,
                             termuxEngine = viewModel.termuxEngine,
                             toolchainManager = viewModel.toolchainManager,
                             isTermuxReady = isTermuxReady,
                             onOpenDiagnostic = { viewModel.openDiagnosticDialog() },
                             onRequestRunCommandPermission = requestRunCommandPermission,
                             onEditProject = {
-                                viewModel.navigateTo(AppScreen.Wizard(screen.project))
+                                viewModel.navigateTo(AppScreen.Wizard(liveProject))
                             },
                             onOpenInteractivePhone = {
-                                viewModel.navigateTo(AppScreen.InteractivePhone(screen.project, fromScreen = AppScreen.BuildCenter(screen.project)))
+                                viewModel.navigateTo(AppScreen.InteractivePhone(liveProject, fromScreen = AppScreen.BuildCenter(liveProject)))
                             },
                             onOpenDownloads = {
                                 viewModel.navigateTo(AppScreen.Downloads)
                             },
                             onUpdateProject = { updatedProject ->
                                 viewModel.saveProject(updatedProject)
-                                viewModel.navigateTo(AppScreen.BuildCenter(updatedProject))
                             },
                             onExportProjectJson = { proj ->
                                 viewModel.exportProjectJson(proj)
+                            },
+                            onStartAutomatedBuild = { proj, targetType, options, autoBump ->
+                                viewModel.startAutomatedBuild(proj, targetType, options, autoBump)
+                            },
+                            onGenerateKeystore = { proj, alias, pass, org, onDone ->
+                                viewModel.generateProjectKeystore(proj, alias, pass, org, onDone)
+                            },
+                            onInspectPackage = { path ->
+                                viewModel.inspectBuiltPackage(path)
                             },
                             onBuildCompleted = { updatedProject, fileName, outputPath, sizeText ->
                                 viewModel.recordCompletedBuild(updatedProject, fileName, outputPath, sizeText)

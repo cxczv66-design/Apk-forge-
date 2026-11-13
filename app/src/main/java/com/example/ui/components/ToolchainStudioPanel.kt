@@ -103,7 +103,6 @@ fun InAppToolchainTerminalCard(
     onToolActionToast: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val tools by toolchainManager.tools.collectAsState()
     val terminalLogs by toolchainManager.terminalLogs.collectAsState()
     val isInstalling by toolchainManager.isInstalling.collectAsState()
@@ -209,16 +208,10 @@ fun InAppToolchainTerminalCard(
                 // Prominent In-App Install & Verify Button
                 Button(
                     onClick = {
-                        scope.launch {
-                            val ok = toolchainManager.installAndVerifyAllTools(activeProject)
-                            val msg = if (ok) {
-                                "✅ تم تثبيت والتحقق من جميع الأدوات داخل التطبيق (${tools.size}/${tools.size})"
-                            } else {
-                                "⚠️ راجع سجل الترمينال لمعرفة التفاصيل"
-                            }
-                            onToolActionToast?.invoke(msg)
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                        }
+                        toolchainManager.launchInstallAndVerifyAllTools(activeProject)
+                        val msg = "⚡ بدأ تثبيت والتحقق من الأدوات في الخلفية..."
+                        onToolActionToast?.invoke(msg)
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     },
                     enabled = !isInstalling,
                     colors = ButtonDefaults.buttonColors(
@@ -287,9 +280,7 @@ fun InAppToolchainTerminalCard(
                                         tool = tool,
                                         modifier = Modifier.weight(1f),
                                         onClick = {
-                                            scope.launch {
-                                                toolchainManager.runInteractiveCommand("verify", activeProject)
-                                            }
+                                            toolchainManager.launchInteractiveCommand("verify", activeProject)
                                         }
                                     )
                                 }
@@ -359,19 +350,19 @@ fun InAppToolchainTerminalCard(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             QuickTerminalPill("verify") {
-                                scope.launch { toolchainManager.runInteractiveCommand("verify", activeProject) }
+                                toolchainManager.launchInteractiveCommand("verify", activeProject)
                             }
                             QuickTerminalPill("gen-key") {
-                                scope.launch { toolchainManager.runInteractiveCommand("gen-key", activeProject) }
+                                toolchainManager.launchInteractiveCommand("gen-key", activeProject)
                             }
                             QuickTerminalPill("storage") {
-                                scope.launch { toolchainManager.runInteractiveCommand("storage", activeProject) }
+                                toolchainManager.launchInteractiveCommand("storage", activeProject)
                             }
                             QuickTerminalPill("abi") {
-                                scope.launch { toolchainManager.runInteractiveCommand("abi", activeProject) }
+                                toolchainManager.launchInteractiveCommand("abi", activeProject)
                             }
                             QuickTerminalPill("uname -a") {
-                                scope.launch { toolchainManager.runInteractiveCommand("sh uname -a", activeProject) }
+                                toolchainManager.launchInteractiveCommand("sh uname -a", activeProject)
                             }
                         }
 
@@ -462,7 +453,7 @@ fun InAppToolchainTerminalCard(
                                 onClick = {
                                     val cmd = commandInput
                                     commandInput = ""
-                                    scope.launch { toolchainManager.runInteractiveCommand(cmd, activeProject) }
+                                    toolchainManager.launchInteractiveCommand(cmd, activeProject)
                                 },
                                 modifier = Modifier
                                     .size(48.dp)

@@ -41,7 +41,11 @@ class TermuxEngineTest {
         assertTrue(script.contains("Rio"))
         assertTrue(script.contains("com.rio.app"))
         assertTrue(script.contains("aapt2 compile"))
-        assertTrue(script.contains("apksigner sign"))
+        assertTrue(script.contains("APKSIGNER_BIN"))
+        assertTrue(script.contains("zipalign"))
+        assertTrue(script.contains("--ks-key-alias"))
+        assertTrue(script.contains("xargs -0 d8"))
+        assertTrue(script.contains("keytool -genkeypair"))
         assertTrue(script.contains("apkforge_workspace"))
     }
 
@@ -163,5 +167,58 @@ class TermuxEngineTest {
 
         val pingCheck = engine.pingTermuxConnection()
         assertFalse(pingCheck.isReadyToDispatch)
+    }
+
+    @Test
+    fun `ensureProjectKeystoreExists auto-generates valid keystore file before build`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val toolchain = com.example.engine.ToolchainManager(context)
+        val project = AppProject(
+            id = "test_ks_01",
+            name = "AutoKeyApp",
+            sourceType = SourceType.WEB_URL,
+            sourceValue = "https://example.com"
+        )
+
+        val info = toolchain.ensureProjectKeystoreExists(project)
+        val ksFile = java.io.File(info.filePath)
+        assertTrue(ksFile.exists())
+        assertTrue(ksFile.length() > 0L)
+        assertTrue(info.sha256Fingerprint.isNotBlank())
+    }
+
+    @Test
+    fun `TermuxResultReceiver handles err 2, err -1, and exitCode 0 cleanly`() {
+        val err2 = com.example.engine.TermuxExecCallbackResult(
+            mode = "ping",
+            stdout = "",
+            stderr = "RunCommandService requires allow-external-apps",
+            exitCode = -1,
+            errorCode = 2,
+            errorMessage = "Error (2): allow-external-apps required"
+        )
+        assertTrue(err2.requiresExternalAppsEnable)
+        assertFalse(err2.isSuccess)
+
+        val errNeg1 = com.example.engine.TermuxExecCallbackResult(
+            mode = "build",
+            stdout = "",
+            stderr = "Permission denied",
+            exitCode = -1,
+            errorCode = -1,
+            errorMessage = ""
+        )
+        assertFalse(errNeg1.isSuccess)
+
+        val success = com.example.engine.TermuxExecCallbackResult(
+            mode = "ping",
+            stdout = "APKFORGE_PING_OK",
+            stderr = "",
+            exitCode = 0,
+            errorCode = 0,
+            errorMessage = ""
+        )
+        assertTrue(success.isSuccess)
+        assertFalse(success.requiresExternalAppsEnable)
     }
 }

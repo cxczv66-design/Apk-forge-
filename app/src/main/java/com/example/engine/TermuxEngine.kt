@@ -153,16 +153,19 @@ class TermuxEngine(private val context: Context) {
             if (res.mode == "ping") {
                 addLog("✅ تم التحقق الفعلي من اتصال Termux وتفعيل allow-external-apps بنجاح!")
             } else {
-                addLog("✅ اكتمل تنفيذ أمر Termux بنجاح (exit=0)")
+                addLog("✅ اكتمل تنفيذ أمر Termux بنجاح (exit=${res.exitCode})")
                 if (res.stdout.isNotBlank()) {
-                    res.stdout.lines().takeLast(6).forEach { line ->
+                    res.stdout.lines().takeLast(8).forEach { line ->
                         if (line.isNotBlank()) addLog("  termux> $line")
                     }
                 }
             }
         } else {
-            val errDetail = res.errorMessage.ifBlank { res.stderr }.ifBlank { "exitCode=${res.exitCode}" }
+            val errDetail = res.errorMessage.ifBlank { res.stderr }.ifBlank { "err=${res.errorCode}, exitCode=${res.exitCode}" }
             addLog("⚠️ استجابة Termux (err=${res.errorCode}, exit=${res.exitCode}): $errDetail")
+            if (res.errorCode == -1) {
+                _termuxReport.value = computeDiagnosticReport()
+            }
         }
     }
 
@@ -379,9 +382,10 @@ class TermuxEngine(private val context: Context) {
             action = Constants.ACTION_TERMUX_EXEC_RESULT
             putExtra(Constants.EXTRA_EXEC_MODE, "ping")
         }
+        val reqCode = ((System.currentTimeMillis() xor 0x1357L) and 0x7FFFFFFFL).toInt()
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-        val pendingIntent = PendingIntent.getBroadcast(context, 4101, callbackIntent, flags)
+        val pendingIntent = PendingIntent.getBroadcast(context, reqCode, callbackIntent, flags)
 
         val intent = buildRunCommandIntent(
             commandArguments = arrayOf("-c", "echo APKFORGE_PING_OK && termux-reload-settings >/dev/null 2>&1 || true"),
@@ -392,7 +396,7 @@ class TermuxEngine(private val context: Context) {
 
         val launchRes = startTermuxRunCommandService(intent)
         return if (launchRes.isSuccess) {
-            addLog("🔍 تم التحقق وإرسال نبضة اختبار تنفيذ إلى Termux RunCommandService...")
+            addLog("🔍 تم التحقق وإرسال نبضة اختبار تنفيذ في الخلفية إلى Termux RunCommandService...")
             check
         } else {
             val err = launchRes.exceptionOrNull()?.message ?: "unknown"
@@ -590,24 +594,43 @@ $standaloneJava
 APKFORGE_EOF
             fi
 
-            echo "[2/6] Checking Termux compiler tools (openjdk-17, aapt2, dx/d8, apksigner)..."
+            export PREFIX="${'$'}{PREFIX:-/data/data/com.termux/files/usr}"
+            export PATH="${'$'}PREFIX/bin:${'$'}PATH"
+            if [ -n "${'$'}ANDROID_HOME" ] && [ -d "${'$'}ANDROID_HOME/build-tools" ]; then
+                LATEST_BT="${'$'}(ls -1 "${'$'}ANDROID_HOME/build-tools" 2>/dev/null | sort -V | tail -n 1)"
+                [ -n "${'$'}LATEST_BT" ] && export PATH="${'$'}ANDROID_HOME/build-tools/${'$'}LATEST_BT:${'$'}PATH"
+            fi
+
+            echo "[2/6] Checking Termux compiler & signing tools (openjdk-17, aapt2, dx/d8, zipalign, apksigner)..."
             for tool in javac aapt2 apksigner; do
                 if ! command -v "${'$'}tool" >/dev/null 2>&1; then
                     echo "Installing missing Termux packages..."
-                    pkg update -y && pkg install -y openjdk-17 aapt2 dx apksigner zip wget unzip
+                    pkg update -y && pkg install -y openjdk-17 aapt aapt2 dx apksigner zip wget unzip
                     break
                 fi
             done
 
+            KEYSTORE_DIR="${'$'}HOME/.apkforge_sdk"
+            mkdir -p "${'$'}KEYSTORE_DIR"
+            KEY_ALIAS="${project.signingConfig.keyAlias.trim().filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "apkforge" }}"
+            KEY_PASS="apkforge2026"
+            KEYSTORE_PATH="${'$'}KEYSTORE_DIR/${'$'}KEY_ALIAS.keystore"
+            if [ ! -f "${'$'}KEYSTORE_PATH" ]; then
+                echo "Auto-generating RSA-2048 keystore before build..."
+                keytool -genkeypair -v -keystore "${'$'}KEYSTORE_PATH" -alias "${'$'}KEY_ALIAS" \
+                    -keyalg RSA -keysize 2048 -validity 9125 \
+                    -storepass "${'$'}KEY_PASS" -keypass "${'$'}KEY_PASS" \
+                    -dname "CN=ApkForge, OU=Mobile, O=ApkForge, L=Riyadh, C=SA"
+            fi
+
             ANDROID_JAR=""
-            if [ -f "${'$'}HOME/.apkforge_sdk/android-34.jar" ]; then
-                ANDROID_JAR="${'$'}HOME/.apkforge_sdk/android-34.jar"
+            if [ -f "${'$'}KEYSTORE_DIR/android-34.jar" ]; then
+                ANDROID_JAR="${'$'}KEYSTORE_DIR/android-34.jar"
             elif [ -n "${'$'}ANDROID_HOME" ] && [ -f "${'$'}ANDROID_HOME/platforms/android-34/android.jar" ]; then
                 ANDROID_JAR="${'$'}ANDROID_HOME/platforms/android-34/android.jar"
             else
                 echo "[3/6] Fetching lightweight android-34.jar stub for CLI compilation..."
-                mkdir -p "${'$'}HOME/.apkforge_sdk"
-                ANDROID_JAR="${'$'}HOME/.apkforge_sdk/android-34.jar"
+                ANDROID_JAR="${'$'}KEYSTORE_DIR/android-34.jar"
                 curl -fL "https://github.com/Sable/android-platforms/raw/master/android-34/android.jar" -o "${'$'}ANDROID_JAR" || true
             fi
 
@@ -627,34 +650,44 @@ APKFORGE_EOF
             find build/gen termux_standalone/src -name "*.java" > build/sources.txt
             javac --release 8 -classpath "${'$'}ANDROID_JAR" -d build/obj @build/sources.txt
             if command -v d8 >/dev/null 2>&1; then
-                d8 --lib "${'$'}ANDROID_JAR" --output build/dex "${'$'}(find build/obj -name '*.class')"
+                find build/obj -name '*.class' -print0 | xargs -0 d8 --lib "${'$'}ANDROID_JAR" --output build/dex
             else
                 dx --dex --output=build/dex/classes.dex build/obj
             fi
-            (cd build/dex && zip -j ../unsigned.apk classes.dex)
+            (cd build/dex && zip -0 -j ../unsigned.apk classes.dex)
 
-            echo "[6/6] Signing APK with keytool + apksigner..."
-            KEYSTORE_PATH="${'$'}HOME/.apkforge_sdk/release.keystore"
-            if [ ! -f "${'$'}KEYSTORE_PATH" ]; then
-                keytool -genkeypair -v -keystore "${'$'}KEYSTORE_PATH" -alias apkforge \
-                    -keyalg RSA -keysize 2048 -validity 9125 \
-                    -storepass apkforge2026 -keypass apkforge2026 \
-                    -dname "CN=ApkForge, O=ApkForge, C=SA"
+            echo "[6/6] Running zipalign & apksigner..."
+            ZIPALIGN_BIN="${'$'}(command -v zipalign || find "${'$'}PREFIX/bin" ${'$'}{ANDROID_HOME:+"${'$'}ANDROID_HOME/build-tools"} -name zipalign -type f 2>/dev/null | head -n 1 || true)"
+            if [ -n "${'$'}ZIPALIGN_BIN" ]; then
+                "${'$'}ZIPALIGN_BIN" -p -f 4 build/unsigned.apk build/aligned.apk
+            else
+                cp build/unsigned.apk build/aligned.apk
             fi
-            apksigner sign --ks "${'$'}KEYSTORE_PATH" --ks-pass pass:apkforge2026 \
-                --out "$targetDownload" build/unsigned.apk
+
+            APKSIGNER_BIN="${'$'}(command -v apksigner || find "${'$'}PREFIX/bin" ${'$'}{ANDROID_HOME:+"${'$'}ANDROID_HOME/build-tools"} -name apksigner -type f 2>/dev/null | head -n 1 || true)"
+            "${'$'}APKSIGNER_BIN" sign \
+                --ks "${'$'}KEYSTORE_PATH" \
+                --ks-key-alias "${'$'}KEY_ALIAS" \
+                --ks-pass "pass:${'$'}KEY_PASS" \
+                --key-pass "pass:${'$'}KEY_PASS" \
+                --v1-signing-enabled true \
+                --v2-signing-enabled true \
+                --out "$targetDownload" \
+                build/aligned.apk
+            "${'$'}APKSIGNER_BIN" verify "$targetDownload"
 
             echo "✅ REAL SIGNED APK BUILT AT: $targetDownload"
         """.trimIndent()
     }
 
     /**
-     * تجهيز ملفات المشروع الكاملة على القرص ثم التحقق من الجسر وإرسال أمر التنفيذ إلى Termux مع PendingIntent
+     * تجهيز ملفات المشروع الكاملة على القرص ثم التحقق من الجسر وإرسال أمر التنفيذ في الخلفية إلى Termux مع PendingIntent
      */
     fun dispatchBuildToTermux(
         project: AppProject,
         buildType: String = "debug",
         options: BuildOptimizationOptions = BuildOptimizationOptions(),
+        runInBackground: Boolean = true,
         onMissingPrerequisites: ((TermuxBridgeCheckResult) -> Unit)? = null,
         onDirectIntentSent: () -> Unit
     ) {
@@ -666,6 +699,10 @@ APKFORGE_EOF
                 return@launch
             }
 
+            withContext(Dispatchers.IO) {
+                toolchain.ensureProjectKeystoreExists(project)
+            }
+
             val sanitizedName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
             val bashScript = generateBashBuildScript(project, buildType, options)
 
@@ -674,21 +711,24 @@ APKFORGE_EOF
                 assembler.stageSourceZipForTermux(project, options, bashScript)
             }
 
-            val launcherCmd = "if [ -f \"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\" ]; then " +
-                "bash \"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\"; " +
-                "else echo '❌ Missing staged script. Please run termux-setup-storage in Termux first.'; read -r; fi"
+            val launcherCmd = "SCRIPT_SD=\"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\"; " +
+                "SCRIPT_EM=\"/storage/emulated/0/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\"; " +
+                "if [ -f \"\$SCRIPT_SD\" ]; then bash \"\$SCRIPT_SD\"; " +
+                "elif [ -f \"\$SCRIPT_EM\" ]; then bash \"\$SCRIPT_EM\"; " +
+                "else echo '❌ Missing staged script. Run termux-setup-storage in Termux.' >&2; exit 1; fi"
 
             val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
                 action = Constants.ACTION_TERMUX_EXEC_RESULT
                 putExtra(Constants.EXTRA_EXEC_MODE, "build")
             }
+            val reqCode = ((System.currentTimeMillis() xor 0x2468L) and 0x7FFFFFFFL).toInt()
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-            val pendingIntent = PendingIntent.getBroadcast(context, 4102, callbackIntent, flags)
+            val pendingIntent = PendingIntent.getBroadcast(context, reqCode, callbackIntent, flags)
 
             val intent = buildRunCommandIntent(
                 commandArguments = arrayOf("-c", launcherCmd),
-                background = false,
+                background = runInBackground,
                 sessionAction = "0",
                 pendingIntent = pendingIntent
             )
@@ -743,6 +783,12 @@ APKFORGE_EOF
         )
 
         return try {
+            // Stage 0: ضمان وجود ملف مفتاح التوقيع تلقائياً قبل بدء أي مرحلة بناء أو تغليف
+            val ensuredKs = withContext(Dispatchers.IO) {
+                toolchain.ensureProjectKeystoreExists(project)
+            }
+            addLog("🔑 تم التحقق من جاهزية مخزن التوقيع (${ensuredKs.alias} • SHA256:${ensuredKs.sha256Fingerprint.take(12)}...)")
+
             // Stage 1: Real Gradle Workspace Generation
             val t1 = System.currentTimeMillis()
             updateStage("preflight", BuildStageStatus.RUNNING)

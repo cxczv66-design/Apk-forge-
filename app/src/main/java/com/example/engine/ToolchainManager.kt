@@ -4,11 +4,14 @@ import android.content.Context
 import android.os.Build
 import android.os.StatFs
 import com.example.domain.model.AppProject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.KeyFactory
@@ -93,6 +96,8 @@ fun formatBytesReadable(bytes: Long): String {
  */
 class ToolchainManager(private val context: Context) {
 
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val rootDir = File(context.filesDir, "apkforge_toolchain")
     private val binDir = File(rootDir, "bin")
     private val sdkDir = File(rootDir, "sdk")
@@ -146,6 +151,18 @@ class ToolchainManager(private val context: Context) {
                 sizeBytes = if (exists) file.length() else 0L,
                 descriptionAr = spec.descriptionAr
             )
+        }
+    }
+
+    fun launchInstallAndVerifyAllTools(activeProject: AppProject? = null) {
+        engineScope.launch {
+            installAndVerifyAllTools(activeProject)
+        }
+    }
+
+    fun launchInteractiveCommand(rawCommand: String, project: AppProject? = null) {
+        engineScope.launch {
+            runInteractiveCommand(rawCommand, project)
         }
     }
 
@@ -236,22 +253,59 @@ class ToolchainManager(private val context: Context) {
     }
 
     /**
-     * تحميل أو توليد زوج مفاتيح RSA-2048 الحقيقي لتوقيع حزم الإخراج فعلياً
+     * يضمن توليد ملف التوقيع الخاص بالمشروع تلقائياً على القرص قبل بدء عملية البناء أو التغليف
+     */
+    fun ensureProjectKeystoreExists(project: AppProject): GeneratedKeystoreInfo {
+        signingDir.mkdirs()
+        val rawAlias = project.signingConfig.keyAlias.ifBlank { "apkforge_release" }
+        val safeAlias = rawAlias.trim().filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "apkforge_release" }
+        val pemFile = File(signingDir, "$safeAlias.keystore.pem")
+        if (!pemFile.exists() || pemFile.length() == 0L) {
+            return generateRealKeystoreInternal(safeAlias, "appforge2026", project.name.ifBlank { "ApkForge Studio" })
+        }
+        val text = pemFile.readText(Charsets.UTF_8)
+        val pubB64 = text.substringAfter("-----BEGIN PUBLIC KEY-----", "").substringBefore("-----END PUBLIC KEY-----", "").replace(Regex("\\s"), "")
+        return if (pubB64.isBlank()) {
+            generateRealKeystoreInternal(safeAlias, "appforge2026", project.name.ifBlank { "ApkForge Studio" })
+        } else {
+            val pubBytes = Base64.getDecoder().decode(pubB64)
+            GeneratedKeystoreInfo(
+                alias = safeAlias,
+                filePath = pemFile.absolutePath,
+                sha256Fingerprint = sha256Hex(pubBytes),
+                sizeBytes = pemFile.length()
+            )
+        }
+    }
+
+    /**
+     * تحميل أو توليد زوج مفاتيح RSA-2048 الحقيقي لتوقيع حزم الإخراج فعلياً (مع إعادة توليد تلقائي عند التلف)
      */
     fun getOrCreateSigningKeyPair(alias: String = "apkforge_release"): KeyPair {
         signingDir.mkdirs()
         val safeAlias = alias.trim().filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "apkforge_release" }
         val pemFile = File(signingDir, "$safeAlias.keystore.pem")
-        if (!pemFile.exists()) {
+        if (!pemFile.exists() || pemFile.length() == 0L) {
             generateRealKeystoreInternal(safeAlias, "appforge2026", "ApkForge Studio")
         }
-        val text = pemFile.readText(Charsets.UTF_8)
-        val pubB64 = text.substringAfter("-----BEGIN PUBLIC KEY-----").substringBefore("-----END PUBLIC KEY-----").replace(Regex("\\s"), "")
-        val privB64 = text.substringAfter("-----BEGIN PRIVATE KEY-----").substringBefore("-----END PRIVATE KEY-----").replace(Regex("\\s"), "")
-        val kf = KeyFactory.getInstance("RSA")
-        val pub = kf.generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(pubB64)))
-        val priv = kf.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(privB64)))
-        return KeyPair(pub, priv)
+        return try {
+            val text = pemFile.readText(Charsets.UTF_8)
+            val pubB64 = text.substringAfter("-----BEGIN PUBLIC KEY-----").substringBefore("-----END PUBLIC KEY-----").replace(Regex("\\s"), "")
+            val privB64 = text.substringAfter("-----BEGIN PRIVATE KEY-----").substringBefore("-----END PRIVATE KEY-----").replace(Regex("\\s"), "")
+            val kf = KeyFactory.getInstance("RSA")
+            val pub = kf.generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(pubB64)))
+            val priv = kf.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(privB64)))
+            KeyPair(pub, priv)
+        } catch (_: Exception) {
+            generateRealKeystoreInternal(safeAlias, "appforge2026", "ApkForge Studio")
+            val text = pemFile.readText(Charsets.UTF_8)
+            val pubB64 = text.substringAfter("-----BEGIN PUBLIC KEY-----").substringBefore("-----END PUBLIC KEY-----").replace(Regex("\\s"), "")
+            val privB64 = text.substringAfter("-----BEGIN PRIVATE KEY-----").substringBefore("-----END PRIVATE KEY-----").replace(Regex("\\s"), "")
+            val kf = KeyFactory.getInstance("RSA")
+            val pub = kf.generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(pubB64)))
+            val priv = kf.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(privB64)))
+            KeyPair(pub, priv)
+        }
     }
 
     private fun generateRealKeystoreInternal(
