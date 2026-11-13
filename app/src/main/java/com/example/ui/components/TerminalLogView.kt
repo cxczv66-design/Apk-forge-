@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -26,9 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.*
@@ -46,7 +50,7 @@ fun TerminalLogView(
         when (selectedFilter) {
             "المراحل" -> logs.filter {
                 it.contains("🚀") || it.contains("⚙️") || it.contains("🌐") ||
-                    it.contains("🔨") || it.contains("⚡") || it.contains("🔑") || it.contains("🔐")
+                    it.contains("🔨") || it.contains("🎨") || it.contains("🔌") || it.contains("🔐")
             }
             "النتائج" -> logs.filter {
                 it.contains("✅") || it.contains("🎉") || it.contains("📁") ||
@@ -79,26 +83,29 @@ fun TerminalLogView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF5F56)))
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFFBD2E)))
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF27C93F)))
-                Spacer(modifier = Modifier.width(10.dp))
-                Icon(
-                    imageVector = Icons.Default.Terminal,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "termux@apkforge (${logs.size})",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = TextSecondary
-                )
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF5F56)))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFFBD2E)))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF27C93F)))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Icon(
+                        imageVector = Icons.Default.Terminal,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "termux@apkforge (${logs.size})",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                    )
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -139,7 +146,7 @@ fun TerminalLogView(
             }
         }
 
-        // Terminal Content
+        // Terminal Content with separated LTR timestamp column to eliminate RTL scrambling
         if (filteredLogs.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -148,35 +155,60 @@ fun TerminalLogView(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (logs.isEmpty()) "جاهز للبناء... اضغط 'بناء' لبدء خط التجميع الحي" else "لا توجد سجلات مطابقة لهذا الفلتر",
+                    text = if (logs.isEmpty()) "جاهز للبناء... اضغط 'بناء' لبدء خط التجميع الفعلي" else "لا توجد سجلات مطابقة لهذا الفلتر",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     color = TextMuted
                 )
             }
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(210.dp)
-                    .padding(12.dp)
-            ) {
-                itemsIndexed(filteredLogs) { _, line ->
-                    val color = when {
-                        line.contains("✅") || line.contains("اكتمل") || line.contains("🎉") -> TerminalGreen
-                        line.contains("❌") || line.contains("خطأ") -> ErrorRed
-                        line.contains("⚠️") || line.contains("تنبيه") -> WarningYellow
-                        line.contains("🚀") || line.contains("⚙️") || line.contains("⚡") -> AmberPrimary
-                        else -> TerminalText
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(210.dp)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    itemsIndexed(filteredLogs) { _, rawLine ->
+                        val tsMatch = Regex("^\\[([0-9:]{5,8})]\\s*(.*)$").find(rawLine)
+                        val timestamp = tsMatch?.groupValues?.getOrNull(1)
+                        val body = tsMatch?.groupValues?.getOrNull(2) ?: rawLine
+
+                        val color = when {
+                            rawLine.contains("✅") || rawLine.contains("اكتمل") || rawLine.contains("🎉") -> TerminalGreen
+                            rawLine.contains("❌") || rawLine.contains("خطأ") -> ErrorRed
+                            rawLine.contains("⚠️") || rawLine.contains("تنبيه") -> WarningYellow
+                            rawLine.contains("🚀") || rawLine.contains("⚙️") || rawLine.contains("🔐") -> AmberPrimary
+                            else -> TerminalText
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            if (timestamp != null) {
+                                Text(
+                                    text = "[$timestamp] ",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Text(
+                                text = body,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = color,
+                                style = LocalTextStyle.current.copy(textDirection = TextDirection.ContentOrLtr),
+                                lineHeight = 16.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
-                    Text(
-                        text = line,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = color,
-                        lineHeight = 16.sp
-                    )
                 }
             }
         }

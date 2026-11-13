@@ -385,15 +385,16 @@ fun InAppToolchainTerminalCard(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Color(0xFF04060A))
                                     .padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 if (terminalLogs.isEmpty()) {
                                     item {
                                         Text(
-                                            text = "apkforge@device:~$ اضغط 'تثبيت والتحقق من الأدوات' لبدء التثبيت الفعلي أو اكتب أمراً أدناه (help).",
+                                            text = "apkforge@device:~$ اضغط 'تثبيت والتحقق من الأدوات' أو اكتب أمراً أدناه (help).",
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 10.sp,
-                                            color = TextMuted
+                                            color = TextMuted,
+                                            style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.ContentOrLtr)
                                         )
                                     }
                                 } else {
@@ -405,13 +406,28 @@ fun InAppToolchainTerminalCard(
                                             TerminalLineType.ERROR -> ErrorRed
                                             TerminalLineType.INFO -> Color(0xFFCBD5E1)
                                         }
-                                        Text(
-                                            text = "[${line.timestamp}] ${line.text}",
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 10.sp,
-                                            color = color,
-                                            lineHeight = 14.sp
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Text(
+                                                text = "[${line.timestamp}] ",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.sp,
+                                                color = TextMuted,
+                                                style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr),
+                                                lineHeight = 14.sp
+                                            )
+                                            Text(
+                                                text = line.text,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.sp,
+                                                color = color,
+                                                style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.ContentOrLtr),
+                                                lineHeight = 14.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
                                     }
                                 }
                             }

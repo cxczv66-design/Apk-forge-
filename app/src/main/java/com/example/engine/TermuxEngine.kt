@@ -1,5 +1,6 @@
 package com.example.engine
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,10 +9,18 @@ import androidx.core.content.ContextCompat
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
 import com.example.utils.Constants
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * خيارات التحسين والبناء التلقائي المتقدم
@@ -43,10 +52,10 @@ data class BuildStageInfo(
 )
 
 data class BuildTelemetry(
-    val activeTarget: String = "APK Debug",
+    val activeTarget: String = "Android Package",
     val currentArtifact: String = "جاهز للبدء",
     val processedFilesCount: Int = 0,
-    val estimatedSizeMb: String = "0.0 MB",
+    val estimatedSizeMb: String = "0 KB",
     val elapsedSec: Float = 0f,
     val assembledLayers: Int = 0, // 0..6 layers visualized live
     val lastOutputFileName: String? = null,
@@ -61,9 +70,19 @@ data class BuildAuditItem(
     val autoFixable: Boolean = true
 )
 
+enum class TermuxConnectionState {
+    NOT_INSTALLED,
+    NEEDS_RUN_COMMAND_PERMISSION,
+    INSTALLED_UNVERIFIED,
+    NEEDS_ALLOW_EXTERNAL_APPS,
+    VERIFIED_READY
+}
+
 /**
- * المحرك البرمجي المسؤول عن التواصل مع تطبيق Termux
- * وبناء أوامر Bash وتنفيذ عمليات البناء التلقائية المتقدمة مع مراقبة حية للمراحل
+ * المحرك البرمجي المسؤول عن:
+ * 1) التجميع والتغليف والتوقيع الفعلي على القرص via BuildPackageAssembler
+ * 2) التواصل الحقيقي ثنائي الاتجاه مع Termux RunCommandService عبر PendingIntent
+ * 3) توليد سكربت بناء حقيقي متكامل (Gradle + Standalone AAPT2/Javac/DX/ApkSigner)
  */
 class TermuxEngine(private val context: Context) {
 
@@ -73,6 +92,12 @@ class TermuxEngine(private val context: Context) {
         data class Success(val apkPath: String, val message: String) : EngineStatus()
         data class Failure(val error: String, val detailedLogs: String) : EngineStatus()
     }
+
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val prefs = context.getSharedPreferences("apkforge_termux_prefs", Context.MODE_PRIVATE)
+    private val assembler = BuildPackageAssembler(context)
+    private val exporter = ProjectExporter(context)
+    private val toolchain = ToolchainManager(context)
 
     private val _engineState = MutableStateFlow<EngineStatus>(EngineStatus.Idle)
     val engineState: StateFlow<EngineStatus> = _engineState.asStateFlow()
@@ -86,13 +111,62 @@ class TermuxEngine(private val context: Context) {
     private val _telemetry = MutableStateFlow(BuildTelemetry())
     val telemetry: StateFlow<BuildTelemetry> = _telemetry.asStateFlow()
 
+    private val _termuxReport = MutableStateFlow(computeDiagnosticReport())
+    val termuxReport: StateFlow<TermuxDiagnosticReport> = _termuxReport.asStateFlow()
+
+    private val _lastTermuxCallback = MutableStateFlow<TermuxExecCallbackResult?>(null)
+    val lastTermuxCallback: StateFlow<TermuxExecCallbackResult?> = _lastTermuxCallback.asStateFlow()
+
+    init {
+        engineScope.launch {
+            TermuxResultReceiver.results.collect { res ->
+                handleTermuxCallback(res)
+            }
+        }
+    }
+
+    private fun handleTermuxCallback(res: TermuxExecCallbackResult) {
+        _lastTermuxCallback.value = res
+        if (res.requiresExternalAppsEnable) {
+            prefs.edit()
+                .putBoolean("external_apps_verified", false)
+                .putBoolean("external_apps_error_seen", true)
+                .apply()
+            _termuxReport.value = computeDiagnosticReport()
+            addLog("❌ خطأ Termux (2): يجب تفعيل allow-external-apps=true داخل ~/.termux/termux.properties")
+            _engineState.value = EngineStatus.Failure(
+                error = "يلزم تفعيل allow-external-apps=true داخل Termux",
+                detailedLogs = res.errorMessage.ifBlank { res.stderr }
+            )
+        } else if (res.isSuccess) {
+            prefs.edit()
+                .putBoolean("external_apps_verified", true)
+                .putBoolean("external_apps_error_seen", false)
+                .apply()
+            _termuxReport.value = computeDiagnosticReport()
+            if (res.mode == "ping") {
+                addLog("✅ تم التحقق الفعلي من اتصال Termux وتفعيل allow-external-apps بنجاح!")
+            } else {
+                addLog("✅ اكتمل تنفيذ أمر Termux بنجاح (exit=0)")
+                if (res.stdout.isNotBlank()) {
+                    res.stdout.lines().takeLast(6).forEach { line ->
+                        if (line.isNotBlank()) addLog("  termux> $line")
+                    }
+                }
+            }
+        } else {
+            val errDetail = res.errorMessage.ifBlank { res.stderr }.ifBlank { "exitCode=${res.exitCode}" }
+            addLog("⚠️ استجابة Termux (err=${res.errorCode}, exit=${res.exitCode}): $errDetail")
+        }
+    }
+
     private fun defaultStages(): List<BuildStageInfo> = listOf(
-        BuildStageInfo("preflight", 1, "فحص البيئة وتوليد الهيكل", "PREFLIGHT", "تحضير workspace والحزمة والأدوات"),
-        BuildStageInfo("manifest", 2, "حقن Manifest والأذونات", "MANIFEST", "دمج الأذونات والبيانات الوصفية"),
-        BuildStageInfo("assets", 3, "تحضير الأصول وWebView", "ASSETS", "نسخ الملفات والسبلاش والتنقل السفلي"),
-        BuildStageInfo("aapt2", 4, "ترجمة الموارد والواجهات", "AAPT2", "بناء R.jar وتحزيم الموارد الثنائية"),
-        BuildStageInfo("dex", 5, "ترجمة الكود وتحسين R8", "D8 / R8", "تحويل البايتكود وتقليص الحجم"),
-        BuildStageInfo("package", 6, "المحاذاة والتوقيع والتغليف", "APKSIGNER", "ZipAlign وتوقيع وإخراج الحزمة النهائية")
+        BuildStageInfo("preflight", 1, "تهيئة هيكل Gradle والمشروع", "GRADLE", "توليد إعدادات المشروع والسكربتات"),
+        BuildStageInfo("manifest", 2, "حقن Manifest والأذونات", "MANIFEST", "دمج الأذونات والروابط العميقة"),
+        BuildStageInfo("assets", 3, "تحضير الأصول والواجهة", "ASSETS", "تضمين ملفات HTML/ZIP و MainActivity"),
+        BuildStageInfo("aapt2", 4, "توليد الأيقونات والموارد", "RES", "رندر PNG متعددة الدقة و Adaptive XML"),
+        BuildStageInfo("sign", 5, "التوقيع التشفيري RSA-2048", "SIGN", "حساب بصمات SHA-256 وملفات الشهادة"),
+        BuildStageInfo("package", 6, "التغليف والحفظ في الجهاز", "PACKAGE", "كتابة الحزمة النهائية في التنزيلات")
     )
 
     data class TermuxDiagnosticReport(
@@ -102,11 +176,24 @@ class TermuxEngine(private val context: Context) {
         val isRunCommandServiceReachable: Boolean,
         val isTermuxApiInstalled: Boolean,
         val isTermuxTaskerInstalled: Boolean,
+        val connectionState: TermuxConnectionState,
         val diagnosticSummaryAr: String,
         val checkTimestamp: Long = System.currentTimeMillis()
     ) {
         val isFullyConnected: Boolean
-            get() = isTermuxInstalled && hasRunCommandPermission && isRunCommandServiceReachable
+            get() = connectionState == TermuxConnectionState.VERIFIED_READY
+
+        val needsExternalAppsConfig: Boolean
+            get() = connectionState == TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ||
+                connectionState == TermuxConnectionState.INSTALLED_UNVERIFIED
+    }
+
+    fun getEnableExternalAppsCommand(): String {
+        return "mkdir -p ~/.termux && touch ~/.termux/termux.properties && " +
+            "(grep -q '^allow-external-apps' ~/.termux/termux.properties && " +
+            "sed -i 's/^allow-external-apps.*/allow-external-apps=true/' ~/.termux/termux.properties || " +
+            "echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && " +
+            "termux-reload-settings && pkg install -y openjdk-17 aapt2 dx apksigner zip wget"
     }
 
     private fun isPackagePresent(packageName: String): String? {
@@ -126,14 +213,8 @@ class TermuxEngine(private val context: Context) {
         }
     }
 
-    /**
-     * فحص هل تطبيق Termux مثبت فعلياً على الهاتف (متوافق مع Android 11+ عبر <queries>)
-     */
     fun isTermuxInstalled(): Boolean = isPackagePresent(Constants.TERMUX_PACKAGE_NAME) != null
 
-    /**
-     * فحص صلاحية إرسال الأوامر RUN_COMMAND مع التأكد من وجود تطبيق Termux المزوّد للصلاحية
-     */
     fun hasRunCommandPermission(): Boolean {
         if (!isTermuxInstalled()) return false
         return ContextCompat.checkSelfPermission(
@@ -142,10 +223,13 @@ class TermuxEngine(private val context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    /**
-     * فحص اتصال وتشخيص حقيقي متقدم لمحرك Termux والخدمات والإضافات
-     */
     fun runRealDiagnostic(): TermuxDiagnosticReport {
+        val report = computeDiagnosticReport()
+        _termuxReport.value = report
+        return report
+    }
+
+    private fun computeDiagnosticReport(): TermuxDiagnosticReport {
         val termuxVer = isPackagePresent(Constants.TERMUX_PACKAGE_NAME)
         val termuxInstalled = termuxVer != null
         val taskerVer = isPackagePresent("com.termux.tasker")
@@ -160,7 +244,7 @@ class TermuxEngine(private val context: Context) {
         val serviceResolvable = if (termuxInstalled) {
             try {
                 val probe = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
-                    setClassName(Constants.TERMUX_PACKAGE_NAME, "com.termux.app.RunCommandService")
+                    setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
                 }
                 val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     context.packageManager.resolveService(probe, PackageManager.ResolveInfoFlags.of(0))
@@ -174,11 +258,28 @@ class TermuxEngine(private val context: Context) {
             }
         } else false
 
-        val summary = when {
-            !termuxInstalled -> "تطبيق Termux غير مثبت على هذا الجهاز — يمكنك استخدام أدوات البناء المدمجة أو تثبيت Termux من F-Droid."
-            !effectivePerm -> "تطبيق Termux مثبت (v$termuxVer)، لكن إذن RUN_COMMAND غير ممنوح أو يتطلب تفعيل allow-external-apps=true داخل Termux."
-            !serviceResolvable -> "Termux مثبت (v$termuxVer)، لكن خدمة RunCommandService غير متاحة للتواصل الخارجي."
-            else -> "✅ اتصال Termux حقيقي نشط وجاهز (الإصدار: $termuxVer • خدمة RunCommand متصلة)."
+        val isVerified = prefs.getBoolean("external_apps_verified", false)
+        val sawError2 = prefs.getBoolean("external_apps_error_seen", false)
+
+        val state = when {
+            !termuxInstalled -> TermuxConnectionState.NOT_INSTALLED
+            !effectivePerm || !serviceResolvable -> TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION
+            sawError2 -> TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS
+            isVerified -> TermuxConnectionState.VERIFIED_READY
+            else -> TermuxConnectionState.INSTALLED_UNVERIFIED
+        }
+
+        val summary = when (state) {
+            TermuxConnectionState.NOT_INSTALLED ->
+                "تطبيق Termux غير مثبت على الجهاز — يمكنك البناء وتصدير الحزم داخل التطبيق أو تثبيت Termux من F-Droid."
+            TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION ->
+                "Termux مثبت (v$termuxVer)، لكن إذن RUN_COMMAND أو خدمة RunCommandService غير متاحة."
+            TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ->
+                "⚠️ تم رصد خطأ Error (2): خدمة RunCommandService تتطلب تفعيل allow-external-apps=true داخل ~/.termux/termux.properties ثم أمر termux-reload-settings."
+            TermuxConnectionState.INSTALLED_UNVERIFIED ->
+                "Termux مثبت (v$termuxVer) والإذن ممنوح — اضغط 'اختبار التنفيذ الفعلي' للتأكد من تفعيل allow-external-apps=true."
+            TermuxConnectionState.VERIFIED_READY ->
+                "✅ اتصال Termux حقيقي نشط ومُتحقق فعلياً (v$termuxVer • allow-external-apps=true)."
         }
 
         return TermuxDiagnosticReport(
@@ -188,13 +289,39 @@ class TermuxEngine(private val context: Context) {
             isRunCommandServiceReachable = serviceResolvable,
             isTermuxApiInstalled = apiVer != null,
             isTermuxTaskerInstalled = taskerVer != null,
+            connectionState = state,
             diagnosticSummaryAr = summary
         )
     }
 
     /**
-     * مدقق تلقائي ذكي لفحص جاهزية المشروع قبل البناء
+     * اختبار اتصال حي عبر تنفيذ أمر فعلي في Termux واستلام النتيجة بـ PendingIntent
      */
+    fun pingTermuxConnection() {
+        try {
+            val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
+                action = Constants.ACTION_TERMUX_EXEC_RESULT
+                putExtra(Constants.EXTRA_EXEC_MODE, "ping")
+            }
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+            val pendingIntent = PendingIntent.getBroadcast(context, 4101, callbackIntent, flags)
+
+            val intent = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
+                setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
+                putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
+                putExtra(Constants.EXTRA_ARGUMENTS, arrayOf("-c", "echo APKFORGE_PING_OK && termux-reload-settings >/dev/null 2>&1 || true"))
+                putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
+                putExtra(Constants.EXTRA_BACKGROUND, true)
+                putExtra(Constants.EXTRA_PENDING_INTENT, pendingIntent)
+            }
+            context.startService(intent)
+            addLog("🔍 تم إرسال نبضة اختبار تنفيذ إلى Termux RunCommandService...")
+        } catch (e: Exception) {
+            addLog("⚠️ تعذر إرسال نبضة الاختبار إلى Termux: ${e.message}")
+        }
+    }
+
     fun runPreBuildAudit(project: AppProject, hasKeystore: Boolean): List<BuildAuditItem> {
         val pkgRegex = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$")
         val isPkgValid = pkgRegex.matches(project.packageConfig.packageName.trim())
@@ -237,17 +364,14 @@ class TermuxEngine(private val context: Context) {
             ),
             BuildAuditItem(
                 id = "keystore",
-                titleAr = "جاهزية مفتاح التوقيع (Keystore)",
-                descriptionAr = if (hasKeystore) "مفتاح الإصدار جاهز للتوقيع" else "سيتم استخدام مفتاح Debug التلقائي أو توليد مفتاح",
+                titleAr = "جاهزية مفتاح التوقيع (RSA-2048)",
+                descriptionAr = if (hasKeystore) "مفتاح الإصدار الحقيقي جاهز للتوقيع" else "سيتم استخدام مفتاح افتراضي أو توليد مفتاح خاص",
                 passed = hasKeystore,
                 autoFixable = true
             )
         )
     }
 
-    /**
-     * إصلاح تلقائي ذكي لجميع إعدادات المشروع القابلة للإصلاح قبل البناء
-     */
     fun autoFixProject(project: AppProject): AppProject {
         val cleanName = project.name.trim().ifBlank { "MyApp" }
         val pkgRegex = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$")
@@ -283,9 +407,6 @@ class TermuxEngine(private val context: Context) {
         )
     }
 
-    /**
-     * توليد أمر keytool حقيقي لإنشاء ملف Keystore في Termux
-     */
     fun generateKeytoolCommand(
         alias: String,
         password: String,
@@ -307,7 +428,10 @@ class TermuxEngine(private val context: Context) {
     }
 
     /**
-     * بناء سكربت Bash متكامل حقيقي لتوليد مشروع Android Gradle كامل وبناء APK/AAB داخل Termux
+     * سكربت Termux الحقيقي المتكامل:
+     * - يجمع كامل هيكل Android Studio (root build.gradle.kts + settings.gradle.kts + app/build.gradle.kts + Manifest + MainActivity.kt + MainActivity.java + strings.xml + real assets & icons)
+     * - يدعم البناء المباشر في Termux بـ AAPT2 + Javac + DX/D8 + ApkSigner لإنتاج APK حقيقي موقّع وقابل للتثبيت!
+     * - كما يدعم البناء بـ Gradle الكامل إذا كانت حزمة SDK متوفرة.
      */
     fun generateBashBuildScript(
         project: AppProject,
@@ -316,176 +440,137 @@ class TermuxEngine(private val context: Context) {
     ): String {
         val sanitizedProjectName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "App" }
         val pkg = project.packageConfig.packageName
+        val pkgPath = pkg.replace('.', '/')
         val versionCode = project.packageConfig.versionCode
         val versionName = project.packageConfig.versionName
-        val minSdk = project.packageConfig.minSdk
-        val targetSdk = project.packageConfig.targetSdk
         val workDir = "\$HOME/${Constants.WORKSPACE_SUBDIR}/$sanitizedProjectName"
-        val isAab = buildType.equals("aab", ignoreCase = true)
-        val isBoth = buildType.equals("both", ignoreCase = true)
-        val ext = if (isAab) "aab" else "apk"
-        val outFileName = "${sanitizedProjectName}_v${versionName}_$buildType.$ext"
-        val targetDownload = "${Constants.DOWNLOADS_DIR}/$outFileName"
+        val srcZipInDownloads = "/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/ApkForge_Src_${sanitizedProjectName}.zip"
+        val outApkName = "${sanitizedProjectName}_v${versionName}_${buildType}.apk"
+        val targetDownload = "/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/$outApkName"
 
-        val gradleCommand = when {
-            isBoth -> "gradle assembleRelease bundleRelease"
-            buildType.equals("release", ignoreCase = true) -> "gradle assembleRelease"
-            isAab -> "gradle bundleRelease"
-            else -> "gradle assembleDebug"
-        }
-
-        val relativeApkOut = when {
-            buildType.equals("release", ignoreCase = true) -> "app/build/outputs/apk/release/app-release-unsigned.apk"
-            isAab -> "app/build/outputs/bundle/release/app-release.aab"
-            else -> "app/build/outputs/apk/debug/app-debug.apk"
-        }
-
-        val splitsBlock = if (options.abiSplit) {
-            """
-                splits {
-                    abi {
-                        enable true
-                        reset()
-                        include "armeabi-v7a", "arm64-v8a"
-                        universalApk true
-                    }
-                }
-            """.trimIndent()
-        } else ""
+        val entries = exporter.buildProjectTextEntries(project, options)
+        val manifestXml = entries["app/src/main/AndroidManifest.xml"].orEmpty()
+        val standaloneManifestXml = entries["termux_standalone/AndroidManifest.xml"].orEmpty()
+        val standaloneJava = entries["termux_standalone/src/$pkgPath/MainActivity.java"].orEmpty()
+        val stringsXml = entries["app/src/main/res/values/strings.xml"].orEmpty()
+        val rootBuildGradle = entries["build.gradle.kts"].orEmpty()
+        val settingsGradle = entries["settings.gradle.kts"].orEmpty()
+        val appBuildGradle = entries["app/build.gradle.kts"].orEmpty()
+        val mainActivityKt = entries["app/src/main/java/$pkgPath/MainActivity.kt"].orEmpty()
 
         return """
             #!/data/data/com.termux/files/usr/bin/bash
             # ========================================================
-            # 🚀 ApkForge Engine - سكريبت البناء الأوتوماتيكي المتكامل داخل Termux
-            # المشروع: ${project.name}
-            # الحزمة: $pkg
-            # النوع: $buildType | R8=${options.r8Minify} | Shrink=${options.shrinkResources}
+            # ApkForge Real Termux Builder - ${project.name} ($pkg)
             # ========================================================
-            
             set -e
-            echo "[1/6] 🔧 تهيئة مجلد المشروع وهيكل Gradle..."
+
+            echo "[1/6] Preparing Termux workspace..."
             PROJECT_DIR="$workDir"
-            mkdir -p "${'$'}PROJECT_DIR/app/src/main/java/${pkg.replace('.', '/')}"
-            mkdir -p "${'$'}PROJECT_DIR/app/src/main/res/values"
-            mkdir -p "${'$'}PROJECT_DIR/app/src/main/assets"
+            rm -rf "${'$'}PROJECT_DIR"
+            mkdir -p "${'$'}PROJECT_DIR"
             cd "${'$'}PROJECT_DIR"
-            
-            cat << 'EOF' > settings.gradle.kts
-            rootProject.name = "$sanitizedProjectName"
-            include(":app")
-            EOF
 
-            cat << 'EOF' > app/build.gradle.kts
-            plugins {
-                id("com.android.application")
-            }
-            android {
-                namespace = "$pkg"
-                compileSdk = $targetSdk
-                defaultConfig {
-                    applicationId = "$pkg"
-                    minSdk = $minSdk
-                    targetSdk = $targetSdk
-                    versionCode = $versionCode
-                    versionName = "$versionName"
-                }
-                buildTypes {
-                    release {
-                        isMinifyEnabled = ${options.r8Minify}
-                        isShrinkResources = ${options.shrinkResources}
-                    }
-                }
-                $splitsBlock
-            }
-            EOF
+            if [ -f "$srcZipInDownloads" ] && command -v unzip >/dev/null 2>&1; then
+                echo "Extracting staged project & real assets from Download/ApkForge..."
+                unzip -oq "$srcZipInDownloads" -d "${'$'}PROJECT_DIR"
+            else
+                echo "Writing complete Android project files directly..."
+                mkdir -p "app/src/main/java/$pkgPath" "app/src/main/res/values" "app/src/main/assets" "termux_standalone/src/$pkgPath"
 
-            echo "[2/6] 📦 حقن AndroidManifest.xml والأذونات..."
-            cat << 'EOF' > app/src/main/AndroidManifest.xml
-            <?xml version="1.0" encoding="utf-8"?>
-            <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-                package="$pkg">
-                ${if (project.permissionsConfig.camera) "<uses-permission android:name=\"android.permission.CAMERA\" />" else ""}
-                ${if (project.permissionsConfig.location) "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n                <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />" else ""}
-                ${if (project.permissionsConfig.microphone) "<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />" else ""}
-                ${if (project.permissionsConfig.notifications || project.pushConfig.enabled) "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />" else ""}
-                ${if (project.permissionsConfig.storage) "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />" else ""}
-                ${if (project.permissionsConfig.vibration || (project.pushConfig.enabled && project.pushConfig.vibrationEnabled)) "<uses-permission android:name=\"android.permission.VIBRATE\" />" else ""}
-                ${if (project.permissionsConfig.bluetooth) "<uses-permission android:name=\"android.permission.BLUETOOTH\" />" else ""}
-                <uses-permission android:name="android.permission.INTERNET" />
-                <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-                <application
-                    android:allowBackup="true"
-                    android:label="${project.name}"
-                    android:supportsRtl="true"
-                    android:theme="@android:style/Theme.Material.Light.NoActionBar">
-                    ${if (project.pushConfig.enabled && project.pushConfig.appId.isNotBlank()) "<meta-data android:name=\"onesignal_app_id\" android:value=\"${project.pushConfig.appId}\" />\n                    <meta-data android:name=\"push_provider\" android:value=\"${project.pushConfig.provider}\" />" else ""}
-                    <activity
-                        android:name=".MainActivity"
-                        android:exported="true"
-                        android:configChanges="orientation|screenSize|keyboardHidden">
-                        <intent-filter>
-                            <action android:name="android.intent.action.MAIN" />
-                            <category android:name="android.intent.category.LAUNCHER" />
-                        </intent-filter>
-                        ${if (project.bridgeConfig.deepLinkDomain.isNotBlank()) """
-                        <intent-filter android:autoVerify="true">
-                            <action android:name="android.intent.action.VIEW" />
-                            <category android:name="android.intent.category.DEFAULT" />
-                            <category android:name="android.intent.category.BROWSABLE" />
-                            <data android:scheme="https" android:host="${project.bridgeConfig.deepLinkDomain}" />
-                        </intent-filter>
-                        """.trimIndent() else ""}
-                    </activity>
-                </application>
-            </manifest>
-            EOF
-            
-            echo "[3/6] 🌐 توليد MainActivity.kt (WebView + ApkForge JS Bridge=${project.bridgeConfig.jsBridgeEnabled})..."
-            ${when (project.sourceType) {
-                SourceType.WEB_URL -> """
-                cat << 'EOF' > app/src/main/assets/app_config.json
-                {
-                   "url": "${project.sourceValue}",
-                   "pullToRefresh": ${project.webViewConfig.pullToRefresh},
-                   "fullScreen": ${project.webViewConfig.fullScreen},
-                   "cache": ${project.webViewConfig.cacheEnabled},
-                   "bottomNavEnabled": ${project.bottomNavConfig.enabled}
-                }
-                EOF
-                """.trimIndent()
-                SourceType.HTML_FOLDER -> """
-                echo "<h1>مرحباً بك في ${project.name}</h1>" > app/src/main/assets/index.html
-                """.trimIndent()
-                else -> """
-                echo "مصدر مخصص: ${project.sourceValue}" > app/src/main/assets/source.txt
-                """.trimIndent()
-            }}
-            
-            echo "[4/6] ⚙️ تشغيل محرك البناء والتجميع ($gradleCommand)..."
-            if command -v gradle &> /dev/null; then
-                $gradleCommand --no-daemon
-            else
-                echo "⚠️ تنبيه: Gradle غير مثبت في Termux، يرجى تشغيل: pkg install openjdk-17 gradle"
-                exit 1
+                cat << 'APKFORGE_EOF' > settings.gradle.kts
+$settingsGradle
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > build.gradle.kts
+$rootBuildGradle
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/build.gradle.kts
+$appBuildGradle
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/AndroidManifest.xml
+$manifestXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > termux_standalone/AndroidManifest.xml
+$standaloneManifestXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/res/values/strings.xml
+$stringsXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/java/$pkgPath/MainActivity.kt
+$mainActivityKt
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > termux_standalone/src/$pkgPath/MainActivity.java
+$standaloneJava
+APKFORGE_EOF
             fi
-            
-            echo "[5/6] 🔐 المحاذاة والتوقيع (ZipAlign & ApkSigner) ونقل الإخراج..."
-            mkdir -p "${Constants.DOWNLOADS_DIR}"
-            if [ -f "$relativeApkOut" ]; then
-                cp "$relativeApkOut" "$targetDownload"
-                echo "========================================================"
-                echo "✅ اكتمل البناء بنجاح!"
-                echo "📱 تم حفظ التطبيق في: $targetDownload"
-                echo "========================================================"
+
+            echo "[2/6] Checking Termux compiler tools (openjdk-17, aapt2, dx/d8, apksigner)..."
+            for tool in javac aapt2 apksigner; do
+                if ! command -v "${'$'}tool" >/dev/null 2>&1; then
+                    echo "Installing missing Termux packages..."
+                    pkg update -y && pkg install -y openjdk-17 aapt2 dx apksigner zip wget unzip
+                    break
+                fi
+            done
+
+            ANDROID_JAR=""
+            if [ -f "${'$'}HOME/.apkforge_sdk/android-34.jar" ]; then
+                ANDROID_JAR="${'$'}HOME/.apkforge_sdk/android-34.jar"
+            elif [ -n "${'$'}ANDROID_HOME" ] && [ -f "${'$'}ANDROID_HOME/platforms/android-34/android.jar" ]; then
+                ANDROID_JAR="${'$'}ANDROID_HOME/platforms/android-34/android.jar"
             else
-                echo "❌ خطأ: لم يتم العثور على ملف الإخراج: $relativeApkOut"
-                exit 1
+                echo "[3/6] Fetching lightweight android-34.jar stub for CLI compilation..."
+                mkdir -p "${'$'}HOME/.apkforge_sdk"
+                ANDROID_JAR="${'$'}HOME/.apkforge_sdk/android-34.jar"
+                curl -fL "https://github.com/Sable/android-platforms/raw/master/android-34/android.jar" -o "${'$'}ANDROID_JAR" || true
             fi
+
+            mkdir -p build/gen build/obj build/dex build/out "/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}"
+
+            echo "[4/6] Compiling resources with aapt2..."
+            aapt2 compile --dir app/src/main/res -o build/res.zip
+            aapt2 link -o build/unsigned.apk \
+                -I "${'$'}ANDROID_JAR" \
+                --manifest termux_standalone/AndroidManifest.xml \
+                -A app/src/main/assets \
+                --java build/gen \
+                --auto-add-overlay \
+                build/res.zip
+
+            echo "[5/6] Compiling Java & packaging classes.dex..."
+            find build/gen termux_standalone/src -name "*.java" > build/sources.txt
+            javac --release 8 -classpath "${'$'}ANDROID_JAR" -d build/obj @build/sources.txt
+            if command -v d8 >/dev/null 2>&1; then
+                d8 --lib "${'$'}ANDROID_JAR" --output build/dex "${'$'}(find build/obj -name '*.class')"
+            else
+                dx --dex --output=build/dex/classes.dex build/obj
+            fi
+            (cd build/dex && zip -j ../unsigned.apk classes.dex)
+
+            echo "[6/6] Signing APK with keytool + apksigner..."
+            KEYSTORE_PATH="${'$'}HOME/.apkforge_sdk/release.keystore"
+            if [ ! -f "${'$'}KEYSTORE_PATH" ]; then
+                keytool -genkeypair -v -keystore "${'$'}KEYSTORE_PATH" -alias apkforge \
+                    -keyalg RSA -keysize 2048 -validity 9125 \
+                    -storepass apkforge2026 -keypass apkforge2026 \
+                    -dname "CN=ApkForge, O=ApkForge, C=SA"
+            fi
+            apksigner sign --ks "${'$'}KEYSTORE_PATH" --ks-pass pass:apkforge2026 \
+                --out "$targetDownload" build/unsigned.apk
+
+            echo "✅ REAL SIGNED APK BUILT AT: $targetDownload"
         """.trimIndent()
     }
 
     /**
-     * إرسال الأمر إلى Termux عبر Intent
+     * تجهيز ملفات المشروع الكاملة على القرص ثم إرسال أمر التنفيذ إلى Termux مع PendingIntent لاستقبال الأخطاء والمخرجات
      */
     fun dispatchBuildToTermux(
         project: AppProject,
@@ -493,37 +578,58 @@ class TermuxEngine(private val context: Context) {
         options: BuildOptimizationOptions = BuildOptimizationOptions(),
         onDirectIntentSent: () -> Unit
     ) {
-        val bashScript = generateBashBuildScript(project, buildType, options)
+        engineScope.launch {
+            val sanitizedName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
+            val bashScript = generateBashBuildScript(project, buildType, options)
 
-        try {
-            val intent = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
-                setClassName(Constants.TERMUX_PACKAGE_NAME, "com.termux.app.RunCommandService")
-                putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
-                putExtra(Constants.EXTRA_ARGUMENTS, arrayOf("-c", bashScript))
-                putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
-                putExtra(Constants.EXTRA_BACKGROUND, false)
-                putExtra(Constants.EXTRA_SESSION_ACTION, "0")
+            addLog("📦 تجهيز ملفات المشروع والأصول الحقيقية في Download/ApkForge لـ Termux...")
+            withContext(Dispatchers.IO) {
+                assembler.stageSourceZipForTermux(project, options, bashScript)
             }
 
-            context.startService(intent)
-            addLog("🚀 تم إرسال أمر البناء الكامل إلى خدمة Termux RunCommandService")
-            onDirectIntentSent()
-        } catch (e: Exception) {
-            addLog("⚠️ تعذر تشغيل خدمة Termux المباشرة: ${e.message}")
+            val launcherCmd = "if [ -f \"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\" ]; then " +
+                "bash \"/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/build_${sanitizedName}.sh\"; " +
+                "else echo '❌ Missing staged script. Please run termux-setup-storage in Termux first.'; read -r; fi"
+
             try {
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(Constants.TERMUX_PACKAGE_NAME)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(launchIntent)
-                    addLog("ℹ️ تم فتح تطبيق Termux للتنفيذ اليدوي.")
+                val callbackIntent = Intent(context, TermuxResultReceiver::class.java).apply {
+                    action = Constants.ACTION_TERMUX_EXEC_RESULT
+                    putExtra(Constants.EXTRA_EXEC_MODE, "build")
                 }
-            } catch (ignored: Exception) {
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+                val pendingIntent = PendingIntent.getBroadcast(context, 4102, callbackIntent, flags)
+
+                val intent = Intent(Constants.TERMUX_ACTION_RUN_COMMAND).apply {
+                    setClassName(Constants.TERMUX_PACKAGE_NAME, Constants.TERMUX_SERVICE_CLASS)
+                    putExtra(Constants.EXTRA_COMMAND_PATH, Constants.TERMUX_BASH_PATH)
+                    putExtra(Constants.EXTRA_ARGUMENTS, arrayOf("-c", launcherCmd))
+                    putExtra(Constants.EXTRA_WORKDIR, Constants.TERMUX_HOME_DIR)
+                    putExtra(Constants.EXTRA_BACKGROUND, false)
+                    putExtra(Constants.EXTRA_SESSION_ACTION, "0")
+                    putExtra(Constants.EXTRA_PENDING_INTENT, pendingIntent)
+                }
+
+                context.startService(intent)
+                addLog("🚀 تم إرسال حزمة البناء الكاملة ($sanitizedName) إلى Termux RunCommandService")
+                onDirectIntentSent()
+            } catch (e: Exception) {
+                addLog("⚠️ تعذر تشغيل خدمة Termux المباشرة: ${e.message}")
+                try {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(Constants.TERMUX_PACKAGE_NAME)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(launchIntent)
+                    }
+                } catch (_: Exception) {
+                }
             }
         }
     }
 
     /**
-     * تنفيذ البناء التفاعلي المتكامل مع تحديث خط الأنابيب الحي والقياسات لحظياً
+     * تنفيذ البناء التفاعلي الحقيقي داخل التطبيق:
+     * يكتب المشروع الكامل والأصول المستوردة والأيقونات الحقيقية وملفات التوقيع على القرص، ويصدر الحزمة الموقّعة فعلياً!
      */
     suspend fun executeBuildWithProgress(
         project: AppProject,
@@ -533,190 +639,169 @@ class TermuxEngine(private val context: Context) {
     ): Boolean {
         _logStream.value = emptyList()
         _buildStages.value = defaultStages()
+        val startedAt = System.currentTimeMillis()
 
         val targetLabel = when (buildType.lowercase()) {
-            "aab" -> "AAB (Google Play Bundle)"
-            "release" -> "APK Release (مُحسّن)"
-            "both" -> "حزمة مزدوجة (APK + AAB)"
-            else -> "APK Debug"
+            "aab" -> "Play Bundle + Signed Source"
+            "release" -> "Release Package + Keystore Sign"
+            "both" -> "Full Package + Cloud CI + Termux"
+            else -> "Project Bundle + RSA Signed"
         }
-
-        val sanitized = project.name.replace(' ', '_').ifBlank { "AppForgeApp" }
-        val baseSize = 9.8f - (if (options.r8Minify) 1.4f else 0f) - (if (options.shrinkResources) 0.7f else 0f)
-        val estimatedSizeText = String.format(java.util.Locale.US, "%.1f MB", baseSize)
 
         _telemetry.value = BuildTelemetry(
             activeTarget = targetLabel,
-            currentArtifact = "gradle.properties & settings.gradle.kts",
+            currentArtifact = "settings.gradle.kts & build.gradle.kts",
             processedFilesCount = 0,
-            estimatedSizeMb = estimatedSizeText,
+            estimatedSizeMb = "0 KB",
             elapsedSec = 0f,
             assembledLayers = 0
         )
 
-        // Stage 1: Preflight
-        updateStage("preflight", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.08f, "تهيئة مساحة العمل وفحص البيئة...")
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = "settings.gradle.kts + app/build.gradle.kts",
-            processedFilesCount = 4,
-            elapsedSec = 0.4f,
-            assembledLayers = 1
-        )
-        addLog("🚀 [ApkForge Pipeline] بدء خط البناء التلقائي لمشروع: ${project.name}")
-        addLog("📦 الحزمة: ${project.packageConfig.packageName} | v${project.packageConfig.versionName} (${project.packageConfig.versionCode})")
-        addLog("🎯 الهدف: $targetLabel | R8=${options.r8Minify} | Shrink=${options.shrinkResources} | ABI Split=${options.abiSplit}")
-        delay(550)
-        updateStage("preflight", BuildStageStatus.DONE, 550)
+        return try {
+            // Stage 1: Real Gradle Workspace Generation
+            val t1 = System.currentTimeMillis()
+            updateStage("preflight", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.12f, "توليد هيكل Gradle والملفات الأساسية")
+            addLog("🚀 بدء خط البناء والتجميع الفعلي للمشروع: ${project.name}")
+            addLog("📦 Package ID: ${project.packageConfig.packageName} | v${project.packageConfig.versionName} (${project.packageConfig.versionCode})")
 
-        // Stage 2: Manifest & Permissions
-        updateStage("manifest", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.24f, "توليد AndroidManifest.xml والأذونات...")
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = "app/src/main/AndroidManifest.xml",
-            processedFilesCount = 11,
-            elapsedSec = 1.1f,
-            assembledLayers = 2
-        )
-        addLog("⚙️ توليد AndroidManifest.xml ودمج الأذونات الذكية...")
-        if (project.permissionsConfig.camera) addLog("  └ + android.permission.CAMERA")
-        if (project.permissionsConfig.location) addLog("  └ + android.permission.ACCESS_FINE_LOCATION")
-        if (project.permissionsConfig.microphone) addLog("  └ + android.permission.RECORD_AUDIO")
-        if (project.permissionsConfig.notifications || project.pushConfig.enabled) {
-            addLog("  └ + android.permission.POST_NOTIFICATIONS")
-        }
-        if (project.permissionsConfig.storage) addLog("  └ + android.permission.READ_EXTERNAL_STORAGE")
-        if (project.permissionsConfig.vibration || (project.pushConfig.enabled && project.pushConfig.vibrationEnabled)) {
-            addLog("  └ + android.permission.VIBRATE")
-        }
-        if (project.permissionsConfig.bluetooth) addLog("  └ + android.permission.BLUETOOTH")
-        addLog("  └ + android.permission.INTERNET & ACCESS_NETWORK_STATE")
-        delay(650)
-        updateStage("manifest", BuildStageStatus.DONE, 650)
+            val (wsRoot, wsFilesCount) = assembler.prepareWorkspaceOnDisk(project, options)
+            val d1 = maxOf(1L, System.currentTimeMillis() - t1)
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = "build.gradle.kts + settings.gradle.kts",
+                processedFilesCount = wsFilesCount,
+                estimatedSizeMb = formatBytesReadable(directoryBytes(wsRoot)),
+                elapsedSec = elapsedSeconds(startedAt),
+                assembledLayers = 1
+            )
+            updateStage("preflight", BuildStageStatus.DONE, d1)
 
-        // Stage 3: Assets & UI Injection
-        updateStage("assets", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.44f, "تحضير أصول الويب والسبلاش والتنقل...")
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = "assets/app_config.json + MainActivity.kt",
-            processedFilesCount = 26,
-            elapsedSec = 1.8f,
-            assembledLayers = 3
-        )
-        addLog("🌐 معالجة المصدر [${project.sourceType.titleAr}]: ${project.sourceValue}")
-        addLog("  └ WebView: FullScreen=${project.webViewConfig.fullScreen}, PullRefresh=${project.webViewConfig.pullToRefresh}")
-        if (project.splashConfig.enabled) {
-            addLog("  └ شاشة البداية: ${project.splashConfig.indicatorStyle} (${project.splashConfig.backgroundColorHex})")
-        }
-        if (project.bottomNavConfig.enabled) {
-            addLog("  └ شريط التنقل السفلي: ${project.bottomNavConfig.destinations.size} تبويبات")
-        }
-        if (project.pushConfig.enabled) {
-            val idDisplay = project.pushConfig.appId.ifBlank { "auto-placeholder" }
-            addLog("🔔 ربط الإشعارات الفورية (${project.pushConfig.provider}): AppID=$idDisplay")
-        }
-        if (project.bridgeConfig.jsBridgeEnabled) {
-            addLog("🔌 حقن الجسر البرمجي Native JS Bridge v2 (window.ApkForge • Biometric=${project.proConfig.biometricAuthBridge})")
-        }
-        if (project.bridgeConfig.deepLinkDomain.isNotBlank()) {
-            addLog("🔗 تفعيل الروابط العميقة App Links: https://${project.bridgeConfig.deepLinkDomain}")
-        }
-        if (project.proConfig.adAndPopupBlocker) {
-            addLog("🛡️ تفعيل مانع الإعلانات والنوافذ المنبثقة + التخزين المسبق (${project.proConfig.assetPreloaderEnabled})")
-        }
-        if (project.proConfig.forceDarkCss || project.proConfig.customCss.isNotBlank()) {
-            addLog("🎨 حقن CSS/JS المخصص (Force Dark=${project.proConfig.forceDarkCss})")
-        }
-        if (project.proConfig.flagSecureEnabled || project.proConfig.sslPinningEnabled) {
-            addLog("🔒 تفعيل الحماية المشددة (FLAG_SECURE=${project.proConfig.flagSecureEnabled} • SSL Pinning=${project.proConfig.sslPinningEnabled})")
-        }
-        if (project.proConfig.drawerEnabled || project.proConfig.fabMenuEnabled) {
-            addLog("🧭 تجهيز القائمة الجانبية (Drawer=${project.proConfig.drawerEnabled}) والزر العائم (FAB=${project.proConfig.fabMenuEnabled})")
-        }
-        delay(700)
-        updateStage("assets", BuildStageStatus.DONE, 700)
+            // Stage 2: Manifest & Permissions
+            val t2 = System.currentTimeMillis()
+            updateStage("manifest", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.28f, "فحص وكتابة AndroidManifest.xml والأذونات")
+            val manifestFile = File(wsRoot, "app/src/main/AndroidManifest.xml")
+            val manifestSize = if (manifestFile.exists()) manifestFile.length() else 0L
+            addLog("⚙️ تم توليد AndroidManifest.xml (${formatBytesReadable(manifestSize)})")
+            if (project.permissionsConfig.camera) addLog("  + android.permission.CAMERA")
+            if (project.permissionsConfig.location) addLog("  + android.permission.ACCESS_FINE_LOCATION")
+            if (project.permissionsConfig.microphone) addLog("  + android.permission.RECORD_AUDIO")
+            if (project.permissionsConfig.notifications || project.pushConfig.enabled) addLog("  + android.permission.POST_NOTIFICATIONS")
+            val d2 = maxOf(1L, System.currentTimeMillis() - t2)
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = "app/src/main/AndroidManifest.xml",
+                elapsedSec = elapsedSeconds(startedAt),
+                assembledLayers = 2
+            )
+            updateStage("manifest", BuildStageStatus.DONE, d2)
 
-        // Stage 4: AAPT2 Resources
-        updateStage("aapt2", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.64f, "ترجمة الموارد عبر AAPT2 Compiler...")
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = "res/drawable + values/strings.xml -> resources.ap_",
-            processedFilesCount = 48,
-            elapsedSec = 2.6f,
-            assembledLayers = 4
-        )
-        addLog("🔨 تشغيل aapt2 compile لجميع الأيقونات والموارد...")
-        addLog("  └ ربط جدول الموارد R.jar مع targetSdk=${project.packageConfig.targetSdk}")
-        delay(750)
-        updateStage("aapt2", BuildStageStatus.DONE, 750)
+            // Stage 3: Real Web Assets + MainActivity Code
+            val t3 = System.currentTimeMillis()
+            updateStage("assets", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.48f, "تضمين الأصول المستوردة وشيفرة WebView")
+            val realAssets = withContext(Dispatchers.IO) { exporter.collectRealWorkspaceAssetFiles(project) }
+            addLog("🌐 مصدر التطبيق: ${project.sourceType.titleAr} (${realAssets.size} ملف أصول فعلي)")
+            if (project.bridgeConfig.jsBridgeEnabled) addLog("🔌 حقن apkforge JS Bridge v2 + Biometric=${project.proConfig.biometricAuthBridge}")
+            val d3 = maxOf(1L, System.currentTimeMillis() - t3)
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = "app/src/main/assets & MainActivity.kt",
+                elapsedSec = elapsedSeconds(startedAt),
+                assembledLayers = 3
+            )
+            updateStage("assets", BuildStageStatus.DONE, d3)
 
-        // Stage 5: D8 / R8 Bytecode
-        updateStage("dex", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.82f, "تحويل الشيفرة وضغط R8/D8...")
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = if (options.r8Minify) "classes.dex (R8 Shrunk & Optimized)" else "classes.dex (D8)",
-            processedFilesCount = 67,
-            elapsedSec = 3.4f,
-            assembledLayers = 5
-        )
-        addLog(if (options.r8Minify) "⚡ تشغيل R8 Optimizer لتقليص الكود وتنظيف الموارد غير المستخدمة..." else "⚡ تشغيل D8 Compiler لترجمة classes.dex...")
-        if (options.abiSplit) {
-            addLog("  └ تقسيم المعماريات (ABI Split): arm64-v8a + armeabi-v7a")
+            // Stage 4: Adaptive Icons & PNG Density Rendering
+            val t4 = System.currentTimeMillis()
+            updateStage("aapt2", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.66f, "توليد الأيقونات والـ XML بكافة الدقات")
+            val iconPack = withContext(Dispatchers.IO) { AdaptiveIconStudio.generateIconPack(context, project) }
+            addLog(
+                if (iconPack.usedCustomImage) "🎨 تم تحويل الصورة المخصصة إلى ${iconPack.densityPngs.size} ملفات PNG عالية الدقة ✓"
+                else "🎨 تم توليد ${iconPack.densityPngs.size} ملفات PNG للأيقونة المتكيّفة (${project.proConfig.iconShape})"
+            )
+            val d4 = maxOf(1L, System.currentTimeMillis() - t4)
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = "res/mipmap-xxxhdpi/ic_launcher.png",
+                elapsedSec = elapsedSeconds(startedAt),
+                assembledLayers = 4
+            )
+            updateStage("aapt2", BuildStageStatus.DONE, d4)
+
+            // Stage 5: RSA-2048 Cryptographic Signing + Build Package Assembly
+            val t5 = System.currentTimeMillis()
+            updateStage("sign", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.84f, "توقيع الحزمة تشفيرياً بـ RSA-2048")
+            val termuxScript = generateBashBuildScript(project, buildType, options)
+            val artifact = assembler.buildAndSignPackageOnDisk(
+                project = project,
+                targetType = buildType,
+                options = options,
+                termuxBuildScript = termuxScript
+            )
+            addLog("🔐 تم التوقيع بنجاح (SHA256withRSA): ${artifact.signatureSha256.take(24)}...")
+            val d5 = maxOf(1L, System.currentTimeMillis() - t5)
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = "META-INF/APKFORGE.SIG & BUILD_RECEIPT.json",
+                processedFilesCount = artifact.filesCount,
+                estimatedSizeMb = artifact.formattedSize,
+                elapsedSec = elapsedSeconds(startedAt),
+                assembledLayers = 5
+            )
+            updateStage("sign", BuildStageStatus.DONE, d5)
+
+            // Stage 6: Final Output Export
+            val t6 = System.currentTimeMillis()
+            updateStage("package", BuildStageStatus.RUNNING)
+            _engineState.value = EngineStatus.Running(0.96f, "حفظ الحزمة في التنزيلات والتحقق")
+            addLog("📁 الحجم الفعلي على القرص: ${artifact.formattedSize} (${artifact.filesCount} ملف)")
+            addLog("📲 المسار العام: ${artifact.publicDownloadsNote}")
+            if (_termuxReport.value.connectionState != TermuxConnectionState.VERIFIED_READY) {
+                addLog("ℹ️ لترجمة الحزمة إلى APK ثنائي للتثبيت: استخدم 'تشغيل في Termux' بعد تفعيل allow-external-apps=true أو GitHub Actions Cloud.")
+            }
+            onArtifactProduced?.invoke(
+                artifact.fileName,
+                artifact.internalFile.absolutePath,
+                artifact.formattedSize
+            )
+            val d6 = maxOf(1L, System.currentTimeMillis() - t6)
+            val totalSec = elapsedSeconds(startedAt)
+
+            _telemetry.value = _telemetry.value.copy(
+                currentArtifact = artifact.fileName,
+                processedFilesCount = artifact.filesCount,
+                estimatedSizeMb = artifact.formattedSize,
+                elapsedSec = totalSec,
+                assembledLayers = 6,
+                lastOutputFileName = artifact.fileName,
+                lastOutputPath = artifact.internalFile.absolutePath
+            )
+            updateStage("package", BuildStageStatus.DONE, d6)
+
+            _engineState.value = EngineStatus.Success(
+                apkPath = artifact.internalFile.absolutePath,
+                message = "تم تجميع وتوقيع ${artifact.fileName} فعلياً (${artifact.formattedSize})"
+            )
+            addLog("✅ اكتمل البناء الفعلي على القرص في ${String.format(Locale.US, "%.2f", totalSec)} ثانية!")
+            true
+        } catch (e: Exception) {
+            updateStage("package", BuildStageStatus.ERROR, 0L)
+            addLog("❌ فشل البناء الفعلي: ${e.message}")
+            _engineState.value = EngineStatus.Failure(
+                error = e.message ?: "خطأ غير متوقع أثناء التجميع",
+                detailedLogs = e.stackTraceToString().take(800)
+            )
+            false
         }
-        delay(800)
-        updateStage("dex", BuildStageStatus.DONE, 800)
+    }
 
-        // Stage 6: ZipAlign & Sign & Export
-        updateStage("package", BuildStageStatus.RUNNING)
-        _engineState.value = EngineStatus.Running(0.95f, "المحاذاة والتوقيع وتصدير الحزمة...")
+    private fun directoryBytes(dir: File): Long {
+        if (!dir.exists()) return 0L
+        return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
-        val generatedFiles = mutableListOf<Pair<String, String>>()
-        if (buildType.equals("both", ignoreCase = true)) {
-            val apkName = "${sanitized}_v${project.packageConfig.versionName}_release.apk"
-            val aabName = "${sanitized}_v${project.packageConfig.versionName}_release.aab"
-            generatedFiles.add(apkName to "${Constants.DOWNLOADS_DIR}/$apkName")
-            generatedFiles.add(aabName to "${Constants.DOWNLOADS_DIR}/$aabName")
-        } else {
-            val ext = if (buildType.equals("aab", ignoreCase = true)) "aab" else "apk"
-            val outName = "${sanitized}_v${project.packageConfig.versionName}_$buildType.$ext"
-            generatedFiles.add(outName to "${Constants.DOWNLOADS_DIR}/$outName")
-        }
-
-        if (options.zipAlign) {
-            addLog("📐 تطبيق ZipAlign 4-byte alignment لتحسين استهلاك الذاكرة...")
-        }
-        if (options.autoSignWithKeystore && !project.signingConfig.useDebugKey) {
-            addLog("🔐 توقيع V2/V3 باستخدام مفتاح Keystore (${project.signingConfig.keyAlias})...")
-        } else {
-            addLog("🔑 توقيع الحزمة بمفتاح التطوير عبر ApkSigner...")
-        }
-
-        delay(600)
-        generatedFiles.forEach { (name, path) ->
-            addLog("📁 حفظ الإخراج النهائي: $path ($estimatedSizeText)")
-            onArtifactProduced?.invoke(name, path, estimatedSizeText)
-        }
-
-        val primaryFile = generatedFiles.first()
-        _telemetry.value = _telemetry.value.copy(
-            currentArtifact = primaryFile.first,
-            processedFilesCount = 74,
-            elapsedSec = 4.1f,
-            assembledLayers = 6,
-            lastOutputFileName = primaryFile.first,
-            lastOutputPath = primaryFile.second
-        )
-        updateStage("package", BuildStageStatus.DONE, 600)
-
-        _engineState.value = EngineStatus.Success(
-            apkPath = primaryFile.second,
-            message = "اكتمل البناء والتوقيع بنجاح (${generatedFiles.size} حزمة)"
-        )
-        addLog("========================================================")
-        addLog("🎉 اكتمل البناء التلقائي بنجاح في 4.1 ثانية!")
-        addLog("📲 الملف جاهز في التنزيلات: ${generatedFiles.joinToString(" + ") { it.first }}")
-        addLog("========================================================")
-        return true
+    private fun elapsedSeconds(startedAt: Long): Float {
+        val sec = (System.currentTimeMillis() - startedAt) / 1000f
+        return (kotlin.math.round(sec * 10f) / 10f)
     }
 
     private fun updateStage(stageId: String, newStatus: BuildStageStatus, durationMs: Long = 0L) {
@@ -736,8 +821,7 @@ class TermuxEngine(private val context: Context) {
     }
 
     private fun addLog(line: String) {
-        val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-            .format(java.util.Date())
+        val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         val updated = _logStream.value.toMutableList()
         updated.add("[$timestamp] $line")
         _logStream.value = updated

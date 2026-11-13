@@ -40,8 +40,9 @@ class TermuxEngineTest {
         val script = engine.generateBashBuildScript(project, "debug")
         assertTrue(script.contains("Rio"))
         assertTrue(script.contains("com.rio.app"))
-        assertTrue(script.contains("gradle assembleDebug"))
-        assertTrue(script.contains("appforge_workspace"))
+        assertTrue(script.contains("aapt2 compile"))
+        assertTrue(script.contains("apksigner sign"))
+        assertTrue(script.contains("apkforge_workspace"))
     }
 
     @Test
@@ -65,7 +66,7 @@ class TermuxEngineTest {
 
         val script = engine.generateBashBuildScript(project, "debug")
         assertTrue(script.contains("android.permission.POST_NOTIFICATIONS"))
-        assertTrue(script.contains("android.permission.READ_EXTERNAL_STORAGE"))
+        assertFalse(script.contains("android.permission.READ_EXTERNAL_STORAGE"))
         assertTrue(script.contains("android.permission.VIBRATE"))
         assertTrue(script.contains("android.permission.BLUETOOTH"))
         assertTrue(script.contains("android.permission.ACCESS_NETWORK_STATE"))
@@ -122,7 +123,7 @@ class TermuxEngineTest {
     }
 
     @Test
-    fun `executeBuildWithProgress completes all 6 pipeline stages and produces dual artifacts`() = runTest {
+    fun `executeBuildWithProgress completes all 6 pipeline stages and produces real signed artifact on disk`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val engine = TermuxEngine(context)
         val project = AppProject(
@@ -133,18 +134,20 @@ class TermuxEngineTest {
         )
 
         val producedFiles = mutableListOf<String>()
+        val producedPaths = mutableListOf<String>()
         val success = engine.executeBuildWithProgress(
             project = project,
             buildType = "both",
             options = BuildOptimizationOptions(r8Minify = true, shrinkResources = true, abiSplit = true)
-        ) { fileName, _, _ ->
+        ) { fileName, outputPath, _ ->
             producedFiles.add(fileName)
+            producedPaths.add(outputPath)
         }
 
         assertTrue(success)
-        assertEquals(2, producedFiles.size)
-        assertTrue(producedFiles.any { it.endsWith(".apk") })
-        assertTrue(producedFiles.any { it.endsWith(".aab") })
+        assertEquals(1, producedFiles.size)
+        assertTrue(producedFiles.first().endsWith("_signed_bundle.zip"))
+        assertTrue(java.io.File(producedPaths.first()).exists())
         assertTrue(engine.buildStages.value.all { it.status == BuildStageStatus.DONE })
         assertEquals(6, engine.telemetry.value.assembledLayers)
     }

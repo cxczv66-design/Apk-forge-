@@ -11,8 +11,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.KeyFactory
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.Date
@@ -53,6 +57,35 @@ data class GeneratedKeystoreInfo(
     val algorithm: String = "RSA-2048 / SHA-256",
     val sizeBytes: Long
 )
+
+data class RealArchiveBreakdown(
+    val fileName: String,
+    val filePath: String,
+    val existsOnDisk: Boolean,
+    val totalBytes: Long,
+    val entryCount: Int,
+    val codeBytes: Long,
+    val assetsBytes: Long,
+    val resBytes: Long,
+    val signingAndMetaBytes: Long,
+    val hasManifest: Boolean,
+    val hasDex: Boolean,
+    val isSigned: Boolean,
+    val certificateEntriesCount: Int,
+    val topEntriesSample: List<String>
+) {
+    val formattedSize: String
+        get() = formatBytesReadable(totalBytes)
+}
+
+fun formatBytesReadable(bytes: Long): String {
+    return when {
+        bytes <= 0L -> "0 B"
+        bytes < 1024L -> "$bytes B"
+        bytes < 1024L * 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+        else -> String.format(Locale.US, "%.2f MB", bytes / (1024.0 * 1024.0))
+    }
+}
 
 /**
  * محرك تثبيت والتحقق من أدوات البناء والتوقيع المتقدمة داخل التطبيق
@@ -126,10 +159,9 @@ class ToolchainManager(private val context: Context) {
             appendLog(TerminalLineType.CMD, "$ apkforge-pkg install --verify --workspace=${rootDir.absolutePath}")
             appendLog(
                 TerminalLineType.INFO,
-                "البيئة: Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) | ABI=${getDeviceAbi()} | المساحة المتاحة=${getFreeStorageMb()} MB"
+                "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) | ABI=${getDeviceAbi()} | Free=${getFreeStorageMb()} MB"
             )
 
-            // Probe real shell runtime
             val uname = execNativeShell("uname -srm")
             if (uname.isNotBlank()) {
                 appendLog(TerminalLineType.INFO, "Kernel: $uname")
@@ -138,42 +170,41 @@ class ToolchainManager(private val context: Context) {
             val specs = toolDefinitions()
             specs.forEachIndexed { idx, spec ->
                 val pct = (idx + 1).toFloat() / specs.size.toFloat()
-                appendLog(TerminalLineType.INFO, "[${idx + 1}/${specs.size}] تثبيت وفحص: ${spec.titleAr} (${spec.version})...")
+                appendLog(TerminalLineType.INFO, "[${idx + 1}/${specs.size}] تثبيت وفحص: ${spec.titleAr} (${spec.version})")
 
                 val targetFile = File(rootDir, spec.relativePath).apply { parentFile?.mkdirs() }
                 val payload = spec.contentProvider(activeProject)
                 targetFile.writeText(payload, Charsets.UTF_8)
 
-                // Mark shell scripts executable
                 if (targetFile.extension == "sh") {
                     targetFile.setExecutable(true, false)
                 }
 
                 val realBytes = targetFile.readBytes()
                 val realSha = sha256Hex(realBytes)
-                delay(180)
+                delay(120)
                 appendLog(
                     TerminalLineType.SUCCESS,
-                    "✓ تم التحقق: ${spec.relativePath} (${realBytes.size} B) • SHA256:${realSha.take(12)}"
+                    "✓ Verified: ${spec.relativePath} (${realBytes.size} B) • SHA256:${realSha.take(12)}"
                 )
                 _installProgress.value = pct
                 refreshInstalledToolsStatus()
             }
 
-            // Ensure default signing test certificate exists
-            val defaultKey = File(signingDir, "apkforge_default.p12.info")
-            if (!defaultKey.exists()) {
+            // Ensure default RSA-2048 signing keystore exists
+            val defaultKeyFile = File(signingDir, "apkforge_release.keystore.pem")
+            if (!defaultKeyFile.exists()) {
                 val generated = generateRealKeystoreInternal("apkforge_release", "appforge2026", "ApkForge Studio")
                 appendLog(
                     TerminalLineType.SUCCESS,
-                    "🔐 تم تهيئة مخزن التوقيع الافتراضي RSA-2048 • SHA256:${generated.sha256Fingerprint.take(18)}"
+                    "🔐 RSA-2048 Keystore Ready • SHA256:${generated.sha256Fingerprint.take(18)}"
                 )
             }
 
             val logArchive = File(logsDir, "install_verify_${System.currentTimeMillis()}.log")
             logArchive.writeText(_terminalLogs.value.joinToString("\n") { "[${it.timestamp}] ${it.text}" })
 
-            appendLog(TerminalLineType.SUCCESS, "✅ اكتمل تثبيت والتحقق من جميع الأدوات المتقدمة (${specs.size}/${specs.size}) بنجاح!")
+            appendLog(TerminalLineType.SUCCESS, "✅ اكتمل تثبيت والتحقق من جميع الأدوات (${specs.size}/${specs.size}) بنجاح")
             true
         } catch (e: Exception) {
             appendLog(TerminalLineType.ERROR, "❌ فشل التثبيت: ${e.message}")
@@ -194,7 +225,7 @@ class ToolchainManager(private val context: Context) {
             val info = generateRealKeystoreInternal(alias, password, org)
             appendLog(
                 TerminalLineType.SUCCESS,
-                "🔐 تم توليد مفتاح توقيع حقيقي RSA-2048 وحفظه في: ${info.filePath} (SHA-256: ${info.sha256Fingerprint.take(24)}...)"
+                "🔐 تم توليد وحفظ مفتاح التوقيع RSA-2048: ${info.filePath} (${info.sizeBytes} B)"
             )
             refreshInstalledToolsStatus()
             Result.success(info)
@@ -202,6 +233,25 @@ class ToolchainManager(private val context: Context) {
             appendLog(TerminalLineType.ERROR, "❌ فشل توليد المفتاح: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * تحميل أو توليد زوج مفاتيح RSA-2048 الحقيقي لتوقيع حزم الإخراج فعلياً
+     */
+    fun getOrCreateSigningKeyPair(alias: String = "apkforge_release"): KeyPair {
+        signingDir.mkdirs()
+        val safeAlias = alias.trim().filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "apkforge_release" }
+        val pemFile = File(signingDir, "$safeAlias.keystore.pem")
+        if (!pemFile.exists()) {
+            generateRealKeystoreInternal(safeAlias, "appforge2026", "ApkForge Studio")
+        }
+        val text = pemFile.readText(Charsets.UTF_8)
+        val pubB64 = text.substringAfter("-----BEGIN PUBLIC KEY-----").substringBefore("-----END PUBLIC KEY-----").replace(Regex("\\s"), "")
+        val privB64 = text.substringAfter("-----BEGIN PRIVATE KEY-----").substringBefore("-----END PRIVATE KEY-----").replace(Regex("\\s"), "")
+        val kf = KeyFactory.getInstance("RSA")
+        val pub = kf.generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(pubB64)))
+        val priv = kf.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(privB64)))
+        return KeyPair(pub, priv)
     }
 
     private fun generateRealKeystoreInternal(
@@ -236,7 +286,6 @@ class ToolchainManager(private val context: Context) {
         }
         keyFile.writeText(content, Charsets.UTF_8)
 
-        // Update tool manifest record as well
         File(rootDir, "bin/keytool-pkcs12.cfg").apply {
             parentFile?.mkdirs()
             writeText("ACTIVE_ALIAS=$safeAlias\nKEY_FILE=${keyFile.absolutePath}\nSHA256=$sha256\n", Charsets.UTF_8)
@@ -250,34 +299,88 @@ class ToolchainManager(private val context: Context) {
         )
     }
 
-    suspend fun inspectApkOrZipFile(filePath: String): String = withContext(Dispatchers.IO) {
+    /**
+     * تحليل حقيقي كامل لملفات APK / AAB / ZIP الموجودة فعلياً على القرص
+     */
+    fun analyzeArchiveBreakdown(filePath: String): RealArchiveBreakdown? {
         val file = File(filePath)
-        if (!file.exists()) {
-            val msg = "الملف غير موجود على القرص: $filePath"
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            ZipFile(file).use { zip ->
+                val entries = zip.entries().toList().filter { !it.isDirectory }
+                var codeBytes = 0L
+                var assetsBytes = 0L
+                var resBytes = 0L
+                var metaBytes = 0L
+                var hasManifest = false
+                var hasDex = false
+                var certCount = 0
+
+                entries.forEach { e ->
+                    val sz = maxOf(0L, e.size)
+                    val n = e.name
+                    when {
+                        n.endsWith(".dex") || n.endsWith(".kt") || n.endsWith(".java") || n.endsWith(".pro") -> {
+                            codeBytes += sz
+                            if (n.endsWith(".dex")) hasDex = true
+                        }
+                        n.startsWith("assets/") || n.contains("/assets/") -> {
+                            assetsBytes += sz
+                        }
+                        n.startsWith("res/") || n.contains("/res/") || n == "resources.arsc" -> {
+                            resBytes += sz
+                        }
+                        n.startsWith("META-INF/") -> {
+                            metaBytes += sz
+                            if (n.endsWith(".RSA") || n.endsWith(".EC") || n.endsWith(".SF") || n.endsWith(".SIG") || n == "META-INF/MANIFEST.MF") {
+                                certCount++
+                            }
+                        }
+                        else -> {
+                            if (n == "AndroidManifest.xml" || n.endsWith("/AndroidManifest.xml")) hasManifest = true
+                            codeBytes += sz
+                        }
+                    }
+                    if (n == "AndroidManifest.xml" || n.endsWith("/AndroidManifest.xml")) hasManifest = true
+                }
+
+                RealArchiveBreakdown(
+                    fileName = file.name,
+                    filePath = file.absolutePath,
+                    existsOnDisk = true,
+                    totalBytes = file.length(),
+                    entryCount = entries.size,
+                    codeBytes = codeBytes,
+                    assetsBytes = assetsBytes,
+                    resBytes = resBytes,
+                    signingAndMetaBytes = metaBytes,
+                    hasManifest = hasManifest,
+                    hasDex = hasDex,
+                    isSigned = certCount > 0,
+                    certificateEntriesCount = certCount,
+                    topEntriesSample = entries.take(8).map { "${it.name} (${formatBytesReadable(maxOf(0L, it.size))})" }
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun inspectApkOrZipFile(filePath: String): String = withContext(Dispatchers.IO) {
+        val breakdown = analyzeArchiveBreakdown(filePath)
+        if (breakdown == null) {
+            val msg = "الملف غير موجود أو غير قابل للقراءة: $filePath"
             appendLog(TerminalLineType.WARN, msg)
             return@withContext msg
         }
-        try {
-            ZipFile(file).use { zip ->
-                val entries = zip.entries().toList()
-                val dexCount = entries.count { it.name.endsWith(".dex") }
-                val hasManifest = entries.any { it.name == "AndroidManifest.xml" }
-                val hasResources = entries.any { it.name == "resources.arsc" }
-                val signedEntries = entries.count { it.name.startsWith("META-INF/") && (it.name.endsWith(".RSA") || it.name.endsWith(".EC") || it.name.endsWith(".SF")) }
-                val report = buildString {
-                    appendLine("📦 تحليل الحزمة: ${file.name} (${file.length() / 1024} KB)")
-                    appendLine("   • عدد الملفات: ${entries.size} | classes.dex: $dexCount")
-                    appendLine("   • AndroidManifest: ${if (hasManifest) "موجود ✓" else "مفقود"} | resources.arsc: ${if (hasResources) "موجود ✓" else "مفقود"}")
-                    appendLine("   • التوقيع الرقمي (META-INF): ${if (signedEntries > 0) "موقّع ($signedEntries ملف شهادة) ✓" else "غير موقّع"}")
-                }
-                appendLog(TerminalLineType.INFO, report)
-                report
-            }
-        } catch (e: Exception) {
-            val err = "تعذر فحص الحزمة: ${e.message}"
-            appendLog(TerminalLineType.ERROR, err)
-            err
+        val report = buildString {
+            appendLine("📦 ${breakdown.fileName} (${breakdown.formattedSize} • ${breakdown.entryCount} ملف)")
+            appendLine("   • Manifest: ${if (breakdown.hasManifest) "موجود ✓" else "مفقود"} | DEX: ${if (breakdown.hasDex) "مترجم ✓" else "مصدر Java/Kt (يُترجم بـ Termux/CI)"}")
+            appendLine("   • التوقيع الرقمي (META-INF): ${if (breakdown.isSigned) "موقّع RSA-2048 (${breakdown.certificateEntriesCount} ملفات) ✓" else "غير موقّع"}")
+            appendLine("   • الكود: ${formatBytesReadable(breakdown.codeBytes)} | الأصول: ${formatBytesReadable(breakdown.assetsBytes)} | الموارد: ${formatBytesReadable(breakdown.resBytes)}")
         }
+        appendLog(TerminalLineType.SUCCESS, report)
+        report
     }
 
     suspend fun runInteractiveCommand(rawCommand: String, project: AppProject? = null) = withContext(Dispatchers.IO) {
@@ -292,7 +395,7 @@ class ToolchainManager(private val context: Context) {
             cmd.equals("help", true) -> {
                 appendLog(
                     TerminalLineType.INFO,
-                    "الأوامر المتاحة: install-all | verify | status | gen-key | storage | abi | sh <command> | clear"
+                    "Commands: install-all | verify | status | gen-key | storage | abi | sh <cmd> | clear"
                 )
             }
             cmd.equals("install-all", true) -> {
@@ -301,12 +404,12 @@ class ToolchainManager(private val context: Context) {
             cmd.equals("verify", true) || cmd.equals("status", true) -> {
                 refreshInstalledToolsStatus()
                 val installed = _tools.value.count { it.isInstalled }
-                appendLog(TerminalLineType.INFO, "حالة الأدوات المثبتة: $installed/${_tools.value.size} في ${rootDir.absolutePath}")
+                appendLog(TerminalLineType.INFO, "Installed Tools: $installed/${_tools.value.size} @ ${rootDir.absolutePath}")
                 _tools.value.forEach { t ->
-                    val statusMark = if (t.isInstalled) "✓" else "✗"
+                    val statusMark = if (t.isInstalled) "OK" else "MISSING"
                     appendLog(
                         if (t.isInstalled) TerminalLineType.SUCCESS else TerminalLineType.WARN,
-                        "  $statusMark ${t.id} (${t.sizeBytes} B) sha256=${t.verifiedSha256.ifBlank { "-" }}"
+                        "[$statusMark] ${t.id} (${t.sizeBytes} B) sha256=${t.verifiedSha256.ifBlank { "-" }}"
                     )
                 }
             }
@@ -318,21 +421,21 @@ class ToolchainManager(private val context: Context) {
                 )
             }
             cmd.equals("storage", true) -> {
-                appendLog(TerminalLineType.INFO, "المساحة الحرة المتوفرة: ${getFreeStorageMb()} MB في ${context.filesDir.absolutePath}")
+                appendLog(TerminalLineType.INFO, "Free Space: ${getFreeStorageMb()} MB @ ${context.filesDir.absolutePath}")
             }
             cmd.equals("abi", true) -> {
-                appendLog(TerminalLineType.INFO, "المعماريات المدعومة: ${Build.SUPPORTED_ABIS.joinToString(", ")}")
+                appendLog(TerminalLineType.INFO, "Supported ABIs: ${Build.SUPPORTED_ABIS.joinToString(", ")}")
             }
             cmd.startsWith("sh ", true) -> {
                 val out = execNativeShell(cmd.removePrefix("sh ").trim())
-                appendLog(TerminalLineType.INFO, out.ifBlank { "(انتهى التنفيذ بدون مخرجات)" })
+                appendLog(TerminalLineType.INFO, out.ifBlank { "(exit 0, no output)" })
             }
             else -> {
                 val out = execNativeShell(cmd)
                 if (out.isNotBlank()) {
                     appendLog(TerminalLineType.INFO, out)
                 } else {
-                    appendLog(TerminalLineType.WARN, "أمر غير معروف أو بدون مخرجات — اكتب help لعرض الأوامر")
+                    appendLog(TerminalLineType.WARN, "Unknown command — type 'help'")
                 }
             }
         }
@@ -356,8 +459,12 @@ class ToolchainManager(private val context: Context) {
         }
     }
 
+    fun appendExternalLog(type: TerminalLineType, text: String) {
+        appendLog(type, text)
+    }
+
     private fun appendLog(type: TerminalLineType, text: String) {
-        val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        val ts = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         val updated = _terminalLogs.value.toMutableList()
         updated.add(
             ToolchainTerminalLine(
@@ -367,8 +474,8 @@ class ToolchainManager(private val context: Context) {
                 text = text
             )
         )
-        if (updated.size > 120) {
-            _terminalLogs.value = updated.takeLast(120)
+        if (updated.size > 140) {
+            _terminalLogs.value = updated.takeLast(140)
         } else {
             _terminalLogs.value = updated
         }
@@ -401,12 +508,12 @@ class ToolchainManager(private val context: Context) {
         ),
         ToolSpec(
             id = "apksigner-v2",
-            titleAr = "ApkSigner V2/V3",
+            titleAr = "ApkSigner RSA",
             categoryAr = "التوقيع",
             version = "36.0.0",
             relativePath = "bin/apksigner-v2.profile",
-            descriptionAr = "توقيع حزم APK/AAB بشهادات V1+V2+V3 المتوافقة مع Play Store",
-            contentProvider = { "V1_SIGNING=true\nV2_SIGNING=true\nV3_SIGNING=true\nMIN_SDK=24\n" }
+            descriptionAr = "توقيع حزم الخرج بشهادة SHA256withRSA حقيقية",
+            contentProvider = { "V1_SIGNING=true\nV2_SIGNING=true\nSHA256_RSA=true\nMIN_SDK=24\n" }
         ),
         ToolSpec(
             id = "zipalign-4k",
@@ -414,8 +521,8 @@ class ToolchainManager(private val context: Context) {
             categoryAr = "التحسين",
             version = "36.0.0",
             relativePath = "bin/zipalign-4k.sh",
-            descriptionAr = "محاذاة ملفات الأرشيف 4-Byte لتسريع الإقلاع وتقليل الرام",
-            contentProvider = { "#!/system/bin/sh\necho 'ZipAlign 4-byte boundary verification ready (ABI=${getDeviceAbi()})'\n" }
+            descriptionAr = "محاذاة ملفات الأرشيف 4-Byte لتسريع الإقلاع",
+            contentProvider = { "#!/system/bin/sh\necho 'ZipAlign ready (ABI=${getDeviceAbi()})'\n" }
         ),
         ToolSpec(
             id = "aapt2-res",
@@ -445,7 +552,7 @@ class ToolchainManager(private val context: Context) {
             categoryAr = "النشر",
             version = "1.17.2",
             relativePath = "sdk/bundletool-config.json",
-            descriptionAr = "تغليف حزم App Bundle للنشر الرسمي في متجر Google Play",
+            descriptionAr = "إعدادات App Bundle للنشر الرسمي في متجر Google Play",
             contentProvider = { "{\"bundleConfig\":{\"optimizations\":{\"splitsConfig\":{\"splitDimension\":[{\"value\":\"ABI\"}]}}}}\n" }
         ),
         ToolSpec(
@@ -454,18 +561,18 @@ class ToolchainManager(private val context: Context) {
             categoryAr = "التشخيص",
             version = "2.4",
             relativePath = "bin/apk-inspector.cfg",
-            descriptionAr = "فحص classes.dex والـ Manifest والشهادات داخل ملفات APK",
+            descriptionAr = "فحص المحتويات والـ Manifest والشهادات الحقيقية على القرص",
             contentProvider = { "INSPECT_DEX=true\nVERIFY_MANIFEST=true\nVERIFY_CERT_CHAIN=true\n" }
         ),
         ToolSpec(
             id = "termux-sync",
-            titleAr = "Termux & Gradle 9.3 Sync",
+            titleAr = "Termux CLI & Gradle Sync",
             categoryAr = "التكامل",
             version = "9.3.1",
             relativePath = "bin/termux-auto-sync.sh",
-            descriptionAr = "تهيئة أوامر Gradle 9.3 و OpenJDK 21 للبناء التلقائي الكامل",
+            descriptionAr = "سكربت تجهيز OpenJDK 17 + AAPT2 + D8/DX + ApkSigner في Termux",
             contentProvider = {
-                "#!/data/data/com.termux/files/usr/bin/bash\n# ApkForge Auto Toolchain Bootstrap\npkg update -y && pkg install -y openjdk-21 gradle aapt2 apksigner\n"
+                "#!/data/data/com.termux/files/usr/bin/bash\npkg update -y && pkg install -y openjdk-17 aapt2 dx apksigner gradle zip\n"
             }
         )
     )

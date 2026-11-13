@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.data.repository.DownloadedApk
 import com.example.data.repository.ProjectRepository
 import com.example.domain.model.AppProject
@@ -13,6 +14,7 @@ import com.example.ui.util.AppLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class GoogleUser(
     val name: String,
@@ -101,6 +103,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         checkTermuxStatus()
+        viewModelScope.launch {
+            termuxEngine.termuxReport.collect { report ->
+                _termuxReport.value = report
+                _isTermuxInstalled.value = report.isTermuxInstalled
+                _hasTermuxPermission.value = report.hasRunCommandPermission
+            }
+        }
     }
 
     fun setLanguage(lang: AppLanguage) {

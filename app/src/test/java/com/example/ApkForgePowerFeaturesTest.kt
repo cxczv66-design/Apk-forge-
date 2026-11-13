@@ -249,4 +249,76 @@ class ApkForgePowerFeaturesTest {
         assertTrue(assets.any { it.relativePath.endsWith("style.css") })
         assertTrue(assets.any { it.relativePath.endsWith("index.html") })
     }
+
+    @Test
+    fun `termux engine executes real signed build on disk with workspace assets and archive analyzer reads real entries`() = kotlinx.coroutines.test.runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val wsDir = java.io.File(context.cacheDir, "real_build_ws_${System.currentTimeMillis()}").apply { mkdirs() }
+        java.io.File(wsDir, "index.html").writeText("<html><body><h1>Real Site</h1></body></html>")
+        java.io.File(wsDir, "app.js").writeText("console.log('ready');")
+
+        val project = AppProject(
+            id = "proj_real_build",
+            name = "Room bk",
+            sourceType = SourceType.ZIP_ARCHIVE,
+            sourceValue = "roombk.zip",
+            localWorkspacePath = wsDir.absolutePath,
+            packageConfig = PackageConfig(
+                packageName = "com.roombk.app",
+                versionName = "1.0.0",
+                versionCode = 1
+            )
+        )
+
+        val engine = com.example.engine.TermuxEngine(context)
+        var producedFile: String? = null
+        var producedPath: String? = null
+        var producedSize: String? = null
+
+        val ok = engine.executeBuildWithProgress(project, "debug") { fileName, outputPath, sizeText ->
+            producedFile = fileName
+            producedPath = outputPath
+            producedSize = sizeText
+        }
+
+        assertTrue(ok)
+        assertNotNull(producedFile)
+        assertNotNull(producedPath)
+        assertNotNull(producedSize)
+
+        val artifact = java.io.File(producedPath!!)
+        assertTrue(artifact.exists() && artifact.length() > 0L)
+
+        val zipNames = mutableSetOf<String>()
+        ZipFile(artifact).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                zipNames.add(entries.nextElement().name)
+            }
+        }
+
+        assertTrue(zipNames.contains("META-INF/MANIFEST.MF"))
+        assertTrue(zipNames.contains("META-INF/APKFORGE.SF"))
+        assertTrue(zipNames.contains("META-INF/APKFORGE.SIG"))
+        assertTrue(zipNames.contains("META-INF/BUILD_RECEIPT.json"))
+        assertTrue(zipNames.contains("app/src/main/assets/index.html"))
+        assertTrue(zipNames.contains("app/src/main/assets/app.js"))
+        assertTrue(zipNames.contains("termux_standalone/AndroidManifest.xml"))
+        assertTrue(zipNames.contains("termux_standalone/src/com/roombk/app/MainActivity.java"))
+        assertTrue(zipNames.contains("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"))
+
+        val toolchain = com.example.engine.ToolchainManager(context)
+        val breakdown = toolchain.analyzeArchiveBreakdown(artifact.absolutePath)
+        assertNotNull(breakdown)
+        assertTrue(breakdown!!.existsOnDisk)
+        assertTrue(breakdown.entryCount > 15)
+        assertEquals(artifact.length(), breakdown.totalBytes)
+        assertTrue(breakdown.isSigned)
+        assertTrue(breakdown.hasManifest)
+        assertTrue(breakdown.certificateEntriesCount >= 3)
+
+        val bash = engine.generateBashBuildScript(project, "release")
+        assertTrue(bash.contains("--manifest termux_standalone/AndroidManifest.xml"))
+        assertTrue(bash.contains("Theme.DeviceDefault.NoActionBar"))
+    }
 }

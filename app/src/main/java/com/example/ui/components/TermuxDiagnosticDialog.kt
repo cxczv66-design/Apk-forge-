@@ -8,7 +8,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,11 +30,13 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.engine.TermuxConnectionState
 import com.example.engine.TermuxEngine
 import com.example.engine.ToolchainManager
 import com.example.ui.theme.*
@@ -45,11 +46,15 @@ import com.example.utils.Constants
 fun TermuxDiagnosticDialog(
     report: TermuxEngine.TermuxDiagnosticReport,
     toolchainManager: ToolchainManager? = null,
+    termuxEngine: TermuxEngine? = null,
     onDismiss: () -> Unit,
     onTestConnection: () -> Unit
 ) {
     val context = LocalContext.current
-    val setupScript = "pkg update && pkg install -y openjdk-21 gradle aapt2 apksigner\ntermux-setup-storage"
+    val fixExternalAppsCmd = remember {
+        termuxEngine?.getEnableExternalAppsCommand()
+            ?: "mkdir -p ~/.termux && touch ~/.termux/termux.properties && (grep -q '^allow-external-apps' ~/.termux/termux.properties || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings && pkg install -y openjdk-17 aapt2 dx apksigner zip wget"
+    }
     var checkCounter by remember { mutableIntStateOf(0) }
 
     Dialog(
@@ -96,14 +101,16 @@ fun TermuxDiagnosticDialog(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = if (report.isTermuxInstalled) {
-                                        "Termux v${report.termuxVersion ?: "installed"} مكتشف على الجهاز"
-                                    } else {
-                                        "Termux غير مكتشف — تتوفر أدوات بناء مدمجة داخل التطبيق"
+                                    text = when (report.connectionState) {
+                                        TermuxConnectionState.VERIFIED_READY -> "Termux v${report.termuxVersion ?: "installed"} متصل ومُتحقق ✓"
+                                        TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS -> "خطأ (2): يلزم تفعيل allow-external-apps=true"
+                                        TermuxConnectionState.INSTALLED_UNVERIFIED -> "Termux مثبت (v${report.termuxVersion ?: "?"}) • بانتظار التحقق"
+                                        TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION -> "Termux مثبت • يلزم إذن RUN_COMMAND"
+                                        TermuxConnectionState.NOT_INSTALLED -> "Termux غير مثبت — الأدوات الداخلية متاحة"
                                     },
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 11.sp,
-                                    color = if (report.isTermuxInstalled) SuccessGreen else WarningYellow
+                                    color = if (report.isFullyConnected) SuccessGreen else WarningYellow
                                 )
                             }
                         }
@@ -131,7 +138,7 @@ fun TermuxDiagnosticDialog(
                         DiagnosticStatusBadge(
                             title = "إذن RUN_COMMAND",
                             isSuccess = report.hasRunCommandPermission,
-                            successText = "ممنوح ومفعّل",
+                            successText = "ممنوح",
                             failText = if (report.isTermuxInstalled) "يحتاج تفعيل" else "غير متاح",
                             modifier = Modifier.weight(1f)
                         )
@@ -142,36 +149,43 @@ fun TermuxDiagnosticDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         DiagnosticStatusBadge(
-                            title = "خدمة RunCommandService",
-                            isSuccess = report.isRunCommandServiceReachable,
-                            successText = "متصلة وجاهزة",
-                            failText = "غير متاحة",
+                            title = "allow-external-apps",
+                            isSuccess = report.isFullyConnected,
+                            successText = "مُتحقق ويعمل ✓",
+                            failText = if (report.connectionState == TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) {
+                                "غير مفعّل (Error 2)"
+                            } else "غير مُختبر",
                             modifier = Modifier.weight(1f)
                         )
                         DiagnosticStatusBadge(
-                            title = "إضافات API / Tasker",
-                            isSuccess = report.isTermuxApiInstalled || report.isTermuxTaskerInstalled,
-                            successText = listOfNotNull(
-                                if (report.isTermuxApiInstalled) "API" else null,
-                                if (report.isTermuxTaskerInstalled) "Tasker" else null
-                            ).joinToString("+"),
-                            failText = "غير مثبتة (اختياري)",
+                            title = "خدمة RunCommandService",
+                            isSuccess = report.isRunCommandServiceReachable,
+                            successText = "الخدمة متوفرة",
+                            failText = "غير متاحة",
                             modifier = Modifier.weight(1f)
                         )
                     }
 
                     // Honest Live Connection Diagnostic Summary
                     Surface(
-                        color = if (report.isFullyConnected) SuccessGreen.copy(alpha = 0.1f) else Color(0xFF141B29),
+                        color = when {
+                            report.isFullyConnected -> SuccessGreen.copy(alpha = 0.1f)
+                            report.connectionState == TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS -> ErrorRed.copy(alpha = 0.12f)
+                            else -> Color(0xFF141B29)
+                        },
                         shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (report.isFullyConnected) SuccessGreen.copy(alpha = 0.4f) else GlassBorderSubtle
+                            when {
+                                report.isFullyConnected -> SuccessGreen.copy(alpha = 0.45f)
+                                report.connectionState == TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS -> ErrorRed.copy(alpha = 0.5f)
+                                else -> GlassBorderSubtle
+                            }
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = report.diagnosticSummaryAr + if (checkCounter > 0) " (فحص #$checkCounter ✓)" else "",
+                            text = report.diagnosticSummaryAr + if (checkCounter > 0) " (فحص #$checkCounter)" else "",
                             fontFamily = TajawalFontFamily,
                             fontSize = 12.sp,
                             color = TextPrimary,
@@ -180,58 +194,61 @@ fun TermuxDiagnosticDialog(
                         )
                     }
 
-                    // Embedded In-App Toolchain Installer + Live Linear Terminal (Replaces passive-only Termux instructions!)
+                    // 1-Tap Fix Box for Termux Error (2) allow-external-apps=true
+                    Text(
+                        text = "أمر تفعيل allow-external-apps وتثبيت أدوات البناء في Termux (الصقه داخل Termux واضغط Enter):",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = GoldAccent
+                    )
+
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(TerminalBackground)
+                                .border(1.dp, GlassBorderSubtle, RoundedCornerShape(12.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = fixExternalAppsCmd,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = TerminalGreen,
+                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Termux Fix Command", fixExternalAppsCmd))
+                                        Toast.makeText(context, "تم نسخ أمر التفعيل — الصقه في Termux واضغط Enter ✓", Toast.LENGTH_LONG).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "نسخ الأوامر",
+                                        tint = AmberPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Embedded In-App Toolchain Installer + Live Linear Terminal
                     if (toolchainManager != null) {
                         InAppToolchainTerminalCard(
                             toolchainManager = toolchainManager,
                             compactMode = true
                         )
-                    }
-
-                    // Termux Manual Script Helper (Collapsible / Secondary Reference)
-                    Text(
-                        text = "تهيئة Termux الخارجي (اختياري):",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = GoldAccent
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(TerminalBackground)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(12.dp))
-                            .padding(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = setupScript,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                color = TerminalGreen,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Termux Setup", setupScript))
-                                    Toast.makeText(context, "تم نسخ الأوامر بنجاح!", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "نسخ الأوامر",
-                                    tint = AmberPrimary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
                     }
 
                     // Bottom Action Buttons
@@ -241,8 +258,11 @@ fun TermuxDiagnosticDialog(
                     ) {
                         Button(
                             onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Termux Setup", fixExternalAppsCmd))
                                 val launchIntent = context.packageManager.getLaunchIntentForPackage(Constants.TERMUX_PACKAGE_NAME)
                                 if (launchIntent != null) {
+                                    Toast.makeText(context, "تم نسخ الأمر — الصقه داخل Termux ✓", Toast.LENGTH_LONG).show()
                                     context.startActivity(launchIntent)
                                 } else {
                                     try {
@@ -250,7 +270,7 @@ fun TermuxDiagnosticDialog(
                                             Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/com.termux/"))
                                         )
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "تطبيق Termux غير مثبت — استخدم الأدوات المدمجة أعلاه", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "تطبيق Termux غير مثبت", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
@@ -262,27 +282,20 @@ fun TermuxDiagnosticDialog(
                             Icon(Icons.Default.Terminal, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (report.isTermuxInstalled) "فتح Termux" else "تحميل Termux",
+                                text = if (report.isTermuxInstalled) "نسخ وفتح Termux" else "تحميل Termux",
                                 fontFamily = CairoFontFamily,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = TextPrimary
                             )
                         }
 
                         GlowingButton(
-                            text = "فحص الاتصال الحقيقي",
+                            text = "اختبار التنفيذ الفعلي",
                             icon = Icons.Default.Refresh,
                             onClick = {
                                 checkCounter++
                                 onTestConnection()
-                                val statusMsg = if (report.isFullyConnected) {
-                                    "✅ Termux متصل بالكامل (v${report.termuxVersion})"
-                                } else if (report.isTermuxInstalled) {
-                                    "⚠️ Termux مثبت (v${report.termuxVersion}) — تحقق من RUN_COMMAND"
-                                } else {
-                                    "ℹ️ Termux غير مثبت — جميع أدوات البناء الداخلية متاحة"
-                                }
-                                Toast.makeText(context, statusMsg, Toast.LENGTH_SHORT).show()
+                                termuxEngine?.pingTermuxConnection()
                             },
                             modifier = Modifier.weight(1.2f),
                             testTag = "test_termux_connection_button"
@@ -330,7 +343,7 @@ private fun DiagnosticStatusBadge(
                 text = if (isSuccess) "✓ $successText" else "✗ $failText",
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = if (isSuccess) SuccessGreen else ErrorRed,
                 maxLines = 1
             )

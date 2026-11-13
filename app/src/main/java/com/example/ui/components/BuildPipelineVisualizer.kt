@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -34,10 +35,11 @@ import com.example.engine.BuildStageStatus
 import com.example.engine.BuildTelemetry
 import com.example.engine.TermuxEngine
 import com.example.ui.theme.*
+import java.util.Locale
 
 /**
  * لوحة البناء التفاعلية الحية المتكيفة مع حجم الشاشة:
- * تتيح للمستخدم مشاهدة مراحل تجميع التطبيق وتغليفه لحظة بلحظة
+ * تتيح للمستخدم مشاهدة مراحل تجميع التطبيق وتغليفه على القرص لحظة بلحظة بدون قص أو انقلاب للأرقام والوحدات.
  */
 @Composable
 fun AdaptiveBuildPipelineBoard(
@@ -50,6 +52,7 @@ fun AdaptiveBuildPipelineBoard(
 ) {
     val isRunning = engineState is TermuxEngine.EngineStatus.Running
     val isSuccess = engineState is TermuxEngine.EngineStatus.Success
+    val isError = engineState is TermuxEngine.EngineStatus.Failure
     val accent = parseColorSafe(project.accentColorHex, OrangePrimary)
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -66,6 +69,7 @@ fun AdaptiveBuildPipelineBoard(
                 border = androidx.compose.foundation.BorderStroke(
                     width = 1.dp,
                     color = when {
+                        isError -> ErrorRed.copy(alpha = 0.7f)
                         isRunning -> OrangePrimary.copy(alpha = 0.65f)
                         isSuccess -> StatusGreen.copy(alpha = 0.6f)
                         else -> Color(0xFF222C3D)
@@ -83,7 +87,7 @@ fun AdaptiveBuildPipelineBoard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
@@ -115,12 +119,14 @@ fun AdaptiveBuildPipelineBoard(
                                     text = telemetry.activeTarget,
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 11.sp,
-                                    color = TextSecondary
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
 
-                        StatusLiveBadge(isRunning = isRunning, isSuccess = isSuccess)
+                        StatusLiveBadge(isRunning = isRunning, isSuccess = isSuccess, isError = isError)
                     }
 
                     // Adaptive Layout: 2 columns on tablet/wide screens, stacked on phones
@@ -134,7 +140,6 @@ fun AdaptiveBuildPipelineBoard(
                                 telemetry = telemetry,
                                 isRunning = isRunning,
                                 isSuccess = isSuccess,
-                                accent = accent,
                                 modifier = Modifier.weight(1f)
                             )
                             LiveStagesTimeline(
@@ -148,7 +153,6 @@ fun AdaptiveBuildPipelineBoard(
                             telemetry = telemetry,
                             isRunning = isRunning,
                             isSuccess = isSuccess,
-                            accent = accent,
                             modifier = Modifier.fillMaxWidth()
                         )
                         LiveStagesTimeline(
@@ -185,20 +189,31 @@ fun AdaptiveBuildPipelineBoard(
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            text = "تم التغليف والتوقيع: ${telemetry.lastOutputFileName}",
-                                            fontFamily = CairoFontFamily,
+                                            text = telemetry.lastOutputFileName.orEmpty(),
+                                            fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
+                                            fontSize = 11.sp,
                                             color = TextPrimary,
+                                            style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        Text(
-                                            text = "الحجم: ${telemetry.estimatedSizeMb} • الزمن: ${telemetry.elapsedSec}ث",
-                                            fontFamily = TajawalFontFamily,
-                                            fontSize = 11.sp,
-                                            color = StatusGreen
-                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = telemetry.estimatedSizeMb,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 11.sp,
+                                                color = StatusGreen,
+                                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                            )
+                                            Text(
+                                                text = "• ${String.format(Locale.US, "%.1fs", telemetry.elapsedSec)}",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 11.sp,
+                                                color = GoldAccent,
+                                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                            )
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -225,7 +240,7 @@ fun AdaptiveBuildPipelineBoard(
 }
 
 @Composable
-private fun StatusLiveBadge(isRunning: Boolean, isSuccess: Boolean) {
+private fun StatusLiveBadge(isRunning: Boolean, isSuccess: Boolean, isError: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val dotAlpha by infiniteTransition.animateFloat(
         initialValue = 0.35f,
@@ -238,8 +253,9 @@ private fun StatusLiveBadge(isRunning: Boolean, isSuccess: Boolean) {
     )
 
     val (bgColor, textColor, label) = when {
+        isError -> Triple(ErrorRed.copy(alpha = 0.16f), ErrorRed, "يتطلب معالجة ⚠")
         isRunning -> Triple(OrangePrimary.copy(alpha = 0.18f), OrangePrimary, "جارٍ البناء حيّاً")
-        isSuccess -> Triple(StatusGreen.copy(alpha = 0.16f), StatusGreen, "جاهز للتثبيت ✓")
+        isSuccess -> Triple(StatusGreen.copy(alpha = 0.16f), StatusGreen, "تم الحفظ على القرص ✓")
         else -> Triple(Color(0xFF1D2432), TextSecondary, "في وضع الاستعداد")
     }
 
@@ -276,16 +292,15 @@ private fun LiveAppAssemblyBlueprint(
     telemetry: BuildTelemetry,
     isRunning: Boolean,
     isSuccess: Boolean,
-    accent: Color,
     modifier: Modifier = Modifier
 ) {
     val layerLabels = listOf(
         "Gradle" to Icons.Default.Settings,
         "Manifest" to Icons.Default.Security,
-        "WebView" to Icons.Default.Language,
-        "AAPT2" to Icons.Default.Layers,
-        "R8/DEX" to Icons.Default.Memory,
-        "Sign" to Icons.Default.VerifiedUser
+        "Assets" to Icons.Default.Language,
+        "Icons/Res" to Icons.Default.Layers,
+        "RSA Sign" to Icons.Default.VerifiedUser,
+        "Package" to Icons.Default.Inventory2
     )
 
     Surface(
@@ -294,158 +309,182 @@ private fun LiveAppAssemblyBlueprint(
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1D2638)),
         modifier = modifier
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Live App Card Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        BoxWithConstraints {
+            val useSingleRow = maxWidth >= 460.dp
+
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Live App Card Header
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    RealAppIconAvatar(
-                        project = project,
-                        size = 42.dp,
-                        cornerRadius = 12.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = project.name.ifBlank { "تطبيق جديد" },
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        RealAppIconAvatar(
+                            project = project,
+                            size = 42.dp,
+                            cornerRadius = 12.dp
                         )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = project.name.ifBlank { "تطبيق جديد" },
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = project.packageConfig.packageName,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                color = TextSecondary,
+                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Telemetry Mini Metrics with clean LTR number/unit formatting
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = project.packageConfig.packageName,
+                            text = "${telemetry.processedFilesCount} ملف",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = if (isSuccess) StatusGreen else OrangePrimary
                         )
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                            Text(
+                                text = telemetry.estimatedSizeMb,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondary,
+                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                            )
+                        }
                     }
                 }
 
-                // Telemetry Mini Metrics
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "${telemetry.processedFilesCount} ملف",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = if (isSuccess) StatusGreen else OrangePrimary
-                    )
-                    Text(
-                        text = telemetry.estimatedSizeMb,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = TextSecondary
-                    )
-                }
-            }
+                // Live Layer Assembly Visualizer (3x2 grid on phones so Manifest/Icons never clip!)
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    val rows = if (useSingleRow) listOf(layerLabels) else layerLabels.chunked(3)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rows.forEachIndexed { rIdx, rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val rowOffset = if (useSingleRow) 0 else rIdx * 3
+                                rowItems.forEachIndexed { cIdx, (label, icon) ->
+                                    val layerNumber = rowOffset + cIdx + 1
+                                    val isBuilt = telemetry.assembledLayers >= layerNumber
+                                    val isCurrent = isRunning && telemetry.assembledLayers == layerNumber
 
-            // Live Layer Assembly Visualizer
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                layerLabels.forEachIndexed { idx, (label, icon) ->
-                    val layerNumber = idx + 1
-                    val isBuilt = telemetry.assembledLayers >= layerNumber
-                    val isCurrent = isRunning && telemetry.assembledLayers == layerNumber
+                                    val boxBg by animateColorAsState(
+                                        targetValue = when {
+                                            isCurrent -> OrangePrimary.copy(alpha = 0.22f)
+                                            isBuilt -> StatusGreen.copy(alpha = 0.16f)
+                                            else -> Color(0xFF151C28)
+                                        },
+                                        label = "layerBg"
+                                    )
+                                    val borderClr by animateColorAsState(
+                                        targetValue = when {
+                                            isCurrent -> OrangePrimary
+                                            isBuilt -> StatusGreen.copy(alpha = 0.7f)
+                                            else -> Color(0xFF242F42)
+                                        },
+                                        label = "layerBorder"
+                                    )
+                                    val tintClr = when {
+                                        isCurrent -> OrangePrimary
+                                        isBuilt -> StatusGreen
+                                        else -> Color(0xFF607087)
+                                    }
 
-                    val boxBg by animateColorAsState(
-                        targetValue = when {
-                            isCurrent -> OrangePrimary.copy(alpha = 0.22f)
-                            isBuilt -> StatusGreen.copy(alpha = 0.16f)
-                            else -> Color(0xFF151C28)
-                        },
-                        label = "layerBg"
-                    )
-                    val borderClr by animateColorAsState(
-                        targetValue = when {
-                            isCurrent -> OrangePrimary
-                            isBuilt -> StatusGreen.copy(alpha = 0.7f)
-                            else -> Color(0xFF242F42)
-                        },
-                        label = "layerBorder"
-                    )
-                    val tintClr = when {
-                        isCurrent -> OrangePrimary
-                        isBuilt -> StatusGreen
-                        else -> Color(0xFF607087)
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(boxBg)
+                                            .border(1.dp, borderClr, RoundedCornerShape(10.dp))
+                                            .padding(horizontal = 4.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = label,
+                                            tint = tintClr,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = label,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isBuilt) FontWeight.Bold else FontWeight.Normal,
+                                            color = tintClr,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
 
-                    Column(
+                // Active File / Artifact Monitor Strip (Strictly LTR so paths & seconds stay aligned)
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(boxBg)
-                            .border(1.dp, borderClr, RoundedCornerShape(10.dp))
-                            .padding(vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .background(Color(0xFF141B27))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = icon,
-                            contentDescription = label,
-                            tint = tintClr,
-                            modifier = Modifier.size(16.dp)
+                            imageVector = Icons.Default.Code,
+                            contentDescription = null,
+                            tint = OrangePrimary,
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = label,
+                            text = telemetry.currentArtifact,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
-                            fontWeight = if (isBuilt) FontWeight.Bold else FontWeight.Normal,
-                            color = tintClr,
-                            maxLines = 1
+                            fontSize = 11.sp,
+                            color = TextPrimary,
+                            style = LocalTextStyle.current.copy(textDirection = TextDirection.ContentOrLtr),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        if (telemetry.elapsedSec > 0f) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${String.format(Locale.US, "%.1f", telemetry.elapsedSec)}s",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                color = GoldAccent,
+                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                            )
+                        }
                     }
-                }
-            }
-
-            // Active File / Artifact Monitor Strip
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF141B27))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Code,
-                    contentDescription = null,
-                    tint = OrangePrimary,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = telemetry.currentArtifact,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                if (telemetry.elapsedSec > 0f) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "${telemetry.elapsedSec}s",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = GoldAccent
-                    )
                 }
             }
         }
@@ -464,6 +503,7 @@ private fun LiveStagesTimeline(
         stages.forEach { stage ->
             val isRunning = stage.status == BuildStageStatus.RUNNING
             val isDone = stage.status == BuildStageStatus.DONE
+            val isErr = stage.status == BuildStageStatus.ERROR
 
             val pulseTransition = rememberInfiniteTransition(label = "stagePulse")
             val scale by pulseTransition.animateFloat(
@@ -478,6 +518,7 @@ private fun LiveStagesTimeline(
 
             val rowBg by animateColorAsState(
                 targetValue = when {
+                    isErr -> Color(0xFF261215)
                     isRunning -> Color(0xFF1F1A18)
                     isDone -> Color(0xFF111D19)
                     else -> Color(0xFF0E131C)
@@ -486,6 +527,7 @@ private fun LiveStagesTimeline(
             )
             val rowBorder by animateColorAsState(
                 targetValue = when {
+                    isErr -> ErrorRed.copy(alpha = 0.7f)
                     isRunning -> OrangePrimary.copy(alpha = 0.7f)
                     isDone -> StatusGreen.copy(alpha = 0.45f)
                     else -> Color(0xFF1D2534)
@@ -514,6 +556,7 @@ private fun LiveStagesTimeline(
                             .clip(CircleShape)
                             .background(
                                 when {
+                                    isErr -> ErrorRed
                                     isRunning -> OrangePrimary
                                     isDone -> StatusGreen
                                     else -> Color(0xFF1E2636)
@@ -522,6 +565,12 @@ private fun LiveStagesTimeline(
                         contentAlignment = Alignment.Center
                     ) {
                         when {
+                            isErr -> Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
                             isRunning -> CircularProgressIndicator(
                                 modifier = Modifier.size(14.dp),
                                 color = Color.White,
@@ -570,6 +619,7 @@ private fun LiveStagesTimeline(
 
                 Surface(
                     color = when {
+                        isErr -> ErrorRed.copy(alpha = 0.2f)
                         isRunning -> OrangePrimary.copy(alpha = 0.18f)
                         isDone -> StatusGreen.copy(alpha = 0.14f)
                         else -> Color(0xFF18202E)
@@ -581,7 +631,9 @@ private fun LiveStagesTimeline(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
+                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                         color = when {
+                            isErr -> ErrorRed
                             isRunning -> OrangePrimary
                             isDone -> StatusGreen
                             else -> TextMuted

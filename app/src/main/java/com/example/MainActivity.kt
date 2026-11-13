@@ -336,6 +336,7 @@ fun AppRoot(
                 TermuxDiagnosticDialog(
                     report = termuxReport,
                     toolchainManager = viewModel.toolchainManager,
+                    termuxEngine = viewModel.termuxEngine,
                     onDismiss = { viewModel.closeDiagnosticDialog() },
                     onTestConnection = {
                         viewModel.checkTermuxStatus()

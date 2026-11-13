@@ -34,10 +34,15 @@ class BuildProjectUseCase(
         repository.updateBuildStatus(project.id, BuildStatus.BUILDING, null)
         val success = termuxEngine.executeBuildWithProgress(project, buildType)
         val finalStatus = if (success) BuildStatus.SUCCESS else BuildStatus.FAILED
-        val apkPath = if (success) {
-            "${com.example.utils.Constants.DOWNLOADS_DIR}/${project.name.replace(' ', '_')}_v${project.packageConfig.versionName}_$buildType.apk"
-        } else null
-        repository.updateBuildStatus(project.id, finalStatus, apkPath)
+        val tele = termuxEngine.telemetry.value
+        val apkPath = if (success) tele.lastOutputPath else null
+        repository.updateBuildStatus(
+            projectId = project.id,
+            status = finalStatus,
+            apkPath = apkPath,
+            customFileName = tele.lastOutputFileName,
+            sizeText = tele.estimatedSizeMb
+        )
         return success
     }
 }

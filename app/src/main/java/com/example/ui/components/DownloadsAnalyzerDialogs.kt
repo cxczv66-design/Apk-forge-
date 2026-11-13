@@ -4,7 +4,6 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,12 +23,16 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.repository.DownloadedApk
+import com.example.engine.ToolchainManager
+import com.example.engine.formatBytesReadable
 import com.example.ui.theme.*
+import java.util.Locale
 import kotlin.math.abs
 
 @Composable
@@ -37,11 +40,16 @@ fun ApkAnalyzerDialog(
     apk: DownloadedApk,
     onDismiss: () -> Unit
 ) {
-    val totalMb = apk.sizeText.substringBefore(" ").toFloatOrNull() ?: 8.4f
-    val dexMb = (totalMb * 0.42f)
-    val assetsMb = (totalMb * 0.31f)
-    val resMb = (totalMb * 0.18f)
-    val libsMb = (totalMb * 0.09f)
+    val context = LocalContext.current
+    val realBreakdown = remember(apk.filePath) {
+        ToolchainManager(context).analyzeArchiveBreakdown(apk.filePath)
+    }
+
+    val totalBytes = realBreakdown?.totalBytes?.takeIf { it > 0L } ?: 1L
+    val codeRatio = if (realBreakdown != null) (realBreakdown.codeBytes.toFloat() / totalBytes).coerceIn(0.05f, 1f) else 0.42f
+    val assetsRatio = if (realBreakdown != null) (realBreakdown.assetsBytes.toFloat() / totalBytes).coerceIn(0.05f, 1f) else 0.31f
+    val resRatio = if (realBreakdown != null) (realBreakdown.resBytes.toFloat() / totalBytes).coerceIn(0.05f, 1f) else 0.18f
+    val metaRatio = if (realBreakdown != null) (realBreakdown.signingAndMetaBytes.toFloat() / totalBytes).coerceIn(0.05f, 1f) else 0.09f
 
     Dialog(onDismissRequest = onDismiss) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -64,10 +72,10 @@ fun ApkAnalyzerDialog(
                             Icon(Icons.Default.Analytics, contentDescription = null, tint = OrangePrimary)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "محلل الحزمة (${apk.buildType})",
+                                text = "محلل الحزمة الحقيقي (${apk.buildType})",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 color = TextPrimary
                             )
                         }
@@ -80,8 +88,25 @@ fun ApkAnalyzerDialog(
                         text = "${apk.fileName} • ${apk.packageName}",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                     )
+
+                    if (realBreakdown != null) {
+                        Text(
+                            text = "تم فحص ${realBreakdown.entryCount} ملف فعلياً على القرص (${realBreakdown.formattedSize})",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = StatusGreen
+                        )
+                    } else {
+                        Text(
+                            text = "تنبيه: الملف غير موجود على القرص حالياً — أعد البناء لتوليده.",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = WarningYellow
+                        )
+                    }
 
                     // Segmented Size Bar
                     Row(
@@ -90,16 +115,37 @@ fun ApkAnalyzerDialog(
                             .height(14.dp)
                             .clip(RoundedCornerShape(7.dp))
                     ) {
-                        Box(modifier = Modifier.weight(0.42f).fillMaxHeight().background(OrangePrimary))
-                        Box(modifier = Modifier.weight(0.31f).fillMaxHeight().background(Color(0xFF38BDF8)))
-                        Box(modifier = Modifier.weight(0.18f).fillMaxHeight().background(StatusGreen))
-                        Box(modifier = Modifier.weight(0.09f).fillMaxHeight().background(Color(0xFFA855F7)))
+                        Box(modifier = Modifier.weight(codeRatio).fillMaxHeight().background(OrangePrimary))
+                        Box(modifier = Modifier.weight(assetsRatio).fillMaxHeight().background(Color(0xFF38BDF8)))
+                        Box(modifier = Modifier.weight(resRatio).fillMaxHeight().background(StatusGreen))
+                        Box(modifier = Modifier.weight(metaRatio).fillMaxHeight().background(Color(0xFFA855F7)))
                     }
 
-                    AnalyzerRow("شيفرة DEX والكود البرمجي", String.format(java.util.Locale.US, "%.2f MB (42%%)", dexMb), OrangePrimary)
-                    AnalyzerRow("ملفات الويب والأصول (Assets)", String.format(java.util.Locale.US, "%.2f MB (31%%)", assetsMb), Color(0xFF38BDF8))
-                    AnalyzerRow("الموارد والأيقونات (Res)", String.format(java.util.Locale.US, "%.2f MB (18%%)", resMb), StatusGreen)
-                    AnalyzerRow("مكتبات النظام (Libs)", String.format(java.util.Locale.US, "%.2f MB (9%%)", libsMb), Color(0xFFA855F7))
+                    if (realBreakdown != null) {
+                        val pct = { b: Long -> ((b * 100.0) / totalBytes).toInt() }
+                        AnalyzerRow(
+                            "الشيفرة والـ Manifest (Kotlin/Java/DEX)",
+                            "${formatBytesReadable(realBreakdown.codeBytes)} (${pct(realBreakdown.codeBytes)}%)",
+                            OrangePrimary
+                        )
+                        AnalyzerRow(
+                            "ملفات الويب والأصول (Assets)",
+                            "${formatBytesReadable(realBreakdown.assetsBytes)} (${pct(realBreakdown.assetsBytes)}%)",
+                            Color(0xFF38BDF8)
+                        )
+                        AnalyzerRow(
+                            "الموارد والأيقونات (Res/PNG)",
+                            "${formatBytesReadable(realBreakdown.resBytes)} (${pct(realBreakdown.resBytes)}%)",
+                            StatusGreen
+                        )
+                        AnalyzerRow(
+                            "التوقيع والشهادات (META-INF RSA)",
+                            "${formatBytesReadable(realBreakdown.signingAndMetaBytes)} (${pct(realBreakdown.signingAndMetaBytes)}%)",
+                            Color(0xFFA855F7)
+                        )
+                    } else {
+                        AnalyzerRow("حجم الحزمة المسجل", apk.sizeText, OrangePrimary)
+                    }
 
                     HorizontalDivider(color = GlassBorderSubtle)
 
@@ -108,8 +154,14 @@ fun ApkAnalyzerDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         MetricPill("الأذونات: ${apk.permissionsCount}", Color(0xFFF59E0B))
-                        MetricPill("JS Bridge: ${if (apk.jsBridgeEnabled) "مُفعّل" else "مُعطّل"}", StatusGreen)
-                        MetricPill("Push: ${if (apk.pushEnabled) "نعم" else "لا"}", Color(0xFF38BDF8))
+                        MetricPill(
+                            if (realBreakdown?.isSigned == true) "موقّع RSA ✓" else "JS Bridge: ${if (apk.jsBridgeEnabled) "نعم" else "لا"}",
+                            StatusGreen
+                        )
+                        MetricPill(
+                            if (realBreakdown?.hasManifest == true) "Manifest ✓" else "Push: ${if (apk.pushEnabled) "نعم" else "لا"}",
+                            Color(0xFF38BDF8)
+                        )
                     }
 
                     Button(
@@ -133,12 +185,19 @@ private fun AnalyzerRow(label: String, sizeLabel: String, dotColor: Color) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(dotColor))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(label, fontFamily = TajawalFontFamily, fontSize = 12.sp, color = TextPrimary)
+            Text(label, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextPrimary)
         }
-        Text(sizeLabel, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextSecondary)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = sizeLabel,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            color = TextSecondary,
+            style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+        )
     }
 }
 
@@ -198,7 +257,6 @@ fun QrShareApkDialog(
                         textAlign = TextAlign.Center
                     )
 
-                    // Crisp high-contrast deterministic QR Matrix drawn on Compose Canvas
                     Box(
                         modifier = Modifier
                             .size(180.dp)
@@ -214,7 +272,8 @@ fun QrShareApkDialog(
                         text = "${apk.fileName} (${apk.sizeText})",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = OrangePrimary
+                        color = OrangePrimary,
+                        style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                     )
 
                     Row(

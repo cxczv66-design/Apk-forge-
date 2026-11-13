@@ -6,8 +6,8 @@ import androidx.core.content.FileProvider
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
 import java.io.BufferedOutputStream
-import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -36,7 +36,37 @@ class ProjectExporter(private val context: Context) {
     }
 
     /**
-     * بناء جميع الملفات النصية للمشروع (مشتركة بين تصدير ZIP والرفع السحابي لـ GitHub API)
+     * يحل مسار ملف HTML الأساسي بالنسبة لمجلد assets/ في حال استيراد ملف HTML أو أرشيف ZIP
+     */
+    fun resolveWorkspaceEntryRelativePath(project: AppProject): String {
+        val wsPath = project.localWorkspacePath?.takeIf { it.isNotBlank() } ?: return "index.html"
+        val wsDir = File(wsPath)
+        if (!wsDir.exists() || !wsDir.isDirectory) return "index.html"
+        val entry = LocalWorkspaceEngine.findEntryHtml(wsDir) ?: return "index.html"
+        return entry.relativeTo(wsDir).path.replace('\\', '/').ifBlank { "index.html" }
+    }
+
+    /**
+     * يجمع جميع الملفات الثنائية الحقيقية المستوردة من HTML / ZIP لتحزيمها داخل assets/
+     */
+    fun collectRealWorkspaceAssetFiles(project: AppProject): Map<String, File> {
+        val wsPath = project.localWorkspacePath?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        val wsDir = File(wsPath)
+        if (!wsDir.exists() || !wsDir.isDirectory) return emptyMap()
+        val result = linkedMapOf<String, File>()
+        wsDir.walkTopDown()
+            .filter { it.isFile }
+            .forEach { file ->
+                val rel = file.relativeTo(wsDir).path.replace('\\', '/').trimStart('/')
+                if (rel.isNotBlank() && !rel.startsWith("__MACOSX")) {
+                    result["app/src/main/assets/$rel"] = file
+                }
+            }
+        return result
+    }
+
+    /**
+     * بناء جميع الملفات النصية للمشروع (مشتركة بين تصدير ZIP والرفع السحابي لـ GitHub API ومحرك البناء الفعلي)
      */
     fun buildProjectTextEntries(
         project: AppProject,
@@ -45,7 +75,9 @@ class ProjectExporter(private val context: Context) {
         val safeName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
         val pkg = project.packageConfig.packageName
         val pkgPath = pkg.replace('.', '/')
-        val iconPack = AdaptiveIconStudio.generateIconPack(project)
+        val iconPack = AdaptiveIconStudio.generateIconPack(context, project)
+        val relEntryAsset = resolveWorkspaceEntryRelativePath(project)
+        val realAssets = collectRealWorkspaceAssetFiles(project)
 
         val entries = linkedMapOf<String, String>()
 
@@ -156,8 +188,14 @@ class ProjectExporter(private val context: Context) {
             }
         """.trimIndent()
 
-        entries["app/src/main/AndroidManifest.xml"] = buildGeneratedManifest(project)
-        entries["app/src/main/java/$pkgPath/MainActivity.kt"] = buildGeneratedMainActivity(project)
+        val manifestXml = buildGeneratedManifest(project)
+        entries["app/src/main/AndroidManifest.xml"] = manifestXml
+        entries["termux_standalone/AndroidManifest.xml"] = manifestXml.replace(
+            "@style/Theme.MaterialComponents.DayNight.NoActionBar",
+            "@android:style/Theme.DeviceDefault.NoActionBar"
+        )
+        entries["app/src/main/java/$pkgPath/MainActivity.kt"] = buildGeneratedMainActivity(project, relEntryAsset)
+        entries["termux_standalone/src/$pkgPath/MainActivity.java"] = buildStandaloneTermuxJavaActivity(project, relEntryAsset)
         entries["app/src/main/res/values/strings.xml"] = """
             <?xml version="1.0" encoding="utf-8"?>
             <resources>
@@ -175,8 +213,12 @@ class ProjectExporter(private val context: Context) {
             {
               "name": "${project.name}",
               "packageName": "$pkg",
+              "versionCode": ${project.packageConfig.versionCode},
+              "versionName": "${project.packageConfig.versionName}",
               "sourceType": "${project.sourceType.name}",
               "sourceValue": "${project.sourceValue}",
+              "entryAsset": "$relEntryAsset",
+              "realWorkspaceFiles": ${realAssets.size},
               "pullToRefresh": ${project.webViewConfig.pullToRefresh},
               "fullScreen": ${project.webViewConfig.fullScreen},
               "jsBridgeEnabled": ${project.bridgeConfig.jsBridgeEnabled},
@@ -192,7 +234,10 @@ class ProjectExporter(private val context: Context) {
             }
         """.trimIndent()
 
-        entries["app/src/main/assets/index.html"] = buildDemoIndexHtml(project)
+        // Fallback demo index.html ONLY when user hasn't imported real HTML/ZIP files
+        if (!realAssets.containsKey("app/src/main/assets/index.html") && realAssets.isEmpty()) {
+            entries["app/src/main/assets/index.html"] = buildDemoIndexHtml(project)
+        }
 
         if (project.bridgeConfig.gitHubCiEnabled) {
             entries[".github/workflows/apkforge-build.yml"] = buildGitHubActionsWorkflow(safeName)
@@ -203,9 +248,10 @@ class ProjectExporter(private val context: Context) {
             # ${project.name} - Generated by ApkForge Pro Studio
             - Package ID: `$pkg`
             - Version: `${project.packageConfig.versionName}` (${project.packageConfig.versionCode})
+            - Imported Workspace Assets: `${realAssets.size}` real files (entry: `$relEntryAsset`)
+            - Custom Launcher Icon Applied: `${iconPack.usedCustomImage}` (${project.proConfig.iconShape})
             - Native JS Bridge (`window.ApkForge` v2): Biometric=${project.proConfig.biometricAuthBridge}, QR=${project.proConfig.qrScannerBridge}, InAppReview=${project.proConfig.inAppReviewBridge}
             - Security: FLAG_SECURE=${project.proConfig.flagSecureEnabled}, SSL Pinning=${project.proConfig.sslPinningEnabled}, AdBlocker=${project.proConfig.adAndPopupBlocker}
-            - Adaptive Icons: `res/mipmap-anydpi-v26/ic_launcher.xml` (${project.proConfig.iconShape})
             - GitHub Actions CI: `.github/workflows/apkforge-build.yml`
         """.trimIndent()
 
@@ -213,7 +259,7 @@ class ProjectExporter(private val context: Context) {
     }
 
     /**
-     * تصدير مشروع Android Studio كامل (مع الأيقونات المتكيّفة PNG + XML + GitHub CI) داخل ملف ZIP حقيقي
+     * تصدير مشروع Android Studio كامل (مع الأصول المستوردة الحقيقية والأيقونات الحقيقية و GitHub CI) داخل ZIP حقيقي
      */
     fun exportAndroidStudioProjectZip(
         project: AppProject,
@@ -222,26 +268,38 @@ class ProjectExporter(private val context: Context) {
         val safeName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
         val zipFile = File(getExportsDir(), "${safeName}_AndroidStudio_CI.zip")
         val textEntries = buildProjectTextEntries(project, options)
-        val iconPack = AdaptiveIconStudio.generateIconPack(project)
+        val realAssets = collectRealWorkspaceAssetFiles(project)
+        val iconPack = AdaptiveIconStudio.generateIconPack(context, project)
 
+        var writtenCount = 0
         ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
             textEntries.forEach { (path, content) ->
-                val entry = ZipEntry(path)
-                zos.putNextEntry(entry)
-                zos.write(content.toByteArray(Charsets.UTF_8))
-                zos.closeEntry()
+                if (!realAssets.containsKey(path)) {
+                    zos.putNextEntry(ZipEntry(path))
+                    zos.write(content.toByteArray(Charsets.UTF_8))
+                    zos.closeEntry()
+                    writtenCount++
+                }
+            }
+            realAssets.forEach { (path, diskFile) ->
+                if (diskFile.exists() && diskFile.isFile) {
+                    zos.putNextEntry(ZipEntry(path))
+                    FileInputStream(diskFile).use { fis -> fis.copyTo(zos) }
+                    zos.closeEntry()
+                    writtenCount++
+                }
             }
             iconPack.densityPngs.forEach { (path, bytes) ->
-                val entry = ZipEntry(path)
-                zos.putNextEntry(entry)
-                ByteArrayInputStream(bytes).copyTo(zos)
+                zos.putNextEntry(ZipEntry(path))
+                zos.write(bytes)
                 zos.closeEntry()
+                writtenCount++
             }
         }
 
         return ExportedZipResult(
             zipFile = zipFile,
-            includedFilesCount = textEntries.size + iconPack.densityPngs.size,
+            includedFilesCount = writtenCount,
             sizeKb = maxOf(1L, zipFile.length() / 1024L),
             includesGitHubCi = project.bridgeConfig.gitHubCiEnabled,
             includesJsBridge = project.bridgeConfig.jsBridgeEnabled
@@ -253,6 +311,35 @@ class ProjectExporter(private val context: Context) {
         val file = File(getExportsDir(), "${safeName}.apkforge")
         file.writeText(jsonContent, Charsets.UTF_8)
         return file
+    }
+
+    fun openOrInstallFile(filePath: String, buildType: String): Boolean {
+        val file = File(filePath)
+        if (!file.exists() || !file.isFile) return false
+        return try {
+            val authority = "${context.packageName}.fileprovider"
+            val uri = FileProvider.getUriForFile(context, authority, file)
+            val isApk = file.extension.equals("apk", ignoreCase = true) ||
+                (buildType.equals("APK", ignoreCase = true) && file.name.endsWith(".apk", ignoreCase = true))
+            val mime = when {
+                isApk -> "application/vnd.android.package-archive"
+                file.extension.equals("zip", ignoreCase = true) -> "application/zip"
+                else -> "application/octet-stream"
+            }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(intent, if (isApk) "تثبيت الحزمة APK" else "فتح الحزمة: ${file.name}").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+            true
+        } catch (_: Exception) {
+            shareFileWithChooser(file, "*/*", "مشاركة / فتح ${file.name}")
+            true
+        }
     }
 
     fun shareFileWithChooser(file: File, mimeType: String, title: String) {
@@ -269,7 +356,7 @@ class ProjectExporter(private val context: Context) {
         context.startActivity(chooser)
     }
 
-    private fun buildGeneratedManifest(project: AppProject): String {
+    fun buildGeneratedManifest(project: AppProject): String {
         val p = project.permissionsConfig
         val perms = buildString {
             appendLine("""    <uses-permission android:name="android.permission.INTERNET" />""")
@@ -315,13 +402,15 @@ class ProjectExporter(private val context: Context) {
 
         return """
             <?xml version="1.0" encoding="utf-8"?>
-            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+                package="${project.packageConfig.packageName}">
             $perms
                 <application
                     android:allowBackup="true"
                     android:icon="@mipmap/ic_launcher"
                     android:roundIcon="@mipmap/ic_launcher_round"
                     android:label="@string/app_name"
+                    android:usesCleartextTraffic="true"
                     android:supportsRtl="true"
                     android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
             $pushMeta
@@ -341,13 +430,240 @@ class ProjectExporter(private val context: Context) {
         """.trimIndent()
     }
 
-    private fun buildGeneratedMainActivity(project: AppProject): String {
+    /**
+     * Activity نقية بـ Android SDK فقط (بدون androidx) ليتمكن Termux من ترجمتها مباشرة بـ aapt2 + javac + d8 + apksigner
+     */
+    fun buildStandaloneTermuxJavaActivity(project: AppProject, relEntryAsset: String = "index.html"): String {
         val pkg = project.packageConfig.packageName
         val pro = project.proConfig
         val startUrl = if (project.sourceType == SourceType.WEB_URL && project.sourceValue.startsWith("http")) {
             project.sourceValue
         } else {
-            "file:///android_asset/index.html"
+            "file:///android_asset/$relEntryAsset"
+        }
+        val escapedCss = pro.customCss.replace("\"", "\\\"").replace("\n", " ")
+        val darkCss = if (pro.forceDarkCss) {
+            "html { filter: invert(0.92) hue-rotate(180deg) !important; background: #0d1117 !important; } img, video { filter: invert(1) hue-rotate(180deg) !important; }"
+        } else ""
+        val combinedCss = "$darkCss $escapedCss".trim()
+        val escapedJs = pro.customJs.replace("\"", "\\\"").replace("\n", " ")
+        val blockedHostsArray = pro.blockedHostsCsv
+            .split(",")
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .joinToString(",") { "\"$it\"" }
+
+        val contact = pro.fabWhatsappNumber.ifBlank { "ziorio950@gmail.com" }
+
+        return """
+            package $pkg;
+
+            import android.annotation.SuppressLint;
+            import android.app.Activity;
+            import android.content.Context;
+            import android.content.Intent;
+            import android.graphics.Color;
+            import android.net.ConnectivityManager;
+            import android.net.Uri;
+            import android.net.http.SslError;
+            import android.os.Build;
+            import android.os.Bundle;
+            import android.os.VibrationEffect;
+            import android.os.Vibrator;
+            import android.view.Gravity;
+            import android.view.View;
+            import android.view.Window;
+            import android.view.WindowManager;
+            import android.webkit.JavascriptInterface;
+            import android.webkit.SslErrorHandler;
+            import android.webkit.WebResourceRequest;
+            import android.webkit.WebResourceResponse;
+            import android.webkit.WebSettings;
+            import android.webkit.WebView;
+            import android.webkit.WebViewClient;
+            import android.widget.Button;
+            import android.widget.FrameLayout;
+            import android.widget.LinearLayout;
+            import android.widget.Toast;
+            import java.io.ByteArrayInputStream;
+
+            public class MainActivity extends Activity {
+                private WebView webView;
+                private final String[] blockedHosts = new String[]{$blockedHostsArray};
+
+                @SuppressLint("SetJavaScriptEnabled")
+                @Override
+                protected void onCreate(Bundle savedInstanceState) {
+                    super.onCreate(savedInstanceState);
+                    requestWindowFeature(Window.FEATURE_NO_TITLE);
+                    ${if (pro.flagSecureEnabled) "getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);" else ""}
+
+                    FrameLayout root = new FrameLayout(this);
+                    LinearLayout column = new LinearLayout(this);
+                    column.setOrientation(LinearLayout.VERTICAL);
+
+                    webView = new WebView(this);
+                    WebSettings ws = webView.getSettings();
+                    ws.setJavaScriptEnabled(true);
+                    ws.setDomStorageEnabled(true);
+                    ws.setAllowFileAccess(true);
+                    ws.setAllowFileAccessFromFileURLs(true);
+                    ws.setAllowUniversalAccessFromFileURLs(true);
+                    ws.setSupportZoom(${project.webViewConfig.supportZoom});
+                    ws.setCacheMode(${if (pro.assetPreloaderEnabled) "WebSettings.LOAD_CACHE_ELSE_NETWORK" else "WebSettings.LOAD_DEFAULT"});
+                    ${if (project.bridgeConfig.jsBridgeEnabled) "webView.addJavascriptInterface(new ApkForgeBridge(this), \"ApkForge\");" else ""}
+
+                    webView.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                            ${if (pro.adAndPopupBlocker) """
+                            if (request != null && request.getUrl() != null && request.getUrl().getHost() != null) {
+                                String host = request.getUrl().getHost().toLowerCase();
+                                for (String blocked : blockedHosts) {
+                                    if (!blocked.isEmpty() && host.contains(blocked)) {
+                                        return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+                                    }
+                                }
+                            }
+                            """.trimIndent() else ""}
+                            return super.shouldInterceptRequest(view, request);
+                        }
+
+                        @Override
+                        public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                            ${if (pro.sslPinningEnabled) "if (handler != null) handler.cancel();" else "if (handler != null) handler.proceed();"}
+                        }
+
+                        @Override
+                        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                            String url = request != null && request.getUrl() != null ? request.getUrl().toString() : "";
+                            if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("whatsapp:")) {
+                                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception ignored) {}
+                                return true;
+                            }
+                            return false;
+                        }
+
+                        @Override
+                        public void onPageFinished(WebView view, String url) {
+                            ${if (combinedCss.isNotBlank()) "view.evaluateJavascript(\"(function(){var s=document.createElement('style');s.innerHTML='$combinedCss';document.head.appendChild(s);})();\", null);" else ""}
+                            ${if (escapedJs.isNotBlank()) "view.evaluateJavascript(\"$escapedJs\", null);" else ""}
+                        }
+                    });
+
+                    LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                    );
+                    column.addView(webView, wvLp);
+
+                    ${if (project.bottomNavConfig.enabled && project.bottomNavConfig.destinations.isNotEmpty()) {
+                        val buttonsCode = project.bottomNavConfig.destinations.take(4).joinToString("\n") { dest ->
+                            val target = if (dest.targetUrl.startsWith("http")) dest.targetUrl else startUrl
+                            """
+                            Button btn_${dest.id.filter { it.isLetterOrDigit() }} = new Button(this);
+                            btn_${dest.id.filter { it.isLetterOrDigit() }}.setText("${dest.title}");
+                            btn_${dest.id.filter { it.isLetterOrDigit() }}.setTextColor(Color.WHITE);
+                            btn_${dest.id.filter { it.isLetterOrDigit() }}.setBackgroundColor(Color.parseColor("${project.bottomNavConfig.barColorHex}"));
+                            btn_${dest.id.filter { it.isLetterOrDigit() }}.setOnClickListener(v -> webView.loadUrl("$target"));
+                            navBar.addView(btn_${dest.id.filter { it.isLetterOrDigit() }}, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                            """.trimIndent()
+                        }
+                        """
+                        LinearLayout navBar = new LinearLayout(this);
+                        navBar.setOrientation(LinearLayout.HORIZONTAL);
+                        $buttonsCode
+                        column.addView(navBar, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                        """.trimIndent()
+                    } else ""}
+
+                    root.addView(column, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+                    ));
+
+                    ${if (pro.fabMenuEnabled) """
+                    Button fab = new Button(this);
+                    fab.setText("✉");
+                    fab.setTextColor(Color.WHITE);
+                    fab.setBackgroundColor(Color.parseColor("${project.accentColorHex}"));
+                    FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(132, 132);
+                    flp.gravity = Gravity.BOTTOM | Gravity.END;
+                    flp.setMargins(24, 24, 24, 48);
+                    fab.setOnClickListener(v -> {
+                        try { startActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$contact"))); } catch (Exception ignored) {}
+                    });
+                    root.addView(fab, flp);
+                    """.trimIndent() else ""}
+
+                    ${if (project.splashConfig.enabled) """
+                    final FrameLayout splash = new FrameLayout(this);
+                    splash.setBackgroundColor(Color.parseColor("${project.splashConfig.backgroundColorHex}"));
+                    root.addView(splash, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+                    ));
+                    splash.postDelayed(() -> {
+                        ${if (project.splashConfig.fadeBackground) """
+                        splash.animate().alpha(0f).setDuration(600L).withEndAction(() -> root.removeView(splash)).start();
+                        """.trimIndent() else "root.removeView(splash);"}
+                    }, 900L);
+                    """.trimIndent() else ""}
+
+                    setContentView(root);
+                    String deepLink = getIntent() != null && getIntent().getData() != null ? getIntent().getData().toString() : null;
+                    webView.loadUrl(deepLink != null ? deepLink : "$startUrl");
+                }
+
+                @Override
+                public void onBackPressed() {
+                    if (webView != null && webView.canGoBack()) {
+                        webView.goBack();
+                    } else {
+                        super.onBackPressed();
+                    }
+                }
+
+                public class ApkForgeBridge {
+                    private final Context ctx;
+                    public ApkForgeBridge(Context ctx) { this.ctx = ctx; }
+
+                    @JavascriptInterface
+                    public void showToast(String msg) {
+                        runOnUiThread(() -> Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show());
+                    }
+
+                    @JavascriptInterface
+                    public void vibrate(long ms) {
+                        Vibrator v = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                        if (v != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            v.vibrate(VibrationEffect.createOneShot(Math.max(20, Math.min(1000, ms)), VibrationEffect.DEFAULT_AMPLITUDE));
+                        }
+                    }
+
+                    @JavascriptInterface
+                    public void share(String title, String text) {
+                        Intent i = new Intent(Intent.ACTION_SEND);
+                        i.setType("text/plain");
+                        i.putExtra(Intent.EXTRA_SUBJECT, title);
+                        i.putExtra(Intent.EXTRA_TEXT, text);
+                        ctx.startActivity(Intent.createChooser(i, title));
+                    }
+
+                    @JavascriptInterface
+                    public boolean getNetworkStatus() {
+                        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                        return cm != null && cm.getActiveNetwork() != null;
+                    }
+                }
+            }
+        """.trimIndent()
+    }
+
+    private fun buildGeneratedMainActivity(project: AppProject, relEntryAsset: String = "index.html"): String {
+        val pkg = project.packageConfig.packageName
+        val pro = project.proConfig
+        val startUrl = if (project.sourceType == SourceType.WEB_URL && project.sourceValue.startsWith("http")) {
+            project.sourceValue
+        } else {
+            "file:///android_asset/$relEntryAsset"
         }
 
         val escapedCss = pro.customCss.replace("\"", "\\\"").replace("\n", " ")
@@ -474,6 +790,8 @@ class ProjectExporter(private val context: Context) {
                     webView = WebView(this).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.allowFileAccess = true
+                        settings.allowFileAccessFromFileURLs = true
                         settings.setSupportZoom(${project.webViewConfig.supportZoom})
                         settings.cacheMode = ${if (pro.assetPreloaderEnabled) "WebSettings.LOAD_CACHE_ELSE_NETWORK" else "WebSettings.LOAD_DEFAULT"}
                         ${if (project.bridgeConfig.jsBridgeEnabled) "addJavascriptInterface(ApkForgeBridge(this@MainActivity), \"ApkForge\")" else ""}

@@ -159,6 +159,9 @@ fun DownloadsScreen(
                         }
 
                         items(downloads, key = { it.id }) { item ->
+                            val fileExistsOnDisk = remember(item.filePath) {
+                                java.io.File(item.filePath).let { it.exists() && it.isFile }
+                            }
                             Surface(
                                 color = DarkSurfaceElevated,
                                 shape = RoundedCornerShape(18.dp),
@@ -199,20 +202,24 @@ fun DownloadsScreen(
                                                     text = item.fileName,
                                                     fontFamily = CairoFontFamily,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
-                                                    color = TextPrimary
+                                                    fontSize = 13.sp,
+                                                    color = TextPrimary,
+                                                    style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr)
                                                 )
                                                 Text(
                                                     text = "${item.projectName} • v${item.versionName} (${item.versionCode}) • ${item.sizeText}",
                                                     fontFamily = TajawalFontFamily,
                                                     fontSize = 12.sp,
-                                                    color = TextSecondary
+                                                    color = TextSecondary,
+                                                    style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.ContentOrLtr)
                                                 )
                                                 Text(
-                                                    text = "${item.packageName} • ${dateFormat.format(Date(item.downloadedAt))}",
+                                                    text = "${item.packageName} • ${dateFormat.format(Date(item.downloadedAt))}" +
+                                                        if (fileExistsOnDisk) " • جاهز ✓" else " • غير موجود بالقرص",
                                                     fontFamily = FontFamily.Monospace,
                                                     fontSize = 10.sp,
-                                                    color = TextMuted
+                                                    color = if (fileExistsOnDisk) StatusGreen else WarningYellow,
+                                                    style = LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr)
                                                 )
                                             }
                                         }
@@ -229,23 +236,37 @@ fun DownloadsScreen(
                                     ) {
                                         Button(
                                             onClick = {
-                                                Toast.makeText(context, "جار فتح وتثبيت: ${item.fileName}", Toast.LENGTH_SHORT).show()
+                                                val opened = com.example.engine.ProjectExporter(context)
+                                                    .openOrInstallFile(item.filePath, item.buildType)
+                                                if (!opened) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "الملف غير موجود على القرص — أعد البناء لتوليده فعلياً",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
                                             shape = RoundedCornerShape(10.dp),
                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                            modifier = Modifier.weight(1f).height(40.dp)
+                                            modifier = Modifier.weight(1f).height(48.dp)
                                         ) {
                                             Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF140C00))
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("تثبيت", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF140C00))
+                                            Text(
+                                                text = if (item.fileName.endsWith(".apk", true)) "تثبيت" else "فتح",
+                                                fontFamily = CairoFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF140C00)
+                                            )
                                         }
 
                                         OutlinedButton(
                                             onClick = { selectedForAnalyzer = item },
                                             shape = RoundedCornerShape(10.dp),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                            modifier = Modifier.weight(1f).height(40.dp)
+                                            modifier = Modifier.weight(1f).height(48.dp)
                                         ) {
                                             Icon(Icons.Default.Analytics, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
@@ -256,7 +277,7 @@ fun DownloadsScreen(
                                             onClick = { selectedForQrShare = item },
                                             shape = RoundedCornerShape(10.dp),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                            modifier = Modifier.weight(1f).height(40.dp)
+                                            modifier = Modifier.weight(1f).height(48.dp)
                                         ) {
                                             Icon(Icons.Default.QrCode2, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
@@ -267,7 +288,7 @@ fun DownloadsScreen(
                                             onClick = { onExportCiZipForDownload(item) },
                                             shape = RoundedCornerShape(10.dp),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                            modifier = Modifier.weight(0.95f).height(40.dp)
+                                            modifier = Modifier.weight(0.95f).height(48.dp)
                                         ) {
                                             Icon(Icons.Default.FolderZip, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(3.dp))

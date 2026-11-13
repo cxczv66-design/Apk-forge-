@@ -84,6 +84,7 @@ fun BuildCenterScreen(
     val logs by termuxEngine.logStream.collectAsState()
     val buildStages by termuxEngine.buildStages.collectAsState()
     val telemetry by termuxEngine.telemetry.collectAsState()
+    val termuxReport by termuxEngine.termuxReport.collectAsState()
 
     var activeProject by remember(project) { mutableStateOf(project) }
     var showScriptDialog by remember { mutableStateOf(false) }
@@ -145,14 +146,18 @@ fun BuildCenterScreen(
                 activeProject
             }
 
-            termuxEngine.executeBuildWithProgress(
+            val success = termuxEngine.executeBuildWithProgress(
                 project = projToBuild,
                 buildType = targetType,
                 options = buildOptions
             ) { fileName, outputPath, sizeText ->
                 onBuildCompleted(projToBuild, fileName, outputPath, sizeText)
             }
-            Toast.makeText(context, "🎉 اكتمل البناء وتم حفظ الحزمة في التنزيلات!", Toast.LENGTH_LONG).show()
+            if (success) {
+                Toast.makeText(context, "🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -400,10 +405,24 @@ fun BuildCenterScreen(
                             }
                             item {
                                 TermuxDirectCard(
-                                    isTermuxReady = isTermuxReady,
+                                    termuxReport = termuxReport,
                                     onRunInTermux = {
                                         termuxEngine.dispatchBuildToTermux(activeProject, "release", buildOptions) {
                                             Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onPingTermux = {
+                                        termuxEngine.pingTermuxConnection()
+                                        Toast.makeText(context, "تم إرسال نبضة اختبار تنفيذ إلى Termux...", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onCopyFixCommand = {
+                                        val cmd = termuxEngine.getEnableExternalAppsCommand()
+                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        cm.setPrimaryClip(ClipData.newPlainText("Termux Fix", cmd))
+                                        Toast.makeText(context, "تم نسخ أمر التفعيل — الصقه في Termux ✓", Toast.LENGTH_LONG).show()
+                                        context.packageManager.getLaunchIntentForPackage(com.example.utils.Constants.TERMUX_PACKAGE_NAME)?.let {
+                                            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(it)
                                         }
                                     },
                                     onOpenDiagnostic = onOpenDiagnostic
@@ -619,10 +638,24 @@ fun BuildCenterScreen(
                     // Direct Termux RunCommand Action
                     item {
                         TermuxDirectCard(
-                            isTermuxReady = isTermuxReady,
+                            termuxReport = termuxReport,
                             onRunInTermux = {
                                 termuxEngine.dispatchBuildToTermux(activeProject, "release", buildOptions) {
                                     Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onPingTermux = {
+                                termuxEngine.pingTermuxConnection()
+                                Toast.makeText(context, "تم إرسال نبضة اختبار تنفيذ إلى Termux...", Toast.LENGTH_SHORT).show()
+                            },
+                            onCopyFixCommand = {
+                                val cmd = termuxEngine.getEnableExternalAppsCommand()
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Termux Fix", cmd))
+                                Toast.makeText(context, "تم نسخ أمر التفعيل — الصقه في Termux ✓", Toast.LENGTH_LONG).show()
+                                context.packageManager.getLaunchIntentForPackage(com.example.utils.Constants.TERMUX_PACKAGE_NAME)?.let {
+                                    it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(it)
                                 }
                             },
                             onOpenDiagnostic = onOpenDiagnostic
@@ -1327,54 +1360,164 @@ private fun BuildProgressCard(running: TermuxEngine.EngineStatus.Running) {
 
 @Composable
 private fun TermuxDirectCard(
-    isTermuxReady: Boolean,
+    termuxReport: TermuxEngine.TermuxDiagnosticReport,
     onRunInTermux: () -> Unit,
+    onPingTermux: () -> Unit,
+    onCopyFixCommand: () -> Unit,
     onOpenDiagnostic: () -> Unit
 ) {
+    val state = termuxReport.connectionState
+    val statusText = when (state) {
+        com.example.engine.TermuxConnectionState.VERIFIED_READY ->
+            "Termux متصل ومُتحقق فعلياً ✓ (allow-external-apps=true)"
+        com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ->
+            "⚠️ خطأ (2): يلزم تفعيل allow-external-apps=true داخل Termux"
+        com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED ->
+            "Termux مثبت — اضغط اختبار الاتصال قبل الإرسال"
+        com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION ->
+            "Termux مثبت — يلزم تفعيل إذن RUN_COMMAND"
+        com.example.engine.TermuxConnectionState.NOT_INSTALLED ->
+            "Termux غير مثبت — اضغط للتشخيص والتوجيه"
+    }
+    val statusColor = when (state) {
+        com.example.engine.TermuxConnectionState.VERIFIED_READY -> StatusGreen
+        com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS -> ErrorRed
+        else -> WarningYellow
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(DarkSurfaceElevated)
-            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
+            .border(
+                1.dp,
+                if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) {
+                    ErrorRed.copy(alpha = 0.55f)
+                } else GlassBorderSubtle,
+                RoundedCornerShape(16.dp)
+            )
             .padding(14.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Default.Terminal, contentDescription = null, tint = OrangePrimary)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "تشغيل أوامر Termux المباشرة",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = TextPrimary
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Terminal,
+                        contentDescription = null,
+                        tint = if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) ErrorRed else OrangePrimary
                     )
-                    Text(
-                        text = if (isTermuxReady) "Termux متصل ومستعد" else "اضغط لتشخيص بيئة Termux",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 11.sp,
-                        color = if (isTermuxReady) StatusGreen else WarningYellow
-                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "تشغيل أوامر Termux المباشرة",
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = statusText,
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = statusColor
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                when (state) {
+                    com.example.engine.TermuxConnectionState.VERIFIED_READY -> {
+                        Button(
+                            onClick = onRunInTermux,
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(
+                                text = "تشغيل في Termux",
+                                fontFamily = CairoFontFamily,
+                                fontSize = 12.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED -> {
+                        Button(
+                            onClick = onPingTermux,
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(
+                                text = "اختبار الاتصال",
+                                fontFamily = CairoFontFamily,
+                                fontSize = 12.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    else -> {
+                        Button(
+                            onClick = onOpenDiagnostic,
+                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(
+                                text = "تشخيص",
+                                fontFamily = CairoFontFamily,
+                                fontSize = 12.sp,
+                                color = OrangePrimary
+                            )
+                        }
+                    }
                 }
             }
 
-            Button(
-                onClick = { if (isTermuxReady) onRunInTermux() else onOpenDiagnostic() },
-                colors = ButtonDefaults.buttonColors(containerColor = if (isTermuxReady) OrangePrimary else DarkSurface),
-                shape = RoundedCornerShape(10.dp)
+            if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ||
+                state == com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED
             ) {
-                Text(
-                    text = if (isTermuxReady) "تشغيل في Termux" else "تشخيص",
-                    fontFamily = CairoFontFamily,
-                    fontSize = 12.sp,
-                    color = if (isTermuxReady) Color.White else OrangePrimary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCopyFixCommand,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
+                    ) {
+                        Text(
+                            text = "نسخ أمر الإصلاح + فتح Termux",
+                            fontFamily = CairoFontFamily,
+                            fontSize = 11.sp,
+                            color = TextPrimary
+                        )
+                    }
+                    if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) {
+                        Button(
+                            onClick = onPingTermux,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text("فحص", fontFamily = CairoFontFamily, fontSize = 11.sp, color = Color.White)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onRunInTermux,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text("بناء بـ Termux", fontFamily = CairoFontFamily, fontSize = 11.sp, color = OrangePrimary)
+                        }
+                    }
+                }
             }
         }
     }
