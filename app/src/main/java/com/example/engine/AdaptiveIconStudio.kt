@@ -62,16 +62,17 @@ object AdaptiveIconStudio {
                 <background android:drawable="@drawable/ic_launcher_background" />
                 <foreground android:drawable="@drawable/ic_launcher_foreground" />
             </adaptive-icon>
-        """.trimIndent()
+        """.trimIndent().trimStart()
 
         val bgDrawableXml = """
             <?xml version="1.0" encoding="utf-8"?>
             <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
                 <solid android:color="$bgHex" />
             </shape>
-        """.trimIndent()
+        """.trimIndent().trimStart()
 
         val fgVectorXml = """
+            <?xml version="1.0" encoding="utf-8"?>
             <vector xmlns:android="http://schemas.android.com/apk/res/android"
                 android:width="108dp"
                 android:height="108dp"
@@ -84,7 +85,7 @@ object AdaptiveIconStudio {
                     android:fillColor="#FFFFFF"
                     android:pathData="M48,38 L66,54 L48,70 L54,54 Z" />
             </vector>
-        """.trimIndent()
+        """.trimIndent().trimStart()
 
         val pngs = linkedMapOf<String, ByteArray>()
         densities.forEach { (folder, px) ->

@@ -221,4 +221,67 @@ class TermuxEngineTest {
         assertTrue(success.isSuccess)
         assertFalse(success.requiresExternalAppsEnable)
     }
+
+    @Test
+    fun `termux_standalone AndroidManifest and generated XMLs start directly with less-than char without whitespace or BOM`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val exporter = com.example.engine.ProjectExporter(context)
+        val project = AppProject(
+            id = "test_xml_01",
+            name = "My & <Shop>",
+            sourceType = SourceType.WEB_URL,
+            sourceValue = "https://example.com",
+            pushConfig = PushNotificationConfig(enabled = true, appId = "abc-123"),
+            bridgeConfig = com.example.domain.model.BridgeAndCloudConfig(
+                deepLinkDomain = "shop.example.com",
+                gitHubCiEnabled = true
+            )
+        )
+
+        val entries = exporter.buildProjectTextEntries(project)
+        val standaloneManifest = entries["termux_standalone/AndroidManifest.xml"]!!
+        val appManifest = entries["app/src/main/AndroidManifest.xml"]!!
+        val stringsXml = entries["app/src/main/res/values/strings.xml"]!!
+        val adaptiveXml = entries["app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"]!!
+
+        assertEquals('<', standaloneManifest.first())
+        assertTrue(standaloneManifest.startsWith("<?xml version=\"1.0\""))
+        assertEquals('<', appManifest.first())
+        assertEquals('<', stringsXml.first())
+        assertEquals('<', adaptiveXml.first())
+
+        val workflow = entries[".github/workflows/apkforge-build.yml"]!!
+        assertTrue(workflow.contains("concurrency:"))
+        assertTrue(workflow.contains("cancel-in-progress: true"))
+        assertTrue(workflow.contains("paths-ignore:"))
+        assertTrue(workflow.contains("PRIVACY_POLICY.md"))
+    }
+
+    @Test
+    fun `repository persists real app iconUri and accentColor on DownloadedApk records`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = com.example.data.repository.ProjectRepository(context)
+        val project = AppProject(
+            id = "proj_icon_dl_1",
+            name = "IconApp",
+            iconImageUri = "file:///data/user/0/com.example/files/icon.png",
+            accentColorHex = "#10B981",
+            sourceType = SourceType.ZIP_ARCHIVE,
+            sourceValue = "site.zip"
+        )
+        repo.saveProject(project)
+        repo.updateBuildStatus(
+            projectId = project.id,
+            status = com.example.domain.model.BuildStatus.SUCCESS,
+            apkPath = "/tmp/IconApp_v1.0.apk",
+            customFileName = "IconApp_v1.0.apk",
+            sizeText = "3.2 MB"
+        )
+
+        val reloaded = com.example.data.repository.ProjectRepository(context)
+        val dl = reloaded.downloads.value.firstOrNull { it.projectId == project.id }
+        assertNotNull(dl)
+        assertEquals("file:///data/user/0/com.example/files/icon.png", dl!!.iconImageUri)
+        assertEquals("#10B981", dl.accentColorHex)
+    }
 }

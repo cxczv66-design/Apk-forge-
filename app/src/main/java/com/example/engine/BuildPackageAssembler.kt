@@ -183,7 +183,12 @@ class BuildPackageAssembler(
             filesCount += 5
         }
 
-        val publicCopyNote = mirrorFileToPublicDownloads(outFile, outFileName, "application/zip")
+        val publicCopyNote = mirrorFileToPublicDownloads(
+            sourceFile = outFile,
+            displayName = outFileName,
+            mimeType = "application/zip",
+            subDir = null
+        )
 
         AssembledBuildArtifact(
             fileName = outFileName,
@@ -231,29 +236,50 @@ class BuildPackageAssembler(
             writeRawZipEntry(zos, "build_termux.sh", termuxBuildScript.toByteArray(Charsets.UTF_8))
         }
 
-        val pubPath = mirrorFileToPublicDownloads(srcZipFile, srcZipName, "application/zip")
+        val pubPath = mirrorFileToPublicDownloads(
+            sourceFile = srcZipFile,
+            displayName = srcZipName,
+            mimeType = "application/zip",
+            subDir = Constants.DOWNLOADS_SUBDIR
+        )
         val scriptFile = File(getBuildsDir(), "build_${safeName}.sh").apply {
             writeText(termuxBuildScript, Charsets.UTF_8)
         }
-        mirrorFileToPublicDownloads(scriptFile, "build_${safeName}.sh", "text/x-sh")
+        mirrorFileToPublicDownloads(
+            sourceFile = scriptFile,
+            displayName = "build_${safeName}.sh",
+            mimeType = "text/x-sh",
+            subDir = Constants.DOWNLOADS_SUBDIR
+        )
         srcZipFile to pubPath
     }
 
-    private fun mirrorFileToPublicDownloads(sourceFile: File, displayName: String, mimeType: String): String {
+    private fun mirrorFileToPublicDownloads(
+        sourceFile: File,
+        displayName: String,
+        mimeType: String,
+        subDir: String? = Constants.DOWNLOADS_SUBDIR
+    ): String {
+        val relativeFolder = if (subDir.isNullOrBlank()) {
+            Environment.DIRECTORY_DOWNLOADS
+        } else {
+            "${Environment.DIRECTORY_DOWNLOADS}/$subDir"
+        }
+        val queryFolder = "$relativeFolder/"
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                // Remove old file with same name in Download/ApkForge to stay idempotent
+                // Remove old file with same name in target folder to stay idempotent
                 resolver.delete(
                     collection,
                     "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH}=?",
-                    arrayOf(displayName, "${Environment.DIRECTORY_DOWNLOADS}/${Constants.DOWNLOADS_SUBDIR}/")
+                    arrayOf(displayName, queryFolder)
                 )
                 val cv = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, displayName)
                     put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                    put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/${Constants.DOWNLOADS_SUBDIR}")
+                    put(MediaStore.Downloads.RELATIVE_PATH, relativeFolder)
                     put(MediaStore.Downloads.IS_PENDING, 1)
                 }
                 val uri = resolver.insert(collection, cv)
@@ -264,13 +290,14 @@ class BuildPackageAssembler(
                     cv.clear()
                     cv.put(MediaStore.Downloads.IS_PENDING, 0)
                     resolver.update(uri, cv, null, null)
-                    "${Constants.DOWNLOADS_DIR}/$displayName"
+                    if (subDir.isNullOrBlank()) "Download/$displayName" else "${Constants.DOWNLOADS_DIR}/$displayName"
                 } else {
                     sourceFile.absolutePath
                 }
             } else {
                 @Suppress("DEPRECATION")
-                val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), Constants.DOWNLOADS_SUBDIR).apply {
+                val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val pubDir = (if (subDir.isNullOrBlank()) baseDir else File(baseDir, subDir)).apply {
                     mkdirs()
                 }
                 val dest = File(pubDir, displayName)

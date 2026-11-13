@@ -139,11 +139,7 @@ class TermuxEngine(private val context: Context) {
                 .putBoolean("external_apps_error_seen", true)
                 .apply()
             _termuxReport.value = computeDiagnosticReport()
-            addLog("❌ خطأ Termux (2): يجب تفعيل allow-external-apps=true داخل ~/.termux/termux.properties")
-            _engineState.value = EngineStatus.Failure(
-                error = "يلزم تفعيل allow-external-apps=true داخل Termux",
-                detailedLogs = res.errorMessage.ifBlank { res.stderr }
-            )
+            addLog("⚠️ Termux (Error 2): افتح Termux مرة واحدة والصق أمر التفعيل السريع (allow-external-apps=true) لتمكين التشغيل التلقائي.")
         } else if (res.isSuccess) {
             prefs.edit()
                 .putBoolean("external_apps_verified", true)
@@ -162,7 +158,7 @@ class TermuxEngine(private val context: Context) {
             }
         } else {
             val errDetail = res.errorMessage.ifBlank { res.stderr }.ifBlank { "err=${res.errorCode}, exitCode=${res.exitCode}" }
-            addLog("⚠️ استجابة Termux (err=${res.errorCode}, exit=${res.exitCode}): $errDetail")
+            addLog("ℹ️ استجابة Termux (err=${res.errorCode}, exit=${res.exitCode}): $errDetail")
             if (res.errorCode == -1) {
                 _termuxReport.value = computeDiagnosticReport()
             }
@@ -356,14 +352,14 @@ class TermuxEngine(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 try {
                     ContextCompat.startForegroundService(context, intent)
-                } catch (_: Exception) {
+                } catch (_: Throwable) {
                     context.startService(intent)
                 }
             } else {
                 context.startService(intent)
             }
             Result.success(Unit)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(e)
         }
     }
@@ -532,14 +528,18 @@ class TermuxEngine(private val context: Context) {
         val targetDownload = "/sdcard/Download/${Constants.DOWNLOADS_SUBDIR}/$outApkName"
 
         val entries = exporter.buildProjectTextEntries(project, options)
-        val manifestXml = entries["app/src/main/AndroidManifest.xml"].orEmpty()
-        val standaloneManifestXml = entries["termux_standalone/AndroidManifest.xml"].orEmpty()
+        val manifestXml = (entries["app/src/main/AndroidManifest.xml"].orEmpty()).dropWhile { it != '<' }
+        val standaloneManifestXml = (entries["termux_standalone/AndroidManifest.xml"].orEmpty()).dropWhile { it != '<' }
         val standaloneJava = entries["termux_standalone/src/$pkgPath/MainActivity.java"].orEmpty()
-        val stringsXml = entries["app/src/main/res/values/strings.xml"].orEmpty()
+        val stringsXml = (entries["app/src/main/res/values/strings.xml"].orEmpty()).dropWhile { it != '<' }
+        val adaptiveXml = (entries["app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"].orEmpty()).dropWhile { it != '<' }
+        val adaptiveBgXml = (entries["app/src/main/res/drawable/ic_launcher_background.xml"].orEmpty()).dropWhile { it != '<' }
+        val adaptiveFgXml = (entries["app/src/main/res/drawable/ic_launcher_foreground.xml"].orEmpty()).dropWhile { it != '<' }
         val rootBuildGradle = entries["build.gradle.kts"].orEmpty()
         val settingsGradle = entries["settings.gradle.kts"].orEmpty()
         val appBuildGradle = entries["app/build.gradle.kts"].orEmpty()
         val mainActivityKt = entries["app/src/main/java/$pkgPath/MainActivity.kt"].orEmpty()
+        val publicDownloadCopy = "/sdcard/Download/$outApkName"
 
         return """
             #!/data/data/com.termux/files/usr/bin/bash
@@ -559,7 +559,7 @@ class TermuxEngine(private val context: Context) {
                 unzip -oq "$srcZipInDownloads" -d "${'$'}PROJECT_DIR"
             else
                 echo "Writing complete Android project files directly..."
-                mkdir -p "app/src/main/java/$pkgPath" "app/src/main/res/values" "app/src/main/assets" "termux_standalone/src/$pkgPath"
+                mkdir -p "app/src/main/java/$pkgPath" "app/src/main/res/values" "app/src/main/res/drawable" "app/src/main/res/mipmap-anydpi-v26" "app/src/main/assets" "termux_standalone/src/$pkgPath"
 
                 cat << 'APKFORGE_EOF' > settings.gradle.kts
 $settingsGradle
@@ -583,6 +583,22 @@ APKFORGE_EOF
 
                 cat << 'APKFORGE_EOF' > app/src/main/res/values/strings.xml
 $stringsXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+$adaptiveXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+$adaptiveXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/res/drawable/ic_launcher_background.xml
+$adaptiveBgXml
+APKFORGE_EOF
+
+                cat << 'APKFORGE_EOF' > app/src/main/res/drawable/ic_launcher_foreground.xml
+$adaptiveFgXml
 APKFORGE_EOF
 
                 cat << 'APKFORGE_EOF' > app/src/main/java/$pkgPath/MainActivity.kt
@@ -617,7 +633,7 @@ APKFORGE_EOF
             KEYSTORE_PATH="${'$'}KEYSTORE_DIR/${'$'}KEY_ALIAS.keystore"
             if [ ! -f "${'$'}KEYSTORE_PATH" ]; then
                 echo "Auto-generating RSA-2048 keystore before build..."
-                keytool -genkeypair -v -keystore "${'$'}KEYSTORE_PATH" -alias "${'$'}KEY_ALIAS" \
+                keytool -genkeypair -v -storetype PKCS12 -keystore "${'$'}KEYSTORE_PATH" -alias "${'$'}KEY_ALIAS" \
                     -keyalg RSA -keysize 2048 -validity 9125 \
                     -storepass "${'$'}KEY_PASS" -keypass "${'$'}KEY_PASS" \
                     -dname "CN=ApkForge, OU=Mobile, O=ApkForge, L=Riyadh, C=SA"
@@ -641,6 +657,10 @@ APKFORGE_EOF
             aapt2 link -o build/unsigned.apk \
                 -I "${'$'}ANDROID_JAR" \
                 --manifest termux_standalone/AndroidManifest.xml \
+                --min-sdk-version ${project.packageConfig.minSdk} \
+                --target-sdk-version ${maxOf(project.packageConfig.targetSdk, 34)} \
+                --version-code $versionCode \
+                --version-name "$versionName" \
                 -A app/src/main/assets \
                 --java build/gen \
                 --auto-add-overlay \
@@ -665,16 +685,22 @@ APKFORGE_EOF
             fi
 
             APKSIGNER_BIN="${'$'}(command -v apksigner || find "${'$'}PREFIX/bin" ${'$'}{ANDROID_HOME:+"${'$'}ANDROID_HOME/build-tools"} -name apksigner -type f 2>/dev/null | head -n 1 || true)"
-            "${'$'}APKSIGNER_BIN" sign \
-                --ks "${'$'}KEYSTORE_PATH" \
-                --ks-key-alias "${'$'}KEY_ALIAS" \
-                --ks-pass "pass:${'$'}KEY_PASS" \
-                --key-pass "pass:${'$'}KEY_PASS" \
-                --v1-signing-enabled true \
-                --v2-signing-enabled true \
-                --out "$targetDownload" \
-                build/aligned.apk
-            "${'$'}APKSIGNER_BIN" verify "$targetDownload"
+            if [ -n "${'$'}APKSIGNER_BIN" ]; then
+                "${'$'}APKSIGNER_BIN" sign \
+                    --ks "${'$'}KEYSTORE_PATH" \
+                    --ks-key-alias "${'$'}KEY_ALIAS" \
+                    --ks-pass "pass:${'$'}KEY_PASS" \
+                    --key-pass "pass:${'$'}KEY_PASS" \
+                    --v1-signing-enabled true \
+                    --v2-signing-enabled true \
+                    --out "$targetDownload" \
+                    build/aligned.apk
+                "${'$'}APKSIGNER_BIN" verify "$targetDownload"
+            else
+                cp build/aligned.apk "$targetDownload"
+                jarsigner -keystore "${'$'}KEYSTORE_PATH" -storepass "${'$'}KEY_PASS" -keypass "${'$'}KEY_PASS" "$targetDownload" "${'$'}KEY_ALIAS"
+            fi
+            cp -f "$targetDownload" "$publicDownloadCopy" 2>/dev/null || true
 
             echo "✅ REAL SIGNED APK BUILT AT: $targetDownload"
         """.trimIndent()

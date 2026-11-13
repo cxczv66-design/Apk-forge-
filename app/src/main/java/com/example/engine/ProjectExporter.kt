@@ -1,16 +1,36 @@
 package com.example.engine
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
+import com.example.utils.Constants
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+
+data class MediaStoreSaveResult(
+    val success: Boolean,
+    val savedUri: Uri? = null,
+    val displayPath: String = "",
+    val fileName: String = "",
+    val errorMessage: String? = null
+)
+
+data class InstallLaunchResult(
+    val launched: Boolean,
+    val isBinaryApk: Boolean,
+    val messageAr: String
+)
 
 data class ExportedZipResult(
     val zipFile: File,
@@ -189,19 +209,26 @@ class ProjectExporter(private val context: Context) {
         """.trimIndent()
 
         val manifestXml = buildGeneratedManifest(project)
-        entries["app/src/main/AndroidManifest.xml"] = manifestXml
-        entries["termux_standalone/AndroidManifest.xml"] = manifestXml.replace(
-            "@style/Theme.MaterialComponents.DayNight.NoActionBar",
-            "@android:style/Theme.DeviceDefault.NoActionBar"
+        entries["app/src/main/AndroidManifest.xml"] = ensureXmlStartsClean(manifestXml)
+        entries["termux_standalone/AndroidManifest.xml"] = ensureXmlStartsClean(
+            manifestXml.replace(
+                "@style/Theme.MaterialComponents.DayNight.NoActionBar",
+                "@android:style/Theme.DeviceDefault.NoActionBar"
+            )
         )
         entries["app/src/main/java/$pkgPath/MainActivity.kt"] = buildGeneratedMainActivity(project, relEntryAsset)
         entries["termux_standalone/src/$pkgPath/MainActivity.java"] = buildStandaloneTermuxJavaActivity(project, relEntryAsset)
-        entries["app/src/main/res/values/strings.xml"] = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <resources>
-                <string name="app_name">${project.name.replace("&", "&amp;")}</string>
-            </resources>
-        """.trimIndent()
+        val escapedAppName = project.name
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .ifBlank { "ApkForge App" }
+        entries["app/src/main/res/values/strings.xml"] = ensureXmlStartsClean(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                "<resources>\n" +
+                "    <string name=\"app_name\">$escapedAppName</string>\n" +
+                "</resources>"
+        )
 
         // Adaptive Icon XMLs
         entries["app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"] = iconPack.adaptiveXml
@@ -313,33 +340,181 @@ class ProjectExporter(private val context: Context) {
         return file
     }
 
-    fun openOrInstallFile(filePath: String, buildType: String): Boolean {
-        val file = File(filePath)
-        if (!file.exists() || !file.isFile) return false
-        return try {
-            val authority = "${context.packageName}.fileprovider"
-            val uri = FileProvider.getUriForFile(context, authority, file)
-            val isApk = file.extension.equals("apk", ignoreCase = true) ||
-                (buildType.equals("APK", ignoreCase = true) && file.name.endsWith(".apk", ignoreCase = true))
-            val mime = when {
-                isApk -> "application/vnd.android.package-archive"
-                file.extension.equals("zip", ignoreCase = true) -> "application/zip"
-                else -> "application/octet-stream"
+    private fun ensureXmlStartsClean(rawXml: String): String {
+        val noBom = rawXml.replace("\uFEFF", "").trimStart()
+        val firstLt = noBom.indexOf('<')
+        return if (firstLt >= 0) noBom.substring(firstLt) else noBom
+    }
+
+    /**
+     * يحفظ الحزمة مباشرة في مجلد التنزيلات العام بالهاتف (Download/) باستخدام MediaStore API
+     * دون الحاجة لأي أذونات تخزين على Android 10+.
+     */
+    fun savePackageToPublicDownloadsViaMediaStore(
+        sourceFilePath: String,
+        preferredFileName: String? = null,
+        projectName: String = ""
+    ): MediaStoreSaveResult {
+        val resolvedFile = resolveBestExportFile(sourceFilePath, projectName)
+            ?: return MediaStoreSaveResult(
+                success = false,
+                errorMessage = "الملف غير موجود على القرص حالياً"
+            )
+        val displayName = preferredFileName?.takeIf { it.isNotBlank() }?.let { pref ->
+            if (resolvedFile.extension.equals("apk", ignoreCase = true) && !pref.endsWith(".apk", ignoreCase = true)) {
+                resolvedFile.name
+            } else {
+                pref
             }
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val chooser = Intent.createChooser(intent, if (isApk) "تثبيت الحزمة APK" else "فتح الحزمة: ${file.name}").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
-            true
-        } catch (_: Exception) {
-            shareFileWithChooser(file, "*/*", "مشاركة / فتح ${file.name}")
-            true
+        } ?: resolvedFile.name
+
+        val mimeType = when {
+            displayName.endsWith(".apk", ignoreCase = true) -> "application/vnd.android.package-archive"
+            displayName.endsWith(".aab", ignoreCase = true) -> "application/octet-stream"
+            displayName.endsWith(".zip", ignoreCase = true) -> "application/zip"
+            else -> "application/octet-stream"
         }
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                resolver.delete(
+                    collection,
+                    "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH}=?",
+                    arrayOf(displayName, "${Environment.DIRECTORY_DOWNLOADS}/")
+                )
+                val cv = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                    put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(collection, cv)
+                    ?: return MediaStoreSaveResult(
+                        success = false,
+                        errorMessage = "تعذر إنشاء سجل MediaStore في التنزيلات"
+                    )
+                resolver.openOutputStream(uri)?.use { out ->
+                    FileInputStream(resolvedFile).use { it.copyTo(out) }
+                } ?: return MediaStoreSaveResult(
+                    success = false,
+                    errorMessage = "تعذر فتح مسار الكتابة في MediaStore"
+                )
+                cv.clear()
+                cv.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, cv, null, null)
+
+                MediaStoreSaveResult(
+                    success = true,
+                    savedUri = uri,
+                    displayPath = "Download/$displayName",
+                    fileName = displayName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).apply {
+                    mkdirs()
+                }
+                val dest = File(pubDir, displayName)
+                resolvedFile.copyTo(dest, overwrite = true)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", dest)
+                MediaStoreSaveResult(
+                    success = true,
+                    savedUri = uri,
+                    displayPath = dest.absolutePath,
+                    fileName = displayName
+                )
+            }
+        } catch (e: Exception) {
+            MediaStoreSaveResult(
+                success = false,
+                errorMessage = e.message ?: "خطأ غير متوقع أثناء الحفظ"
+            )
+        }
+    }
+
+    private fun resolveBestExportFile(filePath: String, projectName: String = ""): File? {
+        val direct = File(filePath)
+        if (direct.exists() && direct.isFile && direct.extension.equals("apk", ignoreCase = true)) {
+            return direct
+        }
+        val safeName = projectName.replace(Regex("[^a-zA-Z0-9_]"), "_")
+        if (safeName.isNotBlank()) {
+            val candidateDirs = listOf(
+                File(Constants.DOWNLOADS_DIR),
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            )
+            candidateDirs.forEach { dir ->
+                val apkMatch = dir.listFiles()
+                    ?.filter { it.isFile && it.extension.equals("apk", true) && it.name.startsWith("${safeName}_", true) }
+                    ?.maxByOrNull { it.lastModified() }
+                if (apkMatch != null) return apkMatch
+            }
+        }
+        return if (direct.exists() && direct.isFile) direct else null
+    }
+
+    fun installApkDirectly(
+        filePath: String,
+        buildType: String,
+        projectName: String = ""
+    ): InstallLaunchResult {
+        val file = resolveBestExportFile(filePath, projectName)
+            ?: return InstallLaunchResult(
+                launched = false,
+                isBinaryApk = false,
+                messageAr = "الملف غير موجود على القرص — أعد البناء لتوليده فعلياً"
+            )
+
+        val isApk = file.extension.equals("apk", ignoreCase = true) ||
+            (buildType.equals("APK", ignoreCase = true) && file.name.endsWith(".apk", ignoreCase = true))
+
+        val uri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (_: Exception) {
+            null
+        } ?: return InstallLaunchResult(
+            launched = false,
+            isBinaryApk = isApk,
+            messageAr = "تعذر تجهيز رابط الملف للتثبيت"
+        )
+
+        val mime = when {
+            isApk -> "application/vnd.android.package-archive"
+            file.extension.equals("zip", ignoreCase = true) -> "application/zip"
+            else -> "application/octet-stream"
+        }
+
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        return try {
+            context.startActivity(viewIntent)
+            InstallLaunchResult(
+                launched = true,
+                isBinaryApk = isApk,
+                messageAr = if (isApk) "جارٍ فتح نافذة تثبيت ${file.name}..." else "تم فتح الحزمة الموقّعة ${file.name}"
+            )
+        } catch (_: Exception) {
+            try {
+                val chooser = Intent.createChooser(viewIntent, if (isApk) "تثبيت APK" else "فتح ${file.name}").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+                InstallLaunchResult(true, isApk, "تم فتح ${file.name}")
+            } catch (_: Exception) {
+                shareFileWithChooser(file, "*/*", "مشاركة / فتح ${file.name}")
+                InstallLaunchResult(true, isApk, "تم فتح قائمة المشاركة لحفظ وتثبيت ${file.name}")
+            }
+        }
+    }
+
+    fun openOrInstallFile(filePath: String, buildType: String): Boolean {
+        return installApkDirectly(filePath, buildType).launched
     }
 
     fun shareFileWithChooser(file: File, mimeType: String, title: String) {
@@ -375,59 +550,60 @@ class ProjectExporter(private val context: Context) {
             }
             if (p.bluetooth) appendLine("""    <uses-permission android:name="android.permission.BLUETOOTH" />""")
             if (project.proConfig.biometricAuthBridge) appendLine("""    <uses-permission android:name="android.permission.USE_BIOMETRIC" />""")
-        }
+        }.trimEnd()
 
         val deepLinkFilter = if (project.bridgeConfig.deepLinkDomain.isNotBlank()) {
             val host = project.bridgeConfig.deepLinkDomain.trim()
                 .removePrefix("https://")
                 .removePrefix("http://")
                 .substringBefore("/")
-            """
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="$host" />
-            </intent-filter>
-            """.trimIndent()
+            "\n            <intent-filter android:autoVerify=\"true\">\n" +
+                "                <action android:name=\"android.intent.action.VIEW\" />\n" +
+                "                <category android:name=\"android.intent.category.DEFAULT\" />\n" +
+                "                <category android:name=\"android.intent.category.BROWSABLE\" />\n" +
+                "                <data android:scheme=\"https\" android:host=\"$host\" />\n" +
+                "            </intent-filter>"
         } else ""
 
         val adMobMeta = if (project.bridgeConfig.adMobAppId.isNotBlank()) {
-            """        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${project.bridgeConfig.adMobAppId}" />"""
+            "\n        <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"${project.bridgeConfig.adMobAppId}\" />"
         } else ""
 
         val pushMeta = if (project.pushConfig.enabled && project.pushConfig.appId.isNotBlank()) {
-            """        <meta-data android:name="onesignal_app_id" android:value="${project.pushConfig.appId}" />"""
+            "\n        <meta-data android:name=\"onesignal_app_id\" android:value=\"${project.pushConfig.appId}\" />"
         } else ""
 
-        return """
-            <?xml version="1.0" encoding="utf-8"?>
-            <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-                package="${project.packageConfig.packageName}">
-            $perms
-                <application
-                    android:allowBackup="true"
-                    android:icon="@mipmap/ic_launcher"
-                    android:roundIcon="@mipmap/ic_launcher_round"
-                    android:label="@string/app_name"
-                    android:usesCleartextTraffic="true"
-                    android:supportsRtl="true"
-                    android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
-            $pushMeta
-            $adMobMeta
-                    <activity
-                        android:name=".MainActivity"
-                        android:exported="true"
-                        android:configChanges="orientation|screenSize|keyboardHidden">
-                        <intent-filter>
-                            <action android:name="android.intent.action.MAIN" />
-                            <category android:name="android.intent.category.LAUNCHER" />
-                        </intent-filter>
-                        $deepLinkFilter
-                    </activity>
-                </application>
-            </manifest>
-        """.trimIndent()
+        val raw = buildString {
+            appendLine("""<?xml version="1.0" encoding="utf-8"?>""")
+            appendLine("""<manifest xmlns:android="http://schemas.android.com/apk/res/android"""")
+            appendLine("""    package="${project.packageConfig.packageName}">""")
+            appendLine(perms)
+            appendLine("""    <application""")
+            appendLine("""        android:allowBackup="true"""")
+            appendLine("""        android:icon="@mipmap/ic_launcher"""")
+            appendLine("""        android:roundIcon="@mipmap/ic_launcher_round"""")
+            appendLine("""        android:label="@string/app_name"""")
+            appendLine("""        android:usesCleartextTraffic="true"""")
+            appendLine("""        android:supportsRtl="true"""")
+            append("""        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">""")
+            append(pushMeta)
+            append(adMobMeta)
+            appendLine()
+            appendLine("""        <activity""")
+            appendLine("""            android:name=".MainActivity"""")
+            appendLine("""            android:exported="true"""")
+            appendLine("""            android:configChanges="orientation|screenSize|keyboardHidden">""")
+            appendLine("""            <intent-filter>""")
+            appendLine("""                <action android:name="android.intent.action.MAIN" />""")
+            appendLine("""                <category android:name="android.intent.category.LAUNCHER" />""")
+            append("""            </intent-filter>""")
+            append(deepLinkFilter)
+            appendLine()
+            appendLine("""        </activity>""")
+            appendLine("""    </application>""")
+            append("""</manifest>""")
+        }
+        return ensureXmlStartsClean(raw)
     }
 
     /**
@@ -923,15 +1099,24 @@ class ProjectExporter(private val context: Context) {
 
     private fun buildGitHubActionsWorkflow(appName: String): String {
         return """
-            name: ApkForge Cloud Build ($appName)
+            name: ApkForge Unified Build ($appName)
 
             on:
               push:
                 branches: [ "main", "master" ]
+                paths-ignore:
+                  - 'README*.md'
+                  - 'PRIVACY_POLICY.md'
+                  - '*.md'
               workflow_dispatch:
+
+            concurrency:
+              group: apkforge-build-${'$'}{{ github.ref }}
+              cancel-in-progress: true
 
             jobs:
               build-android:
+                name: Build Signed APK & AAB
                 runs-on: ubuntu-latest
                 steps:
                   - name: Checkout repository
@@ -943,23 +1128,35 @@ class ProjectExporter(private val context: Context) {
                       distribution: 'temurin'
                       java-version: '17'
 
+                  - name: Accept Android SDK licenses
+                    run: |
+                      SDK_DIR="${'$'}{ANDROID_HOME:-/usr/local/lib/android/sdk}"
+                      SDKMANAGER="${'$'}(find "${'$'}SDK_DIR/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+                      if [ -n "${'$'}SDKMANAGER" ]; then
+                        yes | "${'$'}SDKMANAGER" --licenses > /dev/null || true
+                      fi
+
                   - name: Setup Gradle
                     uses: gradle/actions/setup-gradle@v4
+                    with:
+                      gradle-version: '8.7'
 
-                  - name: Build Release APK & AAB
-                    run: gradle assembleRelease bundleRelease --no-daemon
+                  - name: Build Debug & Release Packages
+                    run: gradle assembleDebug assembleRelease bundleRelease --no-daemon
 
-                  - name: Upload APK Artifact
+                  - name: Upload APK Artifacts
                     uses: actions/upload-artifact@v4
                     with:
-                      name: $appName-release-apk
-                      path: app/build/outputs/apk/release/*.apk
+                      name: $appName-apks
+                      path: app/build/outputs/apk/**/*.apk
+                      if-no-files-found: ignore
 
                   - name: Upload AAB Artifact
                     uses: actions/upload-artifact@v4
                     with:
                       name: $appName-play-bundle
                       path: app/build/outputs/bundle/release/*.aab
+                      if-no-files-found: ignore
         """.trimIndent()
     }
 

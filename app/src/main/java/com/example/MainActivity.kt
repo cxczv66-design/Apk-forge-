@@ -415,6 +415,7 @@ fun AppRoot(
                         val ctx = androidx.compose.ui.platform.LocalContext.current
                         DownloadsScreen(
                             downloads = downloads,
+                            projects = projects,
                             onBack = { viewModel.navigateTo(AppScreen.Dashboard) },
                             onDeleteDownload = { viewModel.removeDownload(it) },
                             onExportCiZipForDownload = { dl ->

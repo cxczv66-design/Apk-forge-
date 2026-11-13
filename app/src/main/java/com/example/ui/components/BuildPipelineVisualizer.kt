@@ -161,74 +161,87 @@ fun AdaptiveBuildPipelineBoard(
                         )
                     }
 
-                    // Success Output Card with Direct Open Action
+                    // Celebratory Green Success Output Card with Direct Actions
                     AnimatedVisibility(visible = isSuccess && telemetry.lastOutputFileName != null) {
                         Surface(
-                            color = StatusGreen.copy(alpha = 0.12f),
+                            color = StatusGreen.copy(alpha = 0.14f),
                             shape = RoundedCornerShape(14.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, StatusGreen.copy(alpha = 0.45f)),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, StatusGreen.copy(alpha = 0.65f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpenDownloads() }
+                                .testTag("build_success_banner")
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier.padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = StatusGreen,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = telemetry.lastOutputFileName.orEmpty(),
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            color = TextPrimary,
-                                            style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = StatusGreen,
+                                            modifier = Modifier.size(22.dp)
                                         )
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
                                             Text(
-                                                text = telemetry.estimatedSizeMb,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 11.sp,
-                                                color = StatusGreen,
-                                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                                text = "اكتمل البناء والتوقيع بنجاح 100% ✓",
+                                                fontFamily = CairoFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = StatusGreen
                                             )
                                             Text(
-                                                text = "• ${String.format(Locale.US, "%.1fs", telemetry.elapsedSec)}",
+                                                text = telemetry.lastOutputFileName.orEmpty(),
                                                 fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
                                                 fontSize = 11.sp,
-                                                color = GoldAccent,
-                                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                                color = TextPrimary,
+                                                style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    text = telemetry.estimatedSizeMb,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = StatusGreen,
+                                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                                )
+                                                Text(
+                                                    text = "• ${String.format(Locale.US, "%.1fs", telemetry.elapsedSec)} • محفوظ في Download/",
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = GoldAccent,
+                                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
+                                                )
+                                            }
                                         }
                                     }
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    color = StatusGreen,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Text(
-                                        text = "التنزيلات 📲",
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF062114),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        color = StatusGreen,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "تثبيت وحفظ 📲",
+                                            fontFamily = CairoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF062114),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

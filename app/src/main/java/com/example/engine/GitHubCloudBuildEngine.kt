@@ -87,7 +87,17 @@ class GitHubCloudBuildEngine(
                 .header("Accept", "application/vnd.github+json")
                 .build()
 
-            val repoExists = client.newCall(checkRepoReq).execute().use { it.isSuccessful }
+            var defaultBranch = "main"
+            val repoExists = client.newCall(checkRepoReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    defaultBranch = JSONObject(resp.body?.string().orEmpty())
+                        .optString("default_branch", "main")
+                        .ifBlank { "main" }
+                    true
+                } else {
+                    false
+                }
+            }
             if (!repoExists) {
                 val createBody = JSONObject().apply {
                     put("name", cleanRepo)
@@ -107,30 +117,51 @@ class GitHubCloudBuildEngine(
                     if (!resp.isSuccessful) {
                         return@withContext Result.failure(IllegalStateException("تعذر إنشاء المستودع (${resp.code})"))
                     }
+                    val createdJson = JSONObject(resp.body?.string().orEmpty())
+                    defaultBranch = createdJson.optString("default_branch", "main").ifBlank { "main" }
                 }
             }
 
-            var uploaded = 0
-            filesToPush.forEach { (path, content) ->
-                onProgress("⬆️ رفع: $path")
-                val existingSha = fetchFileSha(cleanToken, ownerLogin, cleanRepo, path)
-                val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                val putBody = JSONObject().apply {
-                    put("message", "ApkForge sync: $path")
-                    put("content", b64)
-                    if (!existingSha.isNullOrBlank()) put("sha", existingSha)
-                }.toString().toRequestBody(jsonMedia)
+            onProgress("🧩 تجميع ${filesToPush.size} ملف في دفعة واحدة (Single Commit Push)...")
+            val atomicCount = pushFilesInSingleCommit(
+                token = cleanToken,
+                owner = ownerLogin,
+                repo = cleanRepo,
+                branch = defaultBranch,
+                filesToPush = filesToPush,
+                onProgress = onProgress
+            )
 
-                val putReq = Request.Builder()
-                    .url("https://api.github.com/repos/$ownerLogin/$cleanRepo/contents/$path")
-                    .put(putBody)
-                    .header("Authorization", "Bearer $cleanToken")
-                    .header("Accept", "application/vnd.github+json")
-                    .build()
-
-                client.newCall(putReq).execute().use { resp ->
-                    if (resp.isSuccessful) uploaded++
+            val uploaded = if (atomicCount > 0) {
+                atomicCount
+            } else {
+                // Fallback: upload workflow file LAST so Actions triggers once at the end
+                var count = 0
+                val orderedEntries = filesToPush.entries.sortedBy {
+                    if (it.key.startsWith(".github/workflows/")) 1 else 0
                 }
+                orderedEntries.forEach { (path, content) ->
+                    onProgress("⬆️ رفع: $path")
+                    val existingSha = fetchFileSha(cleanToken, ownerLogin, cleanRepo, path)
+                    val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    val putBody = JSONObject().apply {
+                        put("message", "ApkForge sync: $path")
+                        put("content", b64)
+                        if (!existingSha.isNullOrBlank()) put("sha", existingSha)
+                    }.toString().toRequestBody(jsonMedia)
+
+                    val putReq = Request.Builder()
+                        .url("https://api.github.com/repos/$ownerLogin/$cleanRepo/contents/$path")
+                        .put(putBody)
+                        .header("Authorization", "Bearer $cleanToken")
+                        .header("Accept", "application/vnd.github+json")
+                        .build()
+
+                    client.newCall(putReq).execute().use { resp ->
+                        if (resp.isSuccessful) count++
+                    }
+                }
+                count
             }
 
             Result.success(
@@ -140,11 +171,119 @@ class GitHubCloudBuildEngine(
                     repoHtmlUrl = "https://github.com/$ownerLogin/$cleanRepo",
                     actionsUrl = "https://github.com/$ownerLogin/$cleanRepo/actions",
                     uploadedFilesCount = uploaded,
-                    statusMessage = "تم رفع $uploaded ملف وتشغيل GitHub Actions للبناء السحابي بنجاح!"
+                    statusMessage = "تم رفع $uploaded ملف في عملية دفع واحدة وتشغيل بناء GitHub Actions واحد بنجاح!"
                 )
             )
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun pushFilesInSingleCommit(
+        token: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        filesToPush: Map<String, String>,
+        onProgress: (String) -> Unit
+    ): Int {
+        return try {
+            // 1. Resolve HEAD commit SHA (retry briefly if repo was just initialized)
+            var headCommitSha: String? = null
+            for (attempt in 0 until 4) {
+                val refReq = Request.Builder()
+                    .url("https://api.github.com/repos/$owner/$repo/git/ref/heads/$branch")
+                    .header("Authorization", "Bearer $token")
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
+                client.newCall(refReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val json = JSONObject(resp.body?.string().orEmpty())
+                        headCommitSha = json.optJSONObject("object")?.optString("sha")?.takeIf { it.isNotBlank() }
+                    }
+                }
+                if (!headCommitSha.isNullOrBlank()) break
+                Thread.sleep(450L)
+            }
+            val parentCommitSha = headCommitSha ?: return 0
+
+            // 2. Get base tree SHA from parent commit
+            val commitReq = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/git/commits/$parentCommitSha")
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            val baseTreeSha = client.newCall(commitReq).execute().use { resp ->
+                if (!resp.isSuccessful) return 0
+                JSONObject(resp.body?.string().orEmpty())
+                    .optJSONObject("tree")
+                    ?.optString("sha")
+                    ?.takeIf { it.isNotBlank() }
+            } ?: return 0
+
+            // 3. Create one unified Git Tree with all project files
+            onProgress("🌳 إنشاء شجرة المشروع الكاملة (${filesToPush.size} ملف)...")
+            val treeArray = JSONArray()
+            filesToPush.forEach { (path, content) ->
+                treeArray.put(
+                    JSONObject().apply {
+                        put("path", path)
+                        put("mode", "100644")
+                        put("type", "blob")
+                        put("content", content)
+                    }
+                )
+            }
+            val treeBody = JSONObject().apply {
+                put("base_tree", baseTreeSha)
+                put("tree", treeArray)
+            }.toString().toRequestBody(jsonMedia)
+            val treeReq = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/git/trees")
+                .post(treeBody)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            val newTreeSha = client.newCall(treeReq).execute().use { resp ->
+                if (!resp.isSuccessful) return 0
+                JSONObject(resp.body?.string().orEmpty()).optString("sha").takeIf { it.isNotBlank() }
+            } ?: return 0
+
+            // 4. Create a single commit
+            onProgress("📦 إنشاء التزام واحد شامل (Single Commit)...")
+            val newCommitBody = JSONObject().apply {
+                put("message", "ApkForge: Full project build sync (${filesToPush.size} files)")
+                put("tree", newTreeSha)
+                put("parents", JSONArray().put(parentCommitSha))
+            }.toString().toRequestBody(jsonMedia)
+            val newCommitReq = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/git/commits")
+                .post(newCommitBody)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            val newCommitSha = client.newCall(newCommitReq).execute().use { resp ->
+                if (!resp.isSuccessful) return 0
+                JSONObject(resp.body?.string().orEmpty()).optString("sha").takeIf { it.isNotBlank() }
+            } ?: return 0
+
+            // 5. Fast-forward branch ref -> triggers ONE GitHub Actions workflow run
+            onProgress("🚀 تشغيل مسار بناء واحد في GitHub Actions...")
+            val patchRefBody = JSONObject().apply {
+                put("sha", newCommitSha)
+                put("force", false)
+            }.toString().toRequestBody(jsonMedia)
+            val patchRefReq = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/git/refs/heads/$branch")
+                .patch(patchRefBody)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            client.newCall(patchRefReq).execute().use { resp ->
+                if (resp.isSuccessful) filesToPush.size else 0
+            }
+        } catch (_: Exception) {
+            0
         }
     }
 

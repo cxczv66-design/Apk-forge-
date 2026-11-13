@@ -23,7 +23,9 @@ data class DownloadedApk(
     val buildType: String = "APK",
     val permissionsCount: Int = 2,
     val jsBridgeEnabled: Boolean = true,
-    val pushEnabled: Boolean = false
+    val pushEnabled: Boolean = false,
+    val iconImageUri: String? = null,
+    val accentColorHex: String = "#FF7A2F"
 )
 
 class ProjectRepository(private val context: Context) {
@@ -90,7 +92,9 @@ class ProjectRepository(private val context: Context) {
                             buildType = obj.optString("buildType", "APK"),
                             permissionsCount = obj.optInt("permissionsCount", 2),
                             jsBridgeEnabled = obj.optBoolean("jsBridgeEnabled", true),
-                            pushEnabled = obj.optBoolean("pushEnabled", false)
+                            pushEnabled = obj.optBoolean("pushEnabled", false),
+                            iconImageUri = obj.optString("iconImageUri").takeIf { it.isNotBlank() },
+                            accentColorHex = obj.optString("accentColorHex", "#FF7A2F").ifBlank { "#FF7A2F" }
                         )
                     )
                 }
@@ -192,7 +196,9 @@ class ProjectRepository(private val context: Context) {
                     buildType = buildTypeLabel,
                     permissionsCount = permCount,
                     jsBridgeEnabled = project.bridgeConfig.jsBridgeEnabled,
-                    pushEnabled = project.pushConfig.enabled
+                    pushEnabled = project.pushConfig.enabled,
+                    iconImageUri = project.iconImageUri,
+                    accentColorHex = project.accentColorHex
                 )
             )
         }
@@ -258,6 +264,8 @@ class ProjectRepository(private val context: Context) {
                 put("permissionsCount", dl.permissionsCount)
                 put("jsBridgeEnabled", dl.jsBridgeEnabled)
                 put("pushEnabled", dl.pushEnabled)
+                put("iconImageUri", dl.iconImageUri ?: "")
+                put("accentColorHex", dl.accentColorHex)
             }
             array.put(obj)
         }
