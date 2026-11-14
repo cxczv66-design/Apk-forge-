@@ -8,6 +8,8 @@ enum class SourceType(val titleAr: String, val descAr: String) {
     HTML_FOLDER("ملف HTML", "مستند html واحد"),
     ZIP_ARCHIVE("موقع مضغوط", "ملف zip يحتوي على index.html"),
     WEB_URL("رابط ويب (URL)", "تحويل موقع ويب مباشر إلى تطبيق"),
+    APK_PACKAGE("ملف / حزمة APK", "استيراد وتعديل APK موجود"),
+    AI_SCRATCH("بناء بالذكاء الاصطناعي", "توليد المراحل والميزات من الصفر عبر AI"),
     KOTLIN_TEMPLATE("قالب Kotlin", "تطبيق أندرويد متقدم")
 }
 
@@ -174,6 +176,46 @@ data class ProStudioConfig(
 )
 
 /**
+ * إعدادات بيئة التطوير المتكاملة (Omni Full-Stack IDE Config):
+ * تشمل محرر التدرجات والخطوط، بناء المصادقة وقاعدة البيانات المحلية وواجهات API،
+ * تعدد اللغات، مسرّع التطبيق، الأذونات الذكية، وتخصيص عناصر مواقع الويب المحوّلة (PWA-to-Native).
+ */
+data class OmniIdeConfig(
+    // Design & Typography
+    val gradientEnabled: Boolean = false,
+    val gradientStartHex: String = "#FF7A2F",
+    val gradientEndHex: String = "#7C3AED",
+    val gradientAngleDeg: Int = 135,
+    val fontScalePercent: Int = 100,
+
+    // Functionality: Auth, Local DB, REST API, i18n
+    val authBuilderEnabled: Boolean = false,
+    val authGoogleEnabled: Boolean = true,
+    val authEmailEnabled: Boolean = true,
+    val authPhoneEnabled: Boolean = false,
+    val localDbEnabled: Boolean = false,
+    val localDbTableName: String = "app_records",
+    val apiEndpointsEnabled: Boolean = false,
+    val apiBaseUrl: String = "",
+    val apiEndpointsJson: String = "[]",
+    val i18nSupportedCodesCsv: String = "ar,en",
+    val i18nDefaultCode: String = "ar",
+
+    // Smart Permissions Rationale & App Accelerator
+    val smartPermissionsRationaleEnabled: Boolean = true,
+    val appAcceleratorEnabled: Boolean = true,
+    val acceleratorPrefetchLinks: Boolean = true,
+    val acceleratorImageCompression: Boolean = true,
+
+    // PWA-to-Native Live Site Customization Overrides
+    val customHeroTitle: String = "",
+    val customPrimaryButtonText: String = "",
+    val customHideSelectorsCsv: String = "",
+    val customBannerImageUri: String? = null,
+    val domEditsJson: String = "[]"
+)
+
+/**
  * سجل تاريخ الإصدارات المبنية لكل مشروع
  */
 data class BuildHistoryEntry(
@@ -215,6 +257,7 @@ data class AppProject(
     val signingConfig: SigningKeyConfig = SigningKeyConfig(),
     val bridgeConfig: BridgeAndCloudConfig = BridgeAndCloudConfig(),
     val proConfig: ProStudioConfig = ProStudioConfig(),
+    val omniConfig: OmniIdeConfig = OmniIdeConfig(),
     val buildHistory: List<BuildHistoryEntry> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val lastBuiltAt: Long? = null,

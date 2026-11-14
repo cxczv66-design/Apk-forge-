@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -37,12 +42,17 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.engine.ExtractedAssetItem
 import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.Collections
+import java.util.WeakHashMap
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -53,6 +63,8 @@ fun PreviewScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Real High-Fidelity WebView, 1 = Extracted Assets Tree
     var desktopMode by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
@@ -60,6 +72,57 @@ fun PreviewScreen(
     var pageProgress by remember { mutableIntStateOf(100) }
     var showSplashFadeVeil by remember { mutableStateOf(true) }
     var inspectedFile by remember { mutableStateOf<Pair<ExtractedAssetItem, String>?>(null) }
+    var rendererSessionKey by remember { mutableIntStateOf(0) }
+    var rendererCrashCount by remember { mutableIntStateOf(0) }
+    var isRendererFailed by remember { mutableStateOf(false) }
+    var pendingRendererRecovery by remember { mutableStateOf(false) }
+    val destroyedWebViews = remember { Collections.newSetFromMap(WeakHashMap<WebView, Boolean>()) }
+
+    fun destroyWebViewSafely(wv: WebView?) {
+        if (wv == null || destroyedWebViews.contains(wv)) return
+        destroyedWebViews.add(wv)
+        runCatching {
+            wv.stopLoading()
+            wv.webChromeClient = null
+            wv.webViewClient = WebViewClient()
+            wv.clearHistory()
+            (wv.parent as? android.view.ViewGroup)?.removeView(wv)
+            wv.removeAllViews()
+            wv.destroy()
+        }
+    }
+
+    fun triggerRendererRecovery() {
+        showSplashFadeVeil = false
+        if (rendererCrashCount < 3) {
+            rendererCrashCount++
+            rendererSessionKey++
+        } else {
+            isRendererFailed = true
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    webViewRef?.onResume()
+                    if (pendingRendererRecovery) {
+                        pendingRendererRecovery = false
+                        triggerRendererRecovery()
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> webViewRef?.onPause()
+                Lifecycle.Event.ON_DESTROY -> {
+                    destroyWebViewSafely(webViewRef)
+                    webViewRef = null
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val resolvedEntryFile = remember(workspacePath, entryHtmlPath) {
         when {
@@ -215,57 +278,111 @@ fun PreviewScreen(
             ) {
                 if (selectedTab == 0) {
                     if (resolvedEntryFile != null) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            AndroidView(
-                                modifier = Modifier.fillMaxSize(),
-                                update = { wv ->
-                                    wv.settings.useWideViewPort = desktopMode
-                                    wv.settings.loadWithOverviewMode = true
-                                },
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        layoutParams = android.view.ViewGroup.LayoutParams(
-                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
-                                        settings.javaScriptEnabled = true
-                                        settings.domStorageEnabled = true
-                                        settings.databaseEnabled = true
-                                        settings.allowFileAccess = true
-                                        settings.allowContentAccess = true
-                                        @Suppress("DEPRECATION")
-                                        settings.allowFileAccessFromFileURLs = true
-                                        @Suppress("DEPRECATION")
-                                        settings.allowUniversalAccessFromFileURLs = true
-                                        settings.useWideViewPort = true
-                                        settings.loadWithOverviewMode = true
-                                        settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
-                                        settings.builtInZoomControls = true
-                                        settings.displayZoomControls = false
-                                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                pageProgress = newProgress
-                                            }
-
-                                            override fun onReceivedTitle(view: WebView?, title: String?) {
-                                                if (!title.isNullOrBlank()) pageTitle = title
-                                            }
-                                        }
-
-                                        webViewClient = object : WebViewClient() {
-                                            override fun onPageFinished(view: WebView?, url: String?) {
-                                                showSplashFadeVeil = false
-                                            }
-                                        }
-
-                                        loadUrl(Uri.fromFile(resolvedEntryFile).toString())
-                                        webViewRef = this
-                                    }
+                        if (isRendererFailed) {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "توقف محرك المعاينة مؤقتاً",
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(
+                                    onClick = {
+                                        rendererCrashCount = 0
+                                        isRendererFailed = false
+                                        rendererSessionKey++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("إعادة تحميل المعاينة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
-                            )
+                            }
+                        } else {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            key(rendererSessionKey) {
+                                AndroidView(
+                                    modifier = Modifier.fillMaxSize(),
+                                    onRelease = { wv ->
+                                        destroyWebViewSafely(wv)
+                                        if (webViewRef === wv) webViewRef = null
+                                    },
+                                    update = { wv ->
+                                        if (wv.settings.useWideViewPort != desktopMode) {
+                                            wv.settings.useWideViewPort = desktopMode
+                                            wv.settings.loadWithOverviewMode = true
+                                        }
+                                    },
+                                    factory = { ctx ->
+                                        WebView(ctx).apply {
+                                            layoutParams = android.view.ViewGroup.LayoutParams(
+                                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                            )
+                                            setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
+                                            }
+                                            settings.javaScriptEnabled = true
+                                            settings.domStorageEnabled = true
+                                            settings.databaseEnabled = true
+                                            settings.allowFileAccess = true
+                                            settings.allowContentAccess = true
+                                            @Suppress("DEPRECATION")
+                                            settings.allowFileAccessFromFileURLs = true
+                                            @Suppress("DEPRECATION")
+                                            settings.allowUniversalAccessFromFileURLs = true
+                                            settings.useWideViewPort = desktopMode
+                                            settings.loadWithOverviewMode = true
+                                            settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
+                                            settings.builtInZoomControls = true
+                                            settings.displayZoomControls = false
+                                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+                                            webChromeClient = object : WebChromeClient() {
+                                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                    pageProgress = newProgress
+                                                }
+
+                                                override fun onReceivedTitle(view: WebView?, title: String?) {
+                                                    if (!title.isNullOrBlank()) pageTitle = title
+                                                }
+                                            }
+
+                                            webViewClient = object : WebViewClient() {
+                                                override fun onPageFinished(view: WebView?, url: String?) {
+                                                    showSplashFadeVeil = false
+                                                }
+
+                                                @TargetApi(Build.VERSION_CODES.O)
+                                                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                                    mainHandler.post {
+                                                        destroyWebViewSafely(view)
+                                                        if (webViewRef === view) webViewRef = null
+                                                        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                                            triggerRendererRecovery()
+                                                        } else {
+                                                            pendingRendererRecovery = true
+                                                        }
+                                                    }
+                                                    return true
+                                                }
+                                            }
+
+                                            loadUrl(Uri.fromFile(resolvedEntryFile).toString())
+                                            webViewRef = this
+                                        }
+                                    }
+                                )
+                            }
 
                             if (pageProgress < 100) {
                                 LinearProgressIndicator(
@@ -301,6 +418,7 @@ fun PreviewScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     } else {
                         Box(

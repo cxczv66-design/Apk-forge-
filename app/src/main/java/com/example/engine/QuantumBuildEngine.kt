@@ -12,10 +12,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.io.File
+import java.io.FileOutputStream
 import java.security.Security
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 data class BuildOptimizationOptions(
     val r8Minify: Boolean = true,
@@ -324,6 +327,7 @@ class QuantumBuildEngine(context: Context) {
         val startedAt = System.currentTimeMillis()
         val targetLabel = when (buildType.lowercase()) {
             "aab" -> "Quantum AAB + ApkSig v1-v4"
+            "apks" -> "Quantum APKS Split Set (Universal + Base)"
             "release" -> "Quantum Release APK (v1-v4)"
             "both" -> "Quantum Full Suite (APK + AAB)"
             else -> "Quantum On-Device APK"
@@ -395,11 +399,12 @@ class QuantumBuildEngine(context: Context) {
             _engineState.value = EngineStatus.Running(0.32f, "ترجمة الموارد والـ Manifest عبر aapt2")
             onProgressUpdate?.invoke(0.32f, "تجميع الموارد (aapt2)")
 
+            addLog("[AAPT2] Compiling resources...")
             addLog("🛠️ $ ${commandSpec.aapt2CompileCmd}")
             addLog("🛠️ $ ${commandSpec.aapt2LinkCmd}")
             val (wsRoot, wsFilesCount) = assembler.prepareWorkspaceOnDisk(project, options)
             val aapt2Res = aapt2Compiler.compile(project, options, commandSpec)
-            addLog("✅ AAPT2: AndroidManifest.xml (${aapt2Res.binaryManifestBytes.size} B AXML) + resources.arsc (${aapt2Res.resourcesArscBytes.size} B)")
+            addLog("[AAPT2] Linked AndroidManifest.xml (${aapt2Res.binaryManifestBytes.size} B AXML) + resources.arsc (${aapt2Res.resourcesArscBytes.size} B)")
             addLog("🎨 AAPT2 الموارد المدمجة: ${aapt2Res.compiledResourcesMap.size} ملف • الأذونات: ${aapt2Res.encodedPermissions.joinToString(", ") { it.substringAfterLast('.') }}")
 
             val d2 = maxOf(1L, System.currentTimeMillis() - t2)
@@ -420,9 +425,10 @@ class QuantumBuildEngine(context: Context) {
             _engineState.value = EngineStatus.Running(0.52f, "تحويل الكود إلى classes.dex عبر d8")
             onProgressUpdate?.invoke(0.52f, "ترجمة الكود (d8)")
 
+            addLog("[D8] Dexing bytecode & packaging assets...")
             addLog("⚙️ $ ${commandSpec.d8CompileCmd}")
             val d8Res = d8Compiler.compile(project, buildType, options, commandSpec)
-            addLog("✅ D8: classes.dex (${d8Res.dexBytes.size} B • Dalvik 035 • Classes=${d8Res.dexClassCount})")
+            addLog("[D8] Built classes.dex (${d8Res.dexBytes.size} B • Dalvik 035 • Classes=${d8Res.dexClassCount})")
             addLog("🌐 الأصول المحقونة: ${d8Res.assetEntries.size} ملف + ${d8Res.sourceSnapshotEntries.size} ملف مصدر للمراجعة")
 
             val d3 = maxOf(1L, System.currentTimeMillis() - t3)
@@ -483,14 +489,23 @@ class QuantumBuildEngine(context: Context) {
             _engineState.value = EngineStatus.Running(0.86f, "توقيع الحزمة بـ Google apksig (v1, v2, v3, v4)")
             onProgressUpdate?.invoke(0.86f, "توقيع apksig v1-v4")
 
-            val ext = if (buildType.equals("aab", ignoreCase = true)) "aab" else "apk"
+            val isAab = buildType.equals("aab", ignoreCase = true)
+            val isApks = buildType.equals("apks", ignoreCase = true)
+            val ext = when {
+                isAab -> "aab"
+                isApks -> "apks"
+                else -> "apk"
+            }
             val finalFileName = "${safeName}_v${versionName}_quantum.$ext"
+            val signedApkIntermediate = File(buildsDir, "${safeName}_v${versionName}_quantum_signed.apk")
             val signedFinalFile = File(buildsDir, finalFileName)
+            val apkSignTarget = if (isApks) signedApkIntermediate else signedFinalFile
 
+            addLog("[apksig] Signing package (v1+v2+v3+v4)...")
             addLog("🛡️ $ ${commandSpec.apkSigCmd}")
             val verification = apkSignerEngine.signAndVerifyApk(
                 alignedInputApk = alignedApkFile,
-                signedOutputApk = signedFinalFile,
+                signedOutputApk = apkSignTarget,
                 signingMaterial = signingMaterial,
                 minSdkVersion = minSdk
             )
@@ -500,8 +515,17 @@ class QuantumBuildEngine(context: Context) {
             if (!verification.isVerified) {
                 throw IllegalStateException("فشل التحقق التشفيري عبر ApkVerifier: ${verification.verifierErrors.joinToString()}")
             }
+            if (isApks) {
+                addLog("[APKS] Packaging universal splits/base-master.apk + toc.pb...")
+                packageApksArchive(
+                    signedBaseApk = apkSignTarget,
+                    apksOutputFile = signedFinalFile,
+                    project = project
+                )
+                if (apkSignTarget.exists()) apkSignTarget.delete()
+            }
             addLog(
-                "✅ Google ApkVerifier: Verified ✓ | " +
+                "✅ [apksig] Google ApkVerifier Verified ✓ | " +
                     "v1=${verification.v1Verified} | v2=${verification.v2Verified} | " +
                     "v3=${verification.v3Verified} | v4(.idsig)=${verification.v4FileExists}"
             )
@@ -617,6 +641,29 @@ class QuantumBuildEngine(context: Context) {
         _engineState.value = EngineStatus.Idle
         _buildStages.value = defaultStages()
         _telemetry.value = BuildTelemetry()
+    }
+
+    private fun packageApksArchive(
+        signedBaseApk: File,
+        apksOutputFile: File,
+        project: AppProject
+    ) {
+        apksOutputFile.parentFile?.mkdirs()
+        if (apksOutputFile.exists()) apksOutputFile.delete()
+        val tocMeta = """{"package":"${project.packageConfig.packageName}","versionCode":${project.packageConfig.versionCode},"versionName":"${project.packageConfig.versionName}","splits":["base-master.apk"],"abis":["arm64-v8a","armeabi-v7a","x86_64"]}"""
+        ZipOutputStream(FileOutputStream(apksOutputFile)).use { zos ->
+            zos.putNextEntry(ZipEntry("splits/base-master.apk"))
+            signedBaseApk.inputStream().use { it.copyTo(zos) }
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("meta.json"))
+            zos.write(tocMeta.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+
+            zos.putNextEntry(ZipEntry("toc.pb"))
+            zos.write("APKS\u0001${project.packageConfig.packageName}".toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+        }
     }
 
     private fun addLog(line: String) {

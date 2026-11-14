@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -33,13 +35,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.domain.model.AppProject
+import com.example.engine.BuildOptimizationOptions
+import com.example.engine.ProjectExporter
+import com.example.engine.QuantumBuildEngine
+import com.example.ui.components.BuildCompleteBottomSheet
 import com.example.ui.components.ConsoleLevel
 import com.example.ui.components.DevConsoleEntry
 import com.example.ui.components.DevToolsConsoleDrawer
-import com.example.ui.components.GlassmorphismCard
-import com.example.ui.components.GlowingButton
+import com.example.ui.components.LiveBuildTerminalDialog
 import com.example.ui.components.LiveWebViewContainer
 import com.example.ui.components.nowTimeLabel
+import com.example.ui.components.threeDPerspectiveTilt
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -47,15 +53,65 @@ import kotlinx.coroutines.launch
 @Composable
 fun FullInteractivePhoneScreen(
     project: AppProject,
+    quantumEngine: QuantumBuildEngine? = null,
+    onStartAutomatedBuild: ((AppProject, String, BuildOptimizationOptions, Boolean) -> Unit)? = null,
     onBack: () -> Unit,
     onBuild: () -> Unit,
     onEdit: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val effectiveEngine = quantumEngine ?: remember(context) { QuantumBuildEngine.getInstance(context) }
+    val projectExporter = remember(context) { ProjectExporter(context) }
+
+    val engineState by effectiveEngine.engineState.collectAsState()
+    val buildLogs by effectiveEngine.logStream.collectAsState()
+    val buildStages by effectiveEngine.buildStages.collectAsState()
+    val buildTelemetry by effectiveEngine.telemetry.collectAsState()
 
     val accentColor = remember(project.accentColorHex) {
         parseColorSafe(project.accentColorHex, OrangePrimary)
+    }
+
+    var is3dView by remember { mutableStateOf(true) }
+    var showLiveTerminalModal by remember { mutableStateOf(false) }
+    var buildSessionStarted by remember { mutableStateOf(false) }
+    var showCompletionBottomSheet by remember { mutableStateOf(false) }
+    var completedArtifactPath by remember { mutableStateOf("") }
+
+    LaunchedEffect(engineState) {
+        if (buildSessionStarted && engineState is QuantumBuildEngine.EngineStatus.Success) {
+            completedArtifactPath = (engineState as QuantumBuildEngine.EngineStatus.Success).apkPath
+            showLiveTerminalModal = false
+            showCompletionBottomSheet = true
+            buildSessionStarted = false
+        } else if (buildSessionStarted && engineState is QuantumBuildEngine.EngineStatus.Failure) {
+            buildSessionStarted = false
+        }
+    }
+
+    fun launchFinalBuild(targetType: String) {
+        val opts = BuildOptimizationOptions(
+            r8Minify = true,
+            shrinkResources = true,
+            abiSplit = false,
+            zipAlign = true,
+            autoSignWithKeystore = !project.signingConfig.useDebugKey && project.signingConfig.keystorePath.isNotBlank(),
+            autoBumpVersionCode = true
+        )
+        buildSessionStarted = true
+        showLiveTerminalModal = true
+        if (onStartAutomatedBuild != null) {
+            onStartAutomatedBuild.invoke(project, targetType, opts, true)
+        } else {
+            coroutineScope.launch {
+                effectiveEngine.executeBuildWithProgress(
+                    project = project,
+                    buildType = targetType,
+                    options = opts
+                ) { _, _, _ -> }
+            }
+        }
     }
 
     // Phone state
@@ -69,26 +125,34 @@ fun FullInteractivePhoneScreen(
     var isHomeScreenMode by remember { mutableStateOf(false) }
     var interactiveCounter by remember { mutableIntStateOf(1) }
 
-    // Real WebView + DevTools + Offline Simulator state
-    var isLiveWebViewMode by remember { mutableStateOf(false) }
+    // Real WebView + DevTools + Offline Simulator state (Active Sandbox enabled immediately)
+    var isLiveWebViewMode by remember { mutableStateOf(true) }
     var isOfflineSimulated by remember { mutableStateOf(false) }
     var showDevToolsDrawer by remember { mutableStateOf(false) }
     var webReloadTrigger by remember { mutableIntStateOf(0) }
     var jsCommandTrigger by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val consoleLogs = remember { mutableStateListOf<DevConsoleEntry>() }
 
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     fun appendConsoleLog(level: ConsoleLevel, msg: String) {
-        consoleLogs.add(
-            0,
-            DevConsoleEntry(
-                id = "${System.nanoTime()}_${consoleLogs.size}",
-                level = level,
-                message = msg,
-                time = nowTimeLabel()
+        val addAction = {
+            consoleLogs.add(
+                0,
+                DevConsoleEntry(
+                    id = "${System.nanoTime()}_${consoleLogs.size}",
+                    level = level,
+                    message = msg,
+                    time = nowTimeLabel()
+                )
             )
-        )
-        if (consoleLogs.size > 40) {
-            consoleLogs.removeAt(consoleLogs.lastIndex)
+            if (consoleLogs.size > 40) {
+                consoleLogs.removeAt(consoleLogs.lastIndex)
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            addAction()
+        } else {
+            mainHandler.post(addAction)
         }
     }
 
@@ -141,12 +205,28 @@ fun FullInteractivePhoneScreen(
                         )
                     }
 
-                    IconButton(onClick = onEdit) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "تعديل",
-                            tint = accentColor
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { is3dView = !is3dView }, modifier = Modifier.testTag("toggle_3d_phone_btn")) {
+                            Icon(
+                                imageVector = Icons.Default.ViewInAr,
+                                contentDescription = "عرض 3D",
+                                tint = if (is3dView) CyanAccent else TextSecondary
+                            )
+                        }
+                        IconButton(onClick = onEdit) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "تعديل المراحل",
+                                tint = accentColor
+                            )
+                        }
+                        IconButton(onClick = onBuild) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "مركز التشخيص",
+                                tint = TextSecondary
+                            )
+                        }
                     }
                 }
 
@@ -333,6 +413,29 @@ fun FullInteractivePhoneScreen(
                         }
                     }
 
+                    Surface(
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                permissionType = if (project.permissionsConfig.camera) "الكاميرا" else if (project.permissionsConfig.location) "الموقع الجغرافي" else "الإشعارات والكاميرا"
+                                showPermissionDialog = true
+                            }
+                            .testTag("test_smart_permissions_btn")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("اختبار الأذونات", fontFamily = CairoFontFamily, fontSize = 10.sp, color = TextPrimary)
+                        }
+                    }
+
                     if (project.pushConfig.enabled) {
                         Surface(
                             color = DarkSurfaceElevated,
@@ -363,27 +466,78 @@ fun FullInteractivePhoneScreen(
             }
         },
         bottomBar = {
+            val isBuildingNow = engineState is QuantumBuildEngine.EngineStatus.Running
             Surface(
-                color = DarkBackground,
+                color = DarkSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    GlowingButton(
-                        text = "⚡ بناء التطبيق الآن (APK / AAB)",
-                        onClick = onBuild,
-                        brush = Brush.horizontalGradient(listOf(accentColor, OrangeNeon)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "البناء النهائي من المعاينة الحية 3D",
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                        if (isBuildingNow) {
+                            Text(
+                                text = "جارٍ التجميع...",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = OrangePrimary
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SandboxBuildTargetButton(
+                            label = "APK",
+                            sub = "تثبيت",
+                            icon = Icons.Filled.Android,
+                            accent = OrangePrimary,
+                            enabled = !isBuildingNow,
+                            tag = "sandbox_build_apk_btn",
+                            modifier = Modifier.weight(1f),
+                            onClick = { launchFinalBuild("release") }
+                        )
+                        SandboxBuildTargetButton(
+                            label = "AAB",
+                            sub = "Google Play",
+                            icon = Icons.Filled.CloudUpload,
+                            accent = StatusGreen,
+                            enabled = !isBuildingNow,
+                            tag = "sandbox_build_aab_btn",
+                            modifier = Modifier.weight(1f),
+                            onClick = { launchFinalBuild("aab") }
+                        )
+                        SandboxBuildTargetButton(
+                            label = "APKS",
+                            sub = "شامل Split",
+                            icon = Icons.Filled.Layers,
+                            accent = CyanAccent,
+                            enabled = !isBuildingNow,
+                            tag = "sandbox_build_apks_btn",
+                            modifier = Modifier.weight(1f),
+                            onClick = { launchFinalBuild("apks") }
+                        )
+                    }
                 }
             }
         }
@@ -396,15 +550,16 @@ fun FullInteractivePhoneScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Realistic Smartphone Chassis
+            // Realistic 3D Smartphone Chassis
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .threeDPerspectiveTilt(is3dView)
                     .shadow(
-                        elevation = 24.dp,
+                        elevation = if (is3dView) 28.dp else 20.dp,
                         shape = RoundedCornerShape(36.dp),
-                        spotColor = accentColor.copy(alpha = 0.5f),
+                        spotColor = accentColor.copy(alpha = 0.55f),
                         ambientColor = Color.Black
                     )
                     .clip(RoundedCornerShape(36.dp))
@@ -670,6 +825,83 @@ fun FullInteractivePhoneScreen(
                         jsCommandTrigger = nextId to js
                     }
                 )
+            }
+        }
+
+        if (showLiveTerminalModal) {
+            LiveBuildTerminalDialog(
+                project = project,
+                engineState = engineState,
+                stages = buildStages,
+                logs = buildLogs,
+                onDismiss = { showLiveTerminalModal = false }
+            )
+        }
+
+        if (showCompletionBottomSheet && completedArtifactPath.isNotBlank()) {
+            BuildCompleteBottomSheet(
+                project = project,
+                telemetry = buildTelemetry,
+                artifactPath = completedArtifactPath,
+                onInstallNow = {
+                    val res = projectExporter.installApkDirectly(
+                        filePath = completedArtifactPath,
+                        buildType = buildTelemetry.activeTarget,
+                        projectName = project.name
+                    )
+                    Toast.makeText(context, res.messageAr, Toast.LENGTH_LONG).show()
+                },
+                onSaveToDownloads = {
+                    val saveRes = projectExporter.savePackageToPublicDownloadsViaMediaStore(
+                        sourceFilePath = completedArtifactPath,
+                        preferredFileName = buildTelemetry.lastOutputFileName,
+                        projectName = project.name
+                    )
+                    Toast.makeText(
+                        context,
+                        if (saveRes.success) "✓ تم الحفظ في التنزيلات: ${saveRes.displayPath}" else (saveRes.errorMessage ?: "تعذر الحفظ"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                },
+                onDismiss = { showCompletionBottomSheet = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SandboxBuildTargetButton(
+    label: String,
+    sub: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accent: Color,
+    enabled: Boolean,
+    tag: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = accent.copy(alpha = if (enabled) 0.18f else 0.08f),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.2.dp, accent.copy(alpha = if (enabled) 0.7f else 0.25f)),
+        modifier = modifier
+            .height(54.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .testTag(tag)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(6.dp))
+            Column {
+                Text(label, fontFamily = CairoFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = TextPrimary)
+                Text(sub, fontFamily = TajawalFontFamily, fontSize = 9.sp, color = TextSecondary, maxLines = 1)
             }
         }
     }

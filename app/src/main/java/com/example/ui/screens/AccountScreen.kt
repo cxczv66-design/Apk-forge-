@@ -52,6 +52,9 @@ fun AccountScreen(
     onSignInGoogle: (GoogleUser) -> Unit = {},
     onSignOut: () -> Unit = {},
     onSelectLanguage: (AppLanguage) -> Unit = {},
+    onClearAllData: () -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -64,6 +67,8 @@ fun AccountScreen(
     var showLanguageDialog by remember { mutableStateOf(false) }
     var isCloudSyncEnabled by remember { mutableStateOf(true) }
     var manualGmailInput by remember { mutableStateOf("") }
+    var showConfirmClearData by remember { mutableStateOf(false) }
+    var showConfirmDeleteAccount by remember { mutableStateOf(false) }
 
     // Discover any cached Google accounts visible to the OS or let user pick via Android System Chooser
     val systemGoogleAccountLauncher = rememberLauncherForActivityResult(
@@ -575,10 +580,78 @@ fun AccountScreen(
                         )
                         HorizontalDivider(color = GlassBorderSubtle)
                         AccountRowItem(
+                            title = "دعم فني حي / اطلب ميزة جديدة",
+                            subtitle = "إرفاق لقطات شاشة وإرسال مباشر لفريق التطوير",
+                            icon = Icons.Default.SupportAgent,
+                            onClick = onOpenSupport
+                        )
+                        HorizontalDivider(color = GlassBorderSubtle)
+                        AccountRowItem(
+                            title = "مسح جميع البيانات والمشاريع",
+                            subtitle = "حذف كافة المشاريع والتنزيلات وإعادة تهيئة المساحة المحلية",
+                            icon = Icons.Default.DeleteSweep,
+                            onClick = { showConfirmClearData = true }
+                        )
+                        HorizontalDivider(color = GlassBorderSubtle)
+                        AccountRowItem(
+                            title = "حذف الحساب نهائياً",
+                            subtitle = "إنهاء الجلسة ومسح بيانات الحساب والتفضيلات بالكامل",
+                            icon = Icons.Default.DeleteForever,
+                            onClick = { showConfirmDeleteAccount = true }
+                        )
+                        HorizontalDivider(color = GlassBorderSubtle)
+                        AccountRowItem(
                             title = "شروط الاستخدام والسياسة",
                             icon = Icons.Default.Security,
                             onClick = {
                                 Toast.makeText(context, "جميع ملفاتك ومشاريعك تبقى ملكك وتحت سيطرتك بالكامل.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+
+                // Confirmation Dialogs
+                if (showConfirmClearData) {
+                    item {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmClearData = false },
+                            containerColor = DarkSurfaceElevated,
+                            title = { Text("مسح جميع البيانات والمشاريع", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            text = { Text("سيتم حذف كل المشاريع والتنزيلات المحلية من الجهاز. هل تريد المتابعة؟", color = TextSecondary) },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        onClearAllData()
+                                        showConfirmClearData = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningYellow)
+                                ) { Text("نعم، امسح الكل", color = Color.Black, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showConfirmClearData = false }) { Text("إلغاء") }
+                            }
+                        )
+                    }
+                }
+
+                if (showConfirmDeleteAccount) {
+                    item {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmDeleteAccount = false },
+                            containerColor = DarkSurfaceElevated,
+                            title = { Text("حذف الحساب نهائياً", color = ErrorRed, fontWeight = FontWeight.Bold) },
+                            text = { Text("سيتم تسجيل الخروج وحذف جميع البيانات المحلية نهائياً. هل أنت متأكد؟", color = TextSecondary) },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        onDeleteAccount()
+                                        showConfirmDeleteAccount = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                                ) { Text("تأكيد الحذف", color = Color.White, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showConfirmDeleteAccount = false }) { Text("إلغاء") }
                             }
                         )
                     }

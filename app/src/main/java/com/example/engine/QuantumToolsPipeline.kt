@@ -66,7 +66,11 @@ data class QuantumBuildCommandSpec(
             val minSdk = maxOf(24, project.packageConfig.minSdk)
             val targetSdk = maxOf(34, project.packageConfig.targetSdk)
             val safeName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "QuantumApp" }
-            val ext = if (buildType.equals("aab", ignoreCase = true)) "aab" else "apk"
+            val ext = when {
+                buildType.equals("aab", ignoreCase = true) -> "aab"
+                buildType.equals("apks", ignoreCase = true) -> "apks"
+                else -> "apk"
+            }
             val outName = "${safeName}_v${project.packageConfig.versionName}_quantum.$ext"
 
             val aapt2Flags = mutableListOf<String>().apply {
@@ -1016,6 +1020,30 @@ class QuantumD8Compiler(private val context: Context) {
                 put("shrinkResources", options.shrinkResources)
                 put("abiSplit", options.abiSplit)
                 put("zipAlign", options.zipAlign)
+            })
+            val omni = project.omniConfig
+            put("omniIde", JSONObject().apply {
+                put("gradientEnabled", omni.gradientEnabled)
+                put("gradientStartHex", omni.gradientStartHex)
+                put("gradientEndHex", omni.gradientEndHex)
+                put("fontScalePercent", omni.fontScalePercent)
+                put("authBuilderEnabled", omni.authBuilderEnabled)
+                put("authGoogleEnabled", omni.authGoogleEnabled)
+                put("authEmailEnabled", omni.authEmailEnabled)
+                put("localDbEnabled", omni.localDbEnabled)
+                put("localDbTableName", omni.localDbTableName)
+                put("apiEndpointsEnabled", omni.apiEndpointsEnabled)
+                put("apiBaseUrl", omni.apiBaseUrl)
+                put("i18nEnabled", omni.i18nSupportedCodesCsv.contains(","))
+                put("supportedLanguageCodes", omni.i18nSupportedCodesCsv)
+                put("smartPermissionsRationaleEnabled", omni.smartPermissionsRationaleEnabled)
+                put("appAcceleratorEnabled", omni.appAcceleratorEnabled)
+                put("acceleratorCacheFirst", project.proConfig.assetPreloaderEnabled)
+                put("acceleratorPrefetchLinks", omni.acceleratorPrefetchLinks)
+                put("acceleratorImageCompression", omni.acceleratorImageCompression)
+                put("customHeroTitle", omni.customHeroTitle)
+                put("customPrimaryButtonText", omni.customPrimaryButtonText)
+                put("customHideSelectorsCsv", omni.customHideSelectorsCsv)
             })
         }.toString(2)
     }

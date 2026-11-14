@@ -1,9 +1,13 @@
 package com.example.ui.components
 
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.webkit.*
@@ -35,16 +39,20 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
 import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.theme.*
-import android.net.Uri
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Collections
 import java.util.Date
 import java.util.Locale
+import java.util.WeakHashMap
 
 enum class ConsoleLevel(val tag: String, val color: Color) {
     INFO("INFO", Color(0xFF38BDF8)),
@@ -158,9 +166,82 @@ fun LiveWebViewContainer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var isLoading by remember { mutableStateOf(false) }
     var isDrawerOpen by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var rendererSessionKey by remember { mutableIntStateOf(0) }
+    var rendererCrashCount by remember { mutableIntStateOf(0) }
+    var isRendererFailed by remember { mutableStateOf(false) }
+    var pendingRendererRecovery by remember { mutableStateOf(false) }
+    var lastHandledReloadTrigger by remember { mutableIntStateOf(reloadTrigger) }
+    val destroyedWebViews = remember { Collections.newSetFromMap(WeakHashMap<WebView, Boolean>()) }
+
+    fun safeLog(level: ConsoleLevel, msg: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            onLog(level, msg)
+        } else {
+            mainHandler.post { onLog(level, msg) }
+        }
+    }
+
+    fun destroyWebViewSafely(wv: WebView?) {
+        if (wv == null || destroyedWebViews.contains(wv)) return
+        destroyedWebViews.add(wv)
+        runCatching {
+            wv.stopLoading()
+            wv.webChromeClient = null
+            wv.webViewClient = WebViewClient()
+            wv.removeJavascriptInterface("ApkForge")
+            wv.clearHistory()
+            (wv.parent as? android.view.ViewGroup)?.removeView(wv)
+            wv.removeAllViews()
+            wv.destroy()
+        }
+    }
+
+    fun triggerRendererRecovery(crashed: Boolean) {
+        isLoading = false
+        if (rendererCrashCount < 3) {
+            rendererCrashCount++
+            safeLog(
+                ConsoleLevel.WARN,
+                if (crashed) "تعافٍ تلقائي لمحرك العرض (المحاولة $rendererCrashCount/3)..."
+                else "استعادة محرك WebView بعد تحرير الذاكرة..."
+            )
+            rendererSessionKey++
+        } else {
+            isRendererFailed = true
+            safeLog(ConsoleLevel.ERROR, "توقف محرك العرض مؤقتاً بعد 3 محاولات — اضغط إعادة التشغيل.")
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    webViewRef?.onResume()
+                    if (pendingRendererRecovery) {
+                        pendingRendererRecovery = false
+                        triggerRendererRecovery(crashed = true)
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    webViewRef?.onPause()
+                }
+                Lifecycle.Event.ON_DESTROY -> {
+                    destroyWebViewSafely(webViewRef)
+                    webViewRef = null
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val pro = project.proConfig
     val blockedHosts = remember(pro.blockedHostsCsv) {
@@ -169,19 +250,28 @@ fun LiveWebViewContainer(
 
     LaunchedEffect(jsCommandToRun?.first) {
         val cmd = jsCommandToRun?.second
-        if (!cmd.isNullOrBlank() && !isOfflineMode) {
-            onLog(ConsoleLevel.INFO, "eval> $cmd")
+        if (!cmd.isNullOrBlank() && !isOfflineMode && !isRendererFailed) {
+            safeLog(ConsoleLevel.INFO, "eval> $cmd")
             webViewRef?.evaluateJavascript(cmd) { result ->
                 if (!result.isNullOrBlank() && result != "null") {
-                    onLog(ConsoleLevel.INFO, "< $result")
+                    safeLog(ConsoleLevel.INFO, "< $result")
                 }
             }
         }
     }
 
     LaunchedEffect(reloadTrigger, isOfflineMode) {
-        if (!isOfflineMode) {
-            webViewRef?.reload()
+        if (reloadTrigger != lastHandledReloadTrigger) {
+            lastHandledReloadTrigger = reloadTrigger
+            if (!isOfflineMode) {
+                if (isRendererFailed) {
+                    rendererCrashCount = 0
+                    isRendererFailed = false
+                    rendererSessionKey++
+                } else {
+                    webViewRef?.reload()
+                }
+            }
         }
     }
 
@@ -219,7 +309,7 @@ fun LiveWebViewContainer(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
-                        onLog(ConsoleLevel.NETWORK, "إعادة محاولة الاتصال بالشبكة...")
+                        safeLog(ConsoleLevel.NETWORK, "إعادة محاولة الاتصال بالشبكة...")
                         onRetryOnline()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
@@ -230,89 +320,173 @@ fun LiveWebViewContainer(
                     Text("إعادة المحاولة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
+        } else if (isRendererFailed) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "إعادة تشغيل المحرك",
+                    tint = accentColor,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "توقفت جلسة عرض الويب مؤقتاً",
+                    fontFamily = CairoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "تمت حماية التطبيق من الإغلاق ويمكنك إعادة تشغيل المعاينة الآن",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        rendererCrashCount = 0
+                        isRendererFailed = false
+                        rendererSessionKey++
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("إعادة تشغيل المعاينة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
         } else {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = android.view.ViewGroup.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.allowFileAccess = true
-                        settings.allowFileAccessFromFileURLs = true
-                        settings.allowUniversalAccessFromFileURLs = true
-                        settings.useWideViewPort = true
-                        settings.loadWithOverviewMode = true
-                        settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
-                        settings.setSupportZoom(project.webViewConfig.supportZoom)
-                        settings.cacheMode = if (pro.assetPreloaderEnabled) WebSettings.LOAD_CACHE_ELSE_NETWORK else WebSettings.LOAD_DEFAULT
-
-                        if (project.bridgeConfig.jsBridgeEnabled) {
-                            addJavascriptInterface(
-                                PreviewJsBridge(ctx, { isOfflineMode }, onLog),
-                                "ApkForge"
+            key(rendererSessionKey) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { wv ->
+                        destroyWebViewSafely(wv)
+                        if (webViewRef === wv) {
+                            webViewRef = null
+                        }
+                    },
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = android.view.ViewGroup.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                        }
-
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                                val msg = consoleMessage ?: return false
-                                val lvl = when (msg.messageLevel()) {
-                                    ConsoleMessage.MessageLevel.ERROR -> ConsoleLevel.ERROR
-                                    ConsoleMessage.MessageLevel.WARNING -> ConsoleLevel.WARN
-                                    else -> ConsoleLevel.INFO
-                                }
-                                onLog(lvl, "[JS L${msg.lineNumber()}] ${msg.message()}")
-                                return true
+                            setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
                             }
-                        }
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.allowFileAccess = true
+                            @Suppress("DEPRECATION")
+                            settings.allowFileAccessFromFileURLs = true
+                            @Suppress("DEPRECATION")
+                            settings.allowUniversalAccessFromFileURLs = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
+                            settings.setSupportZoom(project.webViewConfig.supportZoom)
+                            settings.cacheMode = if (pro.assetPreloaderEnabled) WebSettings.LOAD_CACHE_ELSE_NETWORK else WebSettings.LOAD_DEFAULT
 
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                if (pro.adAndPopupBlocker) {
-                                    val host = request?.url?.host?.lowercase() ?: ""
-                                    if (blockedHosts.any { host.contains(it) }) {
-                                        onLog(ConsoleLevel.WARN, "AdBlocker حظر: $host")
-                                        return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                            if (project.bridgeConfig.jsBridgeEnabled) {
+                                addJavascriptInterface(
+                                    PreviewJsBridge(ctx, { isOfflineMode }, ::safeLog),
+                                    "ApkForge"
+                                )
+                            }
+
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                    val msg = consoleMessage ?: return false
+                                    val lvl = when (msg.messageLevel()) {
+                                        ConsoleMessage.MessageLevel.ERROR -> ConsoleLevel.ERROR
+                                        ConsoleMessage.MessageLevel.WARNING -> ConsoleLevel.WARN
+                                        else -> ConsoleLevel.INFO
                                     }
+                                    safeLog(lvl, "[JS L${msg.lineNumber()}] ${msg.message()}")
+                                    return true
                                 }
-                                return super.shouldInterceptRequest(view, request)
                             }
+
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                    if (pro.adAndPopupBlocker) {
+                                        val host = request?.url?.host?.lowercase() ?: ""
+                                        if (blockedHosts.any { host.contains(it) }) {
+                                            safeLog(ConsoleLevel.WARN, "AdBlocker حظر: $host")
+                                            return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                                        }
+                                    }
+                                    return super.shouldInterceptRequest(view, request)
+                                }
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                 isLoading = true
-                                onLog(ConsoleLevel.NETWORK, "GET ${url?.take(60) ?: "local"}")
+                                safeLog(ConsoleLevel.NETWORK, "GET ${url?.take(60) ?: "local"}")
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
-                                onLog(ConsoleLevel.NETWORK, "200 OK • اكتمل تحميل الصفحة")
+                                val omni = project.omniConfig
+                                safeLog(
+                                    ConsoleLevel.NETWORK,
+                                    if (omni.appAcceleratorEnabled) "200 OK • App Accelerator ⚡ اكتمل التحميل" else "200 OK • اكتمل تحميل الصفحة"
+                                )
 
                                 val darkCss = if (pro.forceDarkCss) {
                                     "html{filter:invert(0.92) hue-rotate(180deg)!important;background:#0d1117!important;}img,video{filter:invert(1) hue-rotate(180deg)!important;}"
                                 } else ""
-                                val mergedCss = "$darkCss ${pro.customCss}".trim().replace("'", "\\'").replace("\n", " ")
+                                val gradientCss = if (omni.gradientEnabled) {
+                                    "body,header,.hero{background:linear-gradient(135deg,${omni.gradientStartHex},${omni.gradientEndHex})!important;}"
+                                } else ""
+                                val fontScaleCss = "html{font-size:${omni.fontScalePercent.coerceIn(75, 145)}%!important;}"
+                                val hideCss = omni.customHideSelectorsCsv.split(',')
+                                    .map { it.trim() }.filter { it.isNotBlank() }
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.let { "${it.joinToString(",")}{display:none!important;}" } ?: ""
+                                val mergedCss = "$darkCss $gradientCss $fontScaleCss $hideCss ${pro.customCss}"
+                                    .trim().replace("'", "\\'").replace("\n", " ")
                                 if (mergedCss.isNotBlank()) {
                                     view?.evaluateJavascript(
                                         "(function(){var s=document.createElement('style');s.innerHTML='$mergedCss';document.head.appendChild(s);})();",
                                         null
                                     )
-                                    onLog(ConsoleLevel.INFO, "🎨 تم حقن CSS المخصص (${mergedCss.length} حرف)")
+                                    safeLog(ConsoleLevel.INFO, "🎨 تم حقن CSS وتدرجات Omni IDE (${mergedCss.length} حرف)")
                                 }
-                                if (pro.customJs.isNotBlank()) {
-                                    view?.evaluateJavascript(pro.customJs, null)
-                                    onLog(ConsoleLevel.INFO, "⚡ تم تنفيذ JS المخصص")
+                                val omniDomJs = buildString {
+                                    if (omni.customHeroTitle.isNotBlank()) {
+                                        val h = omni.customHeroTitle.replace("'", "\\'")
+                                        append("var _h=document.querySelector('[data-omni-hero],h1,.hero-title');if(_h)_h.textContent='$h';")
+                                    }
+                                    if (omni.customPrimaryButtonText.isNotBlank()) {
+                                        val b = omni.customPrimaryButtonText.replace("'", "\\'")
+                                        append("var _b=document.querySelector('[data-omni-cta],button.primary,.btn-primary,button');if(_b)_b.textContent='$b';")
+                                    }
+                                    if (omni.appAcceleratorEnabled && omni.acceleratorImageCompression) {
+                                        append("document.querySelectorAll('img').forEach(function(i){if(!i.getAttribute('loading'))i.setAttribute('loading','lazy');});")
+                                    }
+                                }
+                                val combinedJs = "$omniDomJs ${pro.customJs}".trim()
+                                if (combinedJs.isNotBlank()) {
+                                    view?.evaluateJavascript(combinedJs, null)
+                                    safeLog(ConsoleLevel.INFO, "⚡ تم تنفيذ JS والمحسنات الحية")
                                 }
                             }
 
                             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                 if (request?.isForMainFrame == true) {
                                     isLoading = false
-                                    onLog(ConsoleLevel.ERROR, "خطأ تحميل: ${error?.description}")
+                                    safeLog(ConsoleLevel.ERROR, "خطأ تحميل: ${error?.description}")
                                 }
                             }
 
@@ -321,11 +495,28 @@ fun LiveWebViewContainer(
                                 if (project.bridgeConfig.handleExternalIntents &&
                                     (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("whatsapp:") || url.contains("wa.me/"))
                                 ) {
-                                    onLog(ConsoleLevel.BRIDGE, "External Intent Intercept -> $url")
+                                    safeLog(ConsoleLevel.BRIDGE, "External Intent Intercept -> $url")
                                     Toast.makeText(ctx, "توجيه خارجي ذكي: $url", Toast.LENGTH_SHORT).show()
                                     return true
                                 }
                                 return false
+                            }
+
+                            @TargetApi(Build.VERSION_CODES.O)
+                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                val crashed = detail?.didCrash() == true
+                                mainHandler.post {
+                                    destroyWebViewSafely(view)
+                                    if (webViewRef === view) {
+                                        webViewRef = null
+                                    }
+                                    if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                        triggerRendererRecovery(crashed)
+                                    } else {
+                                        pendingRendererRecovery = true
+                                    }
+                                }
+                                return true
                             }
                         }
 
@@ -337,7 +528,7 @@ fun LiveWebViewContainer(
                         ) {
                             loadUrl(project.sourceValue)
                         } else if (localEntry != null && localEntry.exists()) {
-                            onLog(ConsoleLevel.INFO, "تحميل المشروع المحلي الحقيقي: ${localEntry.name}")
+                            safeLog(ConsoleLevel.INFO, "تحميل المشروع المحلي الحقيقي: ${localEntry.name}")
                             loadUrl(Uri.fromFile(localEntry).toString())
                         } else {
                             loadDataWithBaseURL(
@@ -351,7 +542,8 @@ fun LiveWebViewContainer(
                         webViewRef = this
                     }
                 }
-            )
+                )
+            }
 
             if (isLoading) {
                 LinearProgressIndicator(

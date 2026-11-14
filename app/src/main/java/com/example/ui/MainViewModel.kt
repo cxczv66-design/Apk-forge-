@@ -11,8 +11,11 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.example.data.repository.DownloadedApk
 import com.example.data.repository.ProjectRepository
+import com.example.domain.model.AiArchitectPlan
+import com.example.domain.model.AiSmartQuestion
 import com.example.domain.model.AppProject
 import com.example.domain.usecase.*
+import com.example.engine.AiAppArchitectRepository
 import com.example.engine.BuildOptimizationOptions
 import com.example.engine.QuantumBuildEngine
 import com.example.engine.QuantumBuildWorker
@@ -38,18 +41,29 @@ data class GoogleUser(
     val isGoogleAccount: Boolean = true
 )
 
+sealed class AiWizardUiState {
+    data object Idle : AiWizardUiState()
+    data object GeneratingPlan : AiWizardUiState()
+    data class PlanReady(val plan: AiArchitectPlan) : AiWizardUiState()
+    data object Materializing : AiWizardUiState()
+    data class Error(val message: String) : AiWizardUiState()
+}
+
 sealed class AppScreen {
     data object Splash : AppScreen()
     data object Dashboard : AppScreen()
     data object HtmlPicker : AppScreen()
     data object ZipPicker : AppScreen()
+    data object ApkImportChoice : AppScreen()
+    data object AiWizard : AppScreen()
+    data class AdaptiveStudio(val project: AppProject, val initialPhaseIndex: Int = 0) : AppScreen()
     data class Preview(
         val fileName: String = "index.html",
         val workspacePath: String? = null,
         val entryHtmlPath: String? = null,
         val previousScreen: AppScreen = ZipPicker
     ) : AppScreen()
-    data class Wizard(val projectToEdit: AppProject? = null) : AppScreen()
+    data class Wizard(val projectToEdit: AppProject? = null, val initialStep: Int = 2) : AppScreen()
     data class BuildCenter(val project: AppProject) : AppScreen()
     data class InteractivePhone(val project: AppProject, val fromScreen: AppScreen = AppScreen.Dashboard) : AppScreen()
     data object Downloads : AppScreen()
@@ -61,6 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("apkforge_settings_prefs", Context.MODE_PRIVATE)
 
     private val repository = ProjectRepository(application)
+    private val aiArchitectRepository = AiAppArchitectRepository()
     val quantumEngine: QuantumBuildEngine = QuantumBuildEngine.getInstance(application)
     val toolchainManager = ToolchainManager(application)
     private val workManager: WorkManager = WorkManager.getInstance(application)
@@ -115,6 +130,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiToastEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val uiToastEvents: SharedFlow<String> = _uiToastEvents.asSharedFlow()
 
+    private val _aiWizardState = MutableStateFlow<AiWizardUiState>(AiWizardUiState.Idle)
+    val aiWizardState: StateFlow<AiWizardUiState> = _aiWizardState.asStateFlow()
+
+    private val _activeAdaptiveAiPlan = MutableStateFlow<AiArchitectPlan?>(null)
+    val activeAdaptiveAiPlan: StateFlow<AiArchitectPlan?> = _activeAdaptiveAiPlan.asStateFlow()
+
     private var workObserverJob: Job? = null
 
     init {
@@ -149,6 +170,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .apply()
     }
 
+    fun clearAllData() {
+        repository.clearAllProjectsAndDownloads()
+        quantumEngine.resetState()
+        _hasPreviewedHtml.value = false
+        _hasPreviewedZip.value = false
+        _uiToastEvents.tryEmit("تم مسح جميع البيانات والمشاريع والتنزيلات بنجاح ✓")
+    }
+
+    fun deleteAccountAndData() {
+        signOut()
+        repository.clearAllProjectsAndDownloads()
+        quantumEngine.resetState()
+        prefs.edit().clear().apply()
+        _hasPreviewedHtml.value = false
+        _hasPreviewedZip.value = false
+        _uiToastEvents.tryEmit("تم حذف الحساب ومسح كافة البيانات المحلية نهائياً")
+    }
+
     fun onSplashFinished() {
         _currentScreen.value = AppScreen.Dashboard
     }
@@ -178,6 +217,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProject(project: AppProject) {
         saveProjectUseCase(project)
+    }
+
+    fun generateAiArchitectPlan(ideaPrompt: String, presetCategory: String?) {
+        _aiWizardState.value = AiWizardUiState.GeneratingPlan
+        viewModelScope.launch {
+            val result = aiArchitectRepository.generateArchitectPlan(ideaPrompt, presetCategory)
+            result.onSuccess { plan ->
+                _activeAdaptiveAiPlan.value = plan
+                _aiWizardState.value = AiWizardUiState.PlanReady(plan)
+            }.onFailure { err ->
+                _aiWizardState.value = AiWizardUiState.Error(
+                    err.localizedMessage ?: "تعذر الاتصال بمحرك الذكاء الاصطناعي حالياً."
+                )
+            }
+        }
+    }
+
+    fun materializeAiArchitectPlan(
+        plan: AiArchitectPlan,
+        answers: List<AiSmartQuestion>,
+        onProjectReady: (AppProject) -> Unit
+    ) {
+        _aiWizardState.value = AiWizardUiState.Materializing
+        viewModelScope.launch {
+            runCatching {
+                aiArchitectRepository.materializeProjectFromPlan(
+                    context = getApplication(),
+                    plan = plan,
+                    answeredQuestions = answers
+                )
+            }.onSuccess { builtProject ->
+                _activeAdaptiveAiPlan.value = plan
+                saveProjectUseCase(builtProject)
+                _aiWizardState.value = AiWizardUiState.Idle
+                onProjectReady(builtProject)
+            }.onFailure { err ->
+                _aiWizardState.value = AiWizardUiState.Error(
+                    err.localizedMessage ?: "تعذر إنشاء ملفات المشروع التفاعلي."
+                )
+            }
+        }
+    }
+
+    fun resetAiWizardPrompt() {
+        _aiWizardState.value = AiWizardUiState.Idle
+    }
+
+    fun clearActiveAiPlan() {
+        _activeAdaptiveAiPlan.value = null
     }
 
     /**

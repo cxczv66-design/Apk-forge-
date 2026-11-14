@@ -6,6 +6,9 @@ data class SmartAppTemplate(
     val subtitleAr: String,
     val badgeAr: String,
     val accentHex: String,
+    val secondaryHex: String,
+    val iconKey: String,
+    val featureCountLabel: String,
     val buildProject: () -> AppProject
 )
 
@@ -16,10 +19,13 @@ object SmartTemplatesCatalog {
         return listOf(
             SmartAppTemplate(
                 id = "tpl_store",
-                titleAr = "متجر إلكتروني",
-                subtitleAr = "سلة، عروض، تنبيهات طلبات، وروابط واتساب",
+                titleAr = "متجر إلكتروني 3D",
+                subtitleAr = "سلة تسوق، عروض تفاعلية، تنبيهات طلبات، وواتساب",
                 badgeAr = "تجارة",
                 accentHex = "#FF7A2F",
+                secondaryHex = "#7C3AED",
+                iconKey = "store",
+                featureCountLabel = "24 ميزة",
                 buildProject = {
                     AppProject(
                         id = "proj_store_$now",
@@ -81,6 +87,138 @@ object SmartTemplatesCatalog {
                             handleExternalIntents = true,
                             deepLinkDomain = "shop.apkforge.app",
                             gitHubCiEnabled = true
+                        ),
+                        omniConfig = OmniIdeConfig(
+                            gradientEnabled = true,
+                            gradientStartHex = "#FF7A2F",
+                            gradientEndHex = "#7C3AED",
+                            localDbEnabled = true,
+                            localDbTableName = "store_cart"
+                        )
+                    )
+                }
+            ),
+            SmartAppTemplate(
+                id = "tpl_restaurant",
+                titleAr = "مطعم ومنيو ذكي",
+                subtitleAr = "قائمة وجبات، طلب سريع، خريطة GPS، وحجز طاولات",
+                badgeAr = "مطاعم",
+                accentHex = "#F59E0B",
+                secondaryHex = "#DC2626",
+                iconKey = "restaurant",
+                featureCountLabel = "20 ميزة",
+                buildProject = {
+                    AppProject(
+                        id = "proj_rest_$now",
+                        name = "مذاق بلس",
+                        description = "تطبيق مطعم متكامل مع منيو رقمي وتوصيل فوري",
+                        primaryColorHex = "#F59E0B",
+                        accentColorHex = "#F59E0B",
+                        sourceType = SourceType.HTML_FOLDER,
+                        sourceValue = "restaurant_menu.html",
+                        splashConfig = SplashConfig(
+                            enabled = true,
+                            backgroundColorHex = "#17110B",
+                            indicatorStyle = "نبض"
+                        ),
+                        onboardingConfig = OnboardingConfig(
+                            enabled = true,
+                            slides = listOf(
+                                OnboardingSlide("أشهى الأطباق", "تصفح المنيو المصور والوجبات اليومية الطازجة", "restaurant"),
+                                OnboardingSlide("توصيل سريع", "حدد موقعك واطلب وجبتك بضغطة زر", "bolt")
+                            ),
+                            accentColorHex = "#F59E0B"
+                        ),
+                        webViewConfig = WebViewConfig(
+                            fullScreen = false,
+                            pullToRefresh = true,
+                            cacheEnabled = true,
+                            offlineFallback = true
+                        ),
+                        bottomNavConfig = BottomNavConfig(
+                            enabled = true,
+                            activeColorHex = "#F59E0B",
+                            destinations = listOf(
+                                BottomNavDestination("menu", "المنيو", "/", "home"),
+                                BottomNavDestination("offers", "العروض", "/offers", "explore"),
+                                BottomNavDestination("orders", "طلباتي", "/orders", "shopping_cart"),
+                                BottomNavDestination("branch", "الفروع", "/branches", "person")
+                            )
+                        ),
+                        packageConfig = PackageConfig(
+                            packageName = "com.apkforge.restaurant",
+                            versionName = "1.0.0",
+                            versionCode = 1,
+                            minSdk = 24,
+                            targetSdk = 34
+                        ),
+                        permissionsConfig = PermissionsConfig(
+                            location = true,
+                            notifications = true,
+                            vibration = true,
+                            networkState = true
+                        ),
+                        proConfig = ProStudioConfig(
+                            fabMenuEnabled = true,
+                            fabWhatsappNumber = "966500000000"
+                        )
+                    )
+                }
+            ),
+            SmartAppTemplate(
+                id = "tpl_portfolio",
+                titleAr = "محفظة أعمال (Portfolio)",
+                subtitleAr = "معرض مشاريع 3D، سيرة ذاتية، وتواصل مباشر",
+                badgeAr = "أعمال",
+                accentHex = "#EC4899",
+                secondaryHex = "#6366F1",
+                iconKey = "portfolio",
+                featureCountLabel = "16 ميزة",
+                buildProject = {
+                    AppProject(
+                        id = "proj_port_$now",
+                        name = "إبداعي 3D",
+                        description = "محفظة أعمال شخصية ومشاريع إبداعية بتصميم ثلاثي الأبعاد",
+                        primaryColorHex = "#EC4899",
+                        accentColorHex = "#EC4899",
+                        sourceType = SourceType.HTML_FOLDER,
+                        sourceValue = "portfolio_3d.html",
+                        splashConfig = SplashConfig(
+                            enabled = true,
+                            backgroundColorHex = "#140D1B",
+                            indicatorStyle = "حلقة"
+                        ),
+                        webViewConfig = WebViewConfig(
+                            fullScreen = true,
+                            pullToRefresh = true,
+                            cacheEnabled = true,
+                            offlineFallback = true
+                        ),
+                        bottomNavConfig = BottomNavConfig(
+                            enabled = true,
+                            activeColorHex = "#EC4899",
+                            destinations = listOf(
+                                BottomNavDestination("work", "أعمالي", "/", "home"),
+                                BottomNavDestination("services", "الخدمات", "/services", "apps"),
+                                BottomNavDestination("contact", "تواصل", "/contact", "person")
+                            )
+                        ),
+                        packageConfig = PackageConfig(
+                            packageName = "com.apkforge.portfolio",
+                            versionName = "1.0.0",
+                            versionCode = 1,
+                            minSdk = 24,
+                            targetSdk = 34
+                        ),
+                        omniConfig = OmniIdeConfig(
+                            gradientEnabled = true,
+                            gradientStartHex = "#EC4899",
+                            gradientEndHex = "#6366F1"
+                        ),
+                        proConfig = ProStudioConfig(
+                            drawerEnabled = true,
+                            drawerHeaderSubtitle = "معرض الأعمال والمهارات",
+                            fabMenuEnabled = true
                         )
                     )
                 }
@@ -91,6 +229,9 @@ object SmartTemplatesCatalog {
                 subtitleAr = "قراءة سريعة، حفظ أوفلاين، وإشعارات عاجلة",
                 badgeAr = "إعلام",
                 accentHex = "#38BDF8",
+                secondaryHex = "#0EA5E9",
+                iconKey = "blog",
+                featureCountLabel = "18 ميزة",
                 buildProject = {
                     AppProject(
                         id = "proj_news_$now",
@@ -151,6 +292,9 @@ object SmartTemplatesCatalog {
                 subtitleAr = "دورات، شاشات ترحيب، ورفع واجبات بالكاميرا",
                 badgeAr = "تعليم",
                 accentHex = "#A855F7",
+                secondaryHex = "#3B82F6",
+                iconKey = "academy",
+                featureCountLabel = "22 ميزة",
                 buildProject = {
                     AppProject(
                         id = "proj_edu_$now",
@@ -218,6 +362,9 @@ object SmartTemplatesCatalog {
                 subtitleAr = "GPS، اتصال مباشر، وربط واتساب للتأكيد",
                 badgeAr = "خدمات",
                 accentHex = "#10B981",
+                secondaryHex = "#06B6D4",
+                iconKey = "booking",
+                featureCountLabel = "19 ميزة",
                 buildProject = {
                     AppProject(
                         id = "proj_book_$now",

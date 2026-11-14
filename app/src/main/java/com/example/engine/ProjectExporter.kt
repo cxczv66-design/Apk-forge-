@@ -133,18 +133,11 @@ class ProjectExporter(private val context: Context) {
             kotlin.code.style=official
         """.trimIndent()
 
-        val splitsBlock = if (options.abiSplit) {
-            """
-                splits {
-                    abi {
-                        isEnable = true
-                        reset()
-                        include("armeabi-v7a", "arm64-v8a")
-                        isUniversalApk = true
-                    }
+        val splitsBlock = """
+                ndk {
+                    abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
                 }
             """.trimIndent()
-        } else ""
 
         val biometricDep = if (project.proConfig.biometricAuthBridge) {
             """    implementation("androidx.biometric:biometric:1.1.0")"""
@@ -405,6 +398,7 @@ class ProjectExporter(private val context: Context) {
 
         val mimeType = when {
             displayName.endsWith(".apk", ignoreCase = true) -> "application/vnd.android.package-archive"
+            displayName.endsWith(".apks", ignoreCase = true) -> "application/octet-stream"
             displayName.endsWith(".aab", ignoreCase = true) -> "application/octet-stream"
             displayName.endsWith(".zip", ignoreCase = true) -> "application/zip"
             else -> "application/octet-stream"
@@ -502,11 +496,18 @@ class ProjectExporter(private val context: Context) {
                 messageAr = "الملف غير موجود على القرص — أعد البناء لتوليده فعلياً"
             )
 
-        val isApk = file.extension.equals("apk", ignoreCase = true) ||
-            (buildType.equals("APK", ignoreCase = true) && file.name.endsWith(".apk", ignoreCase = true))
+        // If the artifact is an .apks split bundle archive, extract splits/base-master.apk for direct installation
+        val launchFile = if (file.extension.equals("apks", ignoreCase = true)) {
+            extractBaseApkFromApksBundle(file) ?: file
+        } else {
+            file
+        }
+
+        val isApk = launchFile.extension.equals("apk", ignoreCase = true) ||
+            (buildType.equals("APK", ignoreCase = true) && launchFile.name.endsWith(".apk", ignoreCase = true))
 
         val uri = try {
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", launchFile)
         } catch (_: Exception) {
             null
         } ?: return InstallLaunchResult(
@@ -517,7 +518,7 @@ class ProjectExporter(private val context: Context) {
 
         val mime = when {
             isApk -> "application/vnd.android.package-archive"
-            file.extension.equals("zip", ignoreCase = true) -> "application/zip"
+            launchFile.extension.equals("zip", ignoreCase = true) -> "application/zip"
             else -> "application/octet-stream"
         }
 
@@ -545,6 +546,24 @@ class ProjectExporter(private val context: Context) {
                 shareFileWithChooser(file, "*/*", "مشاركة / فتح ${file.name}")
                 InstallLaunchResult(true, isApk, "تم فتح قائمة المشاركة لحفظ وتثبيت ${file.name}")
             }
+        }
+    }
+
+    private fun extractBaseApkFromApksBundle(apksFile: File): File? {
+        return try {
+            val outDir = File(context.cacheDir, "apks_install_cache").apply { mkdirs() }
+            val outApk = File(outDir, apksFile.nameWithoutExtension + "_base.apk")
+            java.util.zip.ZipFile(apksFile).use { zip ->
+                val baseEntry = zip.getEntry("splits/base-master.apk")
+                    ?: zip.entries().asSequence().firstOrNull { it.name.endsWith(".apk", true) }
+                    ?: return null
+                zip.getInputStream(baseEntry).use { inp ->
+                    FileOutputStream(outApk).use { out -> inp.copyTo(out) }
+                }
+            }
+            outApk.takeIf { it.exists() && it.length() > 0L }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -671,12 +690,22 @@ class ProjectExporter(private val context: Context) {
         }
         val escapedAppTitle = project.name.replace("\\", "\\\\").replace("\"", "\\\"").ifBlank { "ApkForge App" }
         val escapedDrawerSubtitle = pro.drawerHeaderSubtitle.replace("\\", "\\\\").replace("\"", "\\\"").ifBlank { "القائمة السريعة" }
+        val omni = project.omniConfig
         val escapedCss = pro.customCss.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\n", " ")
         val darkCss = if (pro.forceDarkCss) {
             "html { filter: invert(0.92) hue-rotate(180deg) !important; background: #0d1117 !important; } img, video { filter: invert(1) hue-rotate(180deg) !important; }"
         } else ""
-        val combinedCss = "$darkCss $escapedCss".trim()
-        val escapedJs = pro.customJs.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+        val gradientCss = if (omni.gradientEnabled) {
+            "body, header, .hero { background: linear-gradient(135deg, ${omni.gradientStartHex}, ${omni.gradientEndHex}) !important; }"
+        } else ""
+        val fontScaleCss = "html { font-size: ${omni.fontScalePercent.coerceIn(75, 145)}% !important; }"
+        val hideCss = omni.customHideSelectorsCsv.split(',').map { it.trim() }.filter { it.isNotBlank() }
+            .takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} { display: none !important; }" } ?: ""
+        val combinedCss = "$darkCss $gradientCss $fontScaleCss $hideCss $escapedCss".trim()
+        val acceleratorJs = if (omni.appAcceleratorEnabled) {
+            "(function(){try{${if (omni.acceleratorPrefetchLinks) "document.querySelectorAll('a[href^=\"http\"]').forEach(function(a){var l=document.createElement('link');l.rel='prefetch';l.href=a.href;document.head.appendChild(l);});" else ""}${if (omni.acceleratorImageCompression) "document.querySelectorAll('img').forEach(function(i){if(!i.getAttribute('loading'))i.setAttribute('loading','lazy');});" else ""}}catch(e){}})();"
+        } else ""
+        val escapedJs = "${pro.customJs} $acceleratorJs".replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").trim()
         val blockedHostsArray = pro.blockedHostsCsv
             .split(",")
             .map { it.trim().lowercase() }
@@ -769,7 +798,9 @@ class ProjectExporter(private val context: Context) {
             import android.view.WindowInsets;
             import android.view.WindowInsetsController;
             import android.view.WindowManager;
+            import android.annotation.TargetApi;
             import android.webkit.JavascriptInterface;
+            import android.webkit.RenderProcessGoneDetail;
             import android.webkit.SslErrorHandler;
             import android.webkit.WebChromeClient;
             import android.webkit.WebResourceError;
@@ -963,7 +994,9 @@ class ProjectExporter(private val context: Context) {
                     webView.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
                     webView.setBackgroundColor(safeColor("#0F1318", Color.BLACK));
                     webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
-                    webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
+                    }
 
                     WebSettings ws = webView.getSettings();
                     ws.setJavaScriptEnabled(true);
@@ -1131,6 +1164,19 @@ class ProjectExporter(private val context: Context) {
                             ${if (combinedCss.isNotBlank()) "view.evaluateJavascript(\"(function(){var s=document.createElement('style');s.innerHTML='$combinedCss';document.head.appendChild(s);})();\", null);" else ""}
                             ${if (escapedJs.isNotBlank()) "view.evaluateJavascript(\"$escapedJs\", null);" else ""}
                         }
+
+                        @Override
+                        @TargetApi(Build.VERSION_CODES.O)
+                        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                            if (view != null) {
+                                ViewGroup parent = (ViewGroup) view.getParent();
+                                if (parent != null) parent.removeView(view);
+                                view.destroy();
+                            }
+                            pageLoaderOverlay.setVisibility(View.GONE);
+                            offlineOverlay.setVisibility(View.VISIBLE);
+                            return true;
+                        }
                     });
 
                     LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
@@ -1268,6 +1314,8 @@ class ProjectExporter(private val context: Context) {
                     }, 950L);
                     """.trimIndent() else ""}
 
+                    ${buildSmartPermissionOverlayJava(project)}
+
                     setContentView(root);
                     applyScreenMode();
                     String deepLink = getIntent() != null && getIntent().getData() != null ? getIntent().getData().toString() : null;
@@ -1318,6 +1366,21 @@ class ProjectExporter(private val context: Context) {
                         ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
                         return cm != null && cm.getActiveNetwork() != null;
                     }
+
+                    @JavascriptInterface
+                    public void dbPut(String key, String value) {
+                        ctx.getSharedPreferences("omni_local_db", Context.MODE_PRIVATE).edit().putString(key, value).apply();
+                    }
+
+                    @JavascriptInterface
+                    public String dbGet(String key) {
+                        return ctx.getSharedPreferences("omni_local_db", Context.MODE_PRIVATE).getString(key, "");
+                    }
+
+                    @JavascriptInterface
+                    public String getOmniConfig() {
+                        return "{\"accelerator\":${omni.appAcceleratorEnabled},\"auth\":${omni.authBuilderEnabled},\"localDb\":${omni.localDbEnabled},\"apiBase\":\"${omni.apiBaseUrl}\"}";
+                    }
                 }
             }
         """.trimIndent()
@@ -1340,12 +1403,22 @@ class ProjectExporter(private val context: Context) {
 
         val escapedAppTitle = project.name.replace("\\", "\\\\").replace("\"", "\\\"").ifBlank { "ApkForge App" }
         val escapedDrawerSubtitle = pro.drawerHeaderSubtitle.replace("\\", "\\\\").replace("\"", "\\\"").ifBlank { "القائمة السريعة" }
+        val omni = project.omniConfig
         val escapedCss = pro.customCss.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\n", " ")
         val darkCss = if (pro.forceDarkCss) {
             "html { filter: invert(0.92) hue-rotate(180deg) !important; background: #0d1117 !important; } img, video { filter: invert(1) hue-rotate(180deg) !important; }"
         } else ""
-        val combinedCss = "$darkCss $escapedCss".trim()
-        val escapedJs = pro.customJs.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+        val gradientCss = if (omni.gradientEnabled) {
+            "body, header, .hero { background: linear-gradient(135deg, ${omni.gradientStartHex}, ${omni.gradientEndHex}) !important; }"
+        } else ""
+        val fontScaleCss = "html { font-size: ${omni.fontScalePercent.coerceIn(75, 145)}% !important; }"
+        val hideCss = omni.customHideSelectorsCsv.split(',').map { it.trim() }.filter { it.isNotBlank() }
+            .takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} { display: none !important; }" } ?: ""
+        val combinedCss = "$darkCss $gradientCss $fontScaleCss $hideCss $escapedCss".trim()
+        val acceleratorJs = if (omni.appAcceleratorEnabled) {
+            "(function(){try{${if (omni.acceleratorPrefetchLinks) "document.querySelectorAll('a[href^=\"http\"]').forEach(function(a){var l=document.createElement('link');l.rel='prefetch';l.href=a.href;document.head.appendChild(l);});" else ""}${if (omni.acceleratorImageCompression) "document.querySelectorAll('img').forEach(function(i){if(!i.getAttribute('loading'))i.setAttribute('loading','lazy');});" else ""}}catch(e){}})();"
+        } else ""
+        val escapedJs = "${pro.customJs} $acceleratorJs".replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").trim()
 
         val blockedHostsArray = pro.blockedHostsCsv
             .split(",")
@@ -1475,6 +1548,18 @@ class ProjectExporter(private val context: Context) {
                     }
                 }
                 """.trimIndent() else ""}
+                @JavascriptInterface
+                fun dbPut(key: String, value: String) {
+                    ctx.getSharedPreferences("omni_local_db", Context.MODE_PRIVATE).edit().putString(key, value).apply()
+                }
+
+                @JavascriptInterface
+                fun dbGet(key: String): String =
+                    ctx.getSharedPreferences("omni_local_db", Context.MODE_PRIVATE).getString(key, "") ?: ""
+
+                @JavascriptInterface
+                fun getOmniConfig(): String =
+                    "{\"accelerator\":${omni.appAcceleratorEnabled},\"auth\":${omni.authBuilderEnabled},\"localDb\":${omni.localDbEnabled},\"apiBase\":\"${omni.apiBaseUrl}\"}"
             }
             """.trimIndent()
         } else ""
@@ -1503,7 +1588,9 @@ class ProjectExporter(private val context: Context) {
             import android.view.WindowInsets
             import android.view.WindowInsetsController
             import android.view.WindowManager
+            import android.annotation.TargetApi
             import android.webkit.JavascriptInterface
+            import android.webkit.RenderProcessGoneDetail
             import android.webkit.SslErrorHandler
             import android.webkit.WebChromeClient
             import android.webkit.WebResourceError
@@ -1745,7 +1832,9 @@ class ProjectExporter(private val context: Context) {
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         setBackgroundColor(safeColor("#0F1318", Color.BLACK))
                         scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
-                        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
+                        }
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.databaseEnabled = true
@@ -1848,6 +1937,16 @@ class ProjectExporter(private val context: Context) {
                                 ${if (escapedJs.isNotBlank()) """
                                 view?.evaluateJavascript("$escapedJs", null)
                                 """.trimIndent() else ""}
+                            }
+
+                            @TargetApi(Build.VERSION_CODES.O)
+                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                (view?.parent as? ViewGroup)?.removeView(view)
+                                view?.destroy()
+                                swipe.isRefreshing = false
+                                pageLoaderOverlay.visibility = View.GONE
+                                offlineOverlay.visibility = View.VISIBLE
+                                return true
                             }
                         }
                     }
@@ -1987,6 +2086,8 @@ class ProjectExporter(private val context: Context) {
                     }, 950L)
                     """.trimIndent() else ""}
 
+                    ${buildSmartPermissionOverlayKotlin(project)}
+
                     setContentView(rootFrame)
                     applyScreenMode()
 
@@ -2037,9 +2138,147 @@ class ProjectExporter(private val context: Context) {
         """.trimIndent()
     }
 
+    private fun buildSmartPermissionOverlayJava(project: AppProject): String {
+        val perms = mutableListOf<Pair<String, String>>()
+        val p = project.permissionsConfig
+        if (p.camera || project.proConfig.qrScannerBridge) {
+            perms.add("android.permission.CAMERA" to "الكاميرا: مطلوبة لمسح QR أو التقاط الصور داخل التطبيق.")
+        }
+        if (p.location) {
+            perms.add("android.permission.ACCESS_FINE_LOCATION" to "الموقع الجغرافي: مطلوب لتحديد الموقع والخدمات القريبة.")
+        }
+        if (p.microphone) {
+            perms.add("android.permission.RECORD_AUDIO" to "الميكروفون: مطلوب للتسجيل الصوتي والمكالمات.")
+        }
+        if (p.notifications || project.pushConfig.enabled) {
+            perms.add("android.permission.POST_NOTIFICATIONS" to "الإشعارات: مطلوبة لاستقبال التنبيهات الفورية والتحديثات.")
+        }
+        if (!project.omniConfig.smartPermissionsRationaleEnabled || perms.isEmpty()) return ""
+        val permListArray = perms.joinToString(", ") { "\"${it.first}\"" }
+        val rationaleText = perms.joinToString("\\n• ", prefix = "• ") { it.second.replace("\"", "\\\"") }
+        return """
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                final String[] reqPerms = new String[]{$permListArray};
+                boolean missing = false;
+                for (String rp : reqPerms) {
+                    if ("android.permission.POST_NOTIFICATIONS".equals(rp) && Build.VERSION.SDK_INT < 33) continue;
+                    if (checkSelfPermission(rp) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        missing = true;
+                        break;
+                    }
+                }
+                if (missing) {
+                    final LinearLayout permOverlay = new LinearLayout(this);
+                    permOverlay.setOrientation(LinearLayout.VERTICAL);
+                    permOverlay.setGravity(Gravity.CENTER);
+                    permOverlay.setBackgroundColor(0xEE0F1318);
+                    permOverlay.setPadding(dp(24), dp(24), dp(24), dp(24));
+
+                    TextView pt = new TextView(this);
+                    pt.setText("إدارة الأذونات الذكية");
+                    pt.setTextColor(Color.WHITE);
+                    pt.setTextSize(19f);
+                    pt.setTypeface(null, Typeface.BOLD);
+                    permOverlay.addView(pt);
+
+                    TextView pd = new TextView(this);
+                    pd.setText("$rationaleText");
+                    pd.setTextColor(0xFFD1D5DB);
+                    pd.setTextSize(13f);
+                    pd.setPadding(0, dp(12), 0, dp(20));
+                    permOverlay.addView(pd);
+
+                    Button allowBtn = new Button(this);
+                    allowBtn.setText("موافق ومنح الصلاحيات");
+                    allowBtn.setTextColor(Color.WHITE);
+                    allowBtn.setBackgroundColor(safeColor("${project.accentColorHex}", 0xFFFF7A2F));
+                    allowBtn.setOnClickListener(v -> {
+                        requestPermissions(reqPerms, 9021);
+                        root.removeView(permOverlay);
+                    });
+                    permOverlay.addView(allowBtn, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+
+                    Button laterBtn = new Button(this);
+                    laterBtn.setText("لاحقاً");
+                    laterBtn.setTextColor(0xFF9CA3AF);
+                    laterBtn.setBackgroundColor(Color.TRANSPARENT);
+                    laterBtn.setOnClickListener(v -> root.removeView(permOverlay));
+                    permOverlay.addView(laterBtn);
+
+                    root.addView(permOverlay, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                }
+            }
+        """.trimIndent()
+    }
+
+    private fun buildSmartPermissionOverlayKotlin(project: AppProject): String {
+        val perms = mutableListOf<Pair<String, String>>()
+        val p = project.permissionsConfig
+        if (p.camera || project.proConfig.qrScannerBridge) {
+            perms.add("android.permission.CAMERA" to "الكاميرا: مطلوبة لمسح QR أو التقاط الصور داخل التطبيق.")
+        }
+        if (p.location) {
+            perms.add("android.permission.ACCESS_FINE_LOCATION" to "الموقع الجغرافي: مطلوب لتحديد الموقع والخدمات القريبة.")
+        }
+        if (p.microphone) {
+            perms.add("android.permission.RECORD_AUDIO" to "الميكروفون: مطلوب للتسجيل الصوتي والمكالمات.")
+        }
+        if (p.notifications || project.pushConfig.enabled) {
+            perms.add("android.permission.POST_NOTIFICATIONS" to "الإشعارات: مطلوبة لاستقبال التنبيهات الفورية والتحديثات.")
+        }
+        if (!project.omniConfig.smartPermissionsRationaleEnabled || perms.isEmpty()) return ""
+        val permListArray = perms.joinToString(", ") { "\"${it.first}\"" }
+        val rationaleText = perms.joinToString("\\n• ", prefix = "• ") { it.second.replace("\"", "\\\"") }
+        return """
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val reqPerms = arrayOf($permListArray)
+                val needsGrant = reqPerms.any { rp ->
+                    !(rp == "android.permission.POST_NOTIFICATIONS" && Build.VERSION.SDK_INT < 33) &&
+                        checkSelfPermission(rp) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                if (needsGrant) {
+                    val permOverlay = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        setBackgroundColor(0xEE0F1318.toInt())
+                        setPadding(dp(24), dp(24), dp(24), dp(24))
+                    }
+                    permOverlay.addView(TextView(this).apply {
+                        text = "إدارة الأذونات الذكية"
+                        setTextColor(Color.WHITE)
+                        textSize = 19f
+                        setTypeface(null, Typeface.BOLD)
+                    })
+                    permOverlay.addView(TextView(this).apply {
+                        text = "$rationaleText"
+                        setTextColor(0xFFD1D5DB.toInt())
+                        textSize = 13f
+                        setPadding(0, dp(12), 0, dp(20))
+                    })
+                    permOverlay.addView(Button(this).apply {
+                        text = "موافق ومنح الصلاحيات"
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(safeColor("${project.accentColorHex}", 0xFFFF7A2F.toInt()))
+                        setOnClickListener {
+                            requestPermissions(reqPerms, 9021)
+                            rootFrame.removeView(permOverlay)
+                        }
+                    }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
+                    permOverlay.addView(Button(this).apply {
+                        text = "لاحقاً"
+                        setTextColor(0xFF9CA3AF.toInt())
+                        setBackgroundColor(Color.TRANSPARENT)
+                        setOnClickListener { rootFrame.removeView(permOverlay) }
+                    })
+                    rootFrame.addView(permOverlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                }
+            }
+        """.trimIndent()
+    }
+
     private fun buildGitHubActionsWorkflow(appName: String): String {
         return """
-            name: ApkForge Unified Build ($appName)
+            name: ApkForge Universal Release Build ($appName)
 
             on:
               push:
@@ -2051,12 +2290,12 @@ class ProjectExporter(private val context: Context) {
               workflow_dispatch:
 
             concurrency:
-              group: apkforge-build-${'$'}{{ github.ref }}
+              group: apkforge-universal-${'$'}{{ github.ref }}
               cancel-in-progress: true
 
             jobs:
-              build-android:
-                name: Build Signed APK & AAB
+              build-universal-release:
+                name: Build Universal APK (all ABIs) & Release AAB
                 runs-on: ubuntu-latest
                 steps:
                   - name: Checkout repository
@@ -2081,20 +2320,26 @@ class ProjectExporter(private val context: Context) {
                     with:
                       gradle-version: '8.7'
 
-                  - name: Build Debug & Release Packages
-                    run: gradle assembleDebug assembleRelease bundleRelease --no-daemon
+                  - name: Build Universal Release APK & Play AAB
+                    run: gradle assembleRelease bundleRelease --no-daemon
 
-                  - name: Upload APK Artifacts
+                  - name: Stage Single Universal APK Artifact
+                    run: |
+                      mkdir -p dist_universal
+                      APK_FILE="${'$'}(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" ! -name "*debug*" | head -n 1)"
+                      if [ -n "${'$'}APK_FILE" ]; then cp "${'$'}APK_FILE" "dist_universal/$appName-universal-release.apk"; fi
+
+                  - name: Upload Single Universal Release APK
                     uses: actions/upload-artifact@v4
                     with:
-                      name: $appName-apks
-                      path: app/build/outputs/apk/**/*.apk
+                      name: $appName-universal-release-apk
+                      path: dist_universal/*.apk
                       if-no-files-found: ignore
 
-                  - name: Upload AAB Artifact
+                  - name: Upload Single Play Release AAB
                     uses: actions/upload-artifact@v4
                     with:
-                      name: $appName-play-bundle
+                      name: $appName-release-aab
                       path: app/build/outputs/bundle/release/*.aab
                       if-no-files-found: ignore
         """.trimIndent()

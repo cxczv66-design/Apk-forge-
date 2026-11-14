@@ -270,6 +270,8 @@ fun SmartUrlScraperDialog(
                             }
                         }
 
+                        var showPwaEditor by remember { mutableStateOf(false) }
+
                         Button(
                             onClick = {
                                 val proj = scraper.toPreConfiguredProject(id)
@@ -282,6 +284,33 @@ fun SmartUrlScraperDialog(
                             Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("تعبئة جميع البيانات الحقيقية والبدء ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showPwaEditor = true },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تحويل لمشروع محلي وتعديل العناصر (PWA) ✏️", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = StatusGreen)
+                        }
+
+                        if (showPwaEditor) {
+                            val preProj = remember(id.normalizedUrl) { scraper.toPreConfiguredProject(id) }
+                            PwaSiteCustomizerDialog(
+                                initialProject = preProj,
+                                scrapedIdentity = id,
+                                onDismiss = { showPwaEditor = false },
+                                onApplyAndSave = { edited ->
+                                    showPwaEditor = false
+                                    onCreateFromUrl(edited)
+                                },
+                                onApplyAndPreview = { edited ->
+                                    showPwaEditor = false
+                                    onCreateFromUrl(edited)
+                                }
+                            )
                         }
                     }
 

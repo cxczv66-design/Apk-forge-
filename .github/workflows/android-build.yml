@@ -1,4 +1,4 @@
-name: Build ApkForge Android APK
+name: ApkForge Universal Release Build
 
 on:
   push:
@@ -15,12 +15,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: android-build-${{ github.ref }}
+  group: android-universal-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-apk:
-    name: Test & Build Debug APK
+  build-universal-release:
+    name: Build Universal Release (APK + AAB) & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -36,7 +36,7 @@ jobs:
       - name: Accept Android SDK licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          SDKMANAGER="$(find "$SDK_DIR/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          SDKMANAGER="$(find "$SDK_DIR/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
           if [ -n "$SDKMANAGER" ]; then
             yes | "$SDKMANAGER" --licenses > /dev/null || true
           fi
@@ -46,35 +46,65 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare debug keystore
+      - name: Prepare Release Keystore
         run: |
-          if [ ! -f debug.keystore ]; then
-            if [ -f debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
+          if [ ! -f my-upload-key.jks ]; then
+            if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+              echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+            elif [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > my-upload-key.jks
             else
               keytool -genkeypair -v \
-                -keystore debug.keystore \
-                -storepass android \
-                -alias androiddebugkey \
-                -keypass android \
+                -keystore my-upload-key.jks \
+                -storepass "${{ secrets.STORE_PASSWORD || 'android' }}" \
+                -alias upload \
+                -keypass "${{ secrets.KEY_PASSWORD || 'android' }}" \
                 -keyalg RSA \
                 -keysize 2048 \
                 -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
+                -dname "CN=ApkForge Release,O=ApkForge,C=US"
             fi
           fi
-
-      - name: Build Debug APK
-        id: build_apk
-        run: gradle :app:assembleDebug --no-daemon --no-configuration-cache --stacktrace
-
-      - name: Upload APK artifact
-        if: steps.build_apk.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ApkForge-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
 
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --no-daemon --no-configuration-cache --stacktrace
+
+      - name: Build Single Universal Release APK & Play AAB
+        id: build_release
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          gradle :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --stacktrace
+          mkdir -p dist_release
+          APK_SRC="$(find app/build/outputs/apk/release -type f -name '*.apk' ! -name '*unsigned*' ! -name '*debug*' | head -n 1)"
+          AAB_SRC="$(find app/build/outputs/bundle/release -type f -name '*.aab' ! -name '*debug*' | head -n 1)"
+          if [ -z "$APK_SRC" ]; then
+            echo "ERROR: No signed release APK found!"
+            exit 1
+          fi
+          cp "$APK_SRC" "dist_release/ApkForge-universal-release.apk"
+          if [ -n "$AAB_SRC" ]; then
+            cp "$AAB_SRC" "dist_release/ApkForge-release.aab"
+          fi
+          rm -rf app/build/outputs/apk/debug || true
+          ls -lh dist_release
+
+      - name: Upload Universal Release APK (Single File)
+        if: steps.build_release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ApkForge-Universal-Release-APK
+          path: dist_release/ApkForge-universal-release.apk
+          if-no-files-found: error
+
+      - name: Upload Play Store Release AAB (Single File)
+        if: steps.build_release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ApkForge-Release-AAB
+          path: dist_release/ApkForge-release.aab
+          if-no-files-found: warn

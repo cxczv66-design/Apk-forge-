@@ -41,7 +41,8 @@ data class ScrapedSiteIdentity(
     val hasServiceWorker: Boolean = false,
     val detectedLanguage: String = "ar",
     val networkFetched: Boolean = false,
-    val httpStatusCode: Int = 200
+    val httpStatusCode: Int = 200,
+    val rawHtmlSnapshot: String = ""
 )
 
 class UrlScraperEngine(
@@ -88,7 +89,8 @@ class UrlScraperEngine(
 
             var parsed = parseHtmlMetadata(finalUrl, html).copy(
                 networkFetched = true,
-                httpStatusCode = statusCode
+                httpStatusCode = statusCode,
+                rawHtmlSnapshot = html
             )
 
             // Fetch linked PWA manifest.json / manifest.webmanifest if available
@@ -320,9 +322,180 @@ class UrlScraperEngine(
                 iconBgColorHex = identity.themeColorHex,
                 adAndPopupBlocker = true,
                 assetPreloaderEnabled = true
+            ),
+            omniConfig = OmniIdeConfig(
+                gradientEnabled = false,
+                gradientStartHex = identity.themeColorHex,
+                gradientEndHex = identity.backgroundColorHex,
+                customHeroTitle = identity.title,
+                customPrimaryButtonText = identity.detectedButtons.firstOrNull().orEmpty(),
+                i18nSupportedCodesCsv = identity.detectedLanguage
             )
         )
     }
+
+    /**
+     * تحويل موقع الويب أو التطبيق السريع (PWA) إلى مشروع محلي قابل للتعديل المباشر
+     * داخل مساحة عمل الجهاز (`filesDir/workspaces/pwa_<id>`) مع توليد ملفات HTML/CSS/JS
+     * المحقونة بتخصيصات المستخدم لتظهر فوراً في المعاينة الحية وتُدمج في البناء.
+     */
+    fun materializeWebsiteAsLocalProject(
+        context: Context,
+        project: AppProject,
+        identity: ScrapedSiteIdentity? = null,
+        rawHtmlOverride: String? = null
+    ): AppProject {
+        val wsId = project.id.filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "pwa_${System.currentTimeMillis()}" }
+        val wsDir = File(context.filesDir, "workspaces/pwa_$wsId").apply { mkdirs() }
+
+        val sourceHtml = rawHtmlOverride?.takeIf { it.isNotBlank() }
+            ?: identity?.rawHtmlSnapshot?.takeIf { it.isNotBlank() }
+            ?: File(wsDir, "index.html").takeIf { it.exists() }?.readText()
+            ?: buildFallbackPwaTemplateHtml(project, identity)
+
+        val cleanedHtml = injectOmniLinksIntoHtml(
+            rawHtml = sourceHtml,
+            baseUrl = identity?.normalizedUrl ?: project.sourceValue,
+            appTitle = project.omniConfig.customHeroTitle.ifBlank { project.name }
+        )
+        File(wsDir, "index.html").writeText(cleanedHtml, Charsets.UTF_8)
+
+        val updatedProject = project.copy(
+            sourceType = if (project.sourceType == SourceType.WEB_URL) SourceType.HTML_FOLDER else project.sourceType,
+            sourceValue = File(wsDir, "index.html").name,
+            localWorkspacePath = wsDir.absolutePath
+        )
+        return applyCustomizationsToLocalWorkspace(updatedProject)
+    }
+
+    fun applyCustomizationsToLocalWorkspace(project: AppProject): AppProject {
+        val wsPath = project.localWorkspacePath ?: return project
+        val wsDir = File(wsPath).apply { mkdirs() }
+        val omni = project.omniConfig
+
+        val cssOverrides = buildString {
+            appendLine("/* Omni IDE Visual Overrides */")
+            appendLine(":root { --omni-primary: ${project.primaryColorHex}; --omni-accent: ${project.accentColorHex}; }")
+            appendLine("html { font-size: ${omni.fontScalePercent.coerceIn(75, 145)}% !important; }")
+            if (omni.gradientEnabled) {
+                appendLine("body, header, .hero, .banner { background: linear-gradient(135deg, ${omni.gradientStartHex}, ${omni.gradientEndHex}) !important; }")
+            }
+            if (project.proConfig.forceDarkCss) {
+                appendLine("body { background-color: #0D1117 !important; color: #F1F5F9 !important; }")
+            }
+            val hiddenSelectors = omni.customHideSelectorsCsv
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            if (hiddenSelectors.isNotEmpty()) {
+                appendLine("${hiddenSelectors.joinToString(", ")} { display: none !important; }")
+            }
+            if (project.proConfig.customCss.isNotBlank()) {
+                appendLine(project.proConfig.customCss)
+            }
+        }
+        File(wsDir, "omni-overrides.css").writeText(cssOverrides, Charsets.UTF_8)
+
+        val escapedHero = escapeJsSingle(omni.customHeroTitle)
+        val escapedBtn = escapeJsSingle(omni.customPrimaryButtonText)
+        val escapedBanner = escapeJsSingle(omni.customBannerImageUri.orEmpty())
+        val acceleratorJs = if (omni.appAcceleratorEnabled && omni.acceleratorImageCompression) {
+            "document.querySelectorAll('img').forEach(function(img){if(!img.getAttribute('loading'))img.setAttribute('loading','lazy');});"
+        } else ""
+
+        val jsOverrides = buildString {
+            appendLine("// Omni IDE Runtime DOM & PWA Customizations")
+            appendLine("document.addEventListener('DOMContentLoaded', function() {")
+            if (escapedHero.isNotBlank()) {
+                appendLine("  var h = document.querySelector('[data-omni-hero], h1, .hero-title');")
+                appendLine("  if (h) h.textContent = '$escapedHero';")
+            }
+            if (escapedBtn.isNotBlank()) {
+                appendLine("  var b = document.querySelector('[data-omni-cta], button.primary, .btn-primary, button, input[type=submit]');")
+                appendLine("  if (b) { if (b.tagName === 'INPUT') b.value = '$escapedBtn'; else b.textContent = '$escapedBtn'; }")
+            }
+            if (escapedBanner.isNotBlank()) {
+                appendLine("  var img = document.querySelector('[data-omni-banner], .hero img, header img');")
+                appendLine("  if (img) img.src = '$escapedBanner';")
+            }
+            if (acceleratorJs.isNotBlank()) {
+                appendLine("  $acceleratorJs")
+            }
+            appendLine("});")
+        }
+        File(wsDir, "omni-overrides.js").writeText(jsOverrides, Charsets.UTF_8)
+
+        return project
+    }
+
+    private fun buildFallbackPwaTemplateHtml(project: AppProject, identity: ScrapedSiteIdentity?): String {
+        val title = project.omniConfig.customHeroTitle.ifBlank { project.name }
+        val desc = project.description.ifBlank { identity?.description ?: "تطبيق ويب محلي قابل للتخصيص عبر ApkForge Omni IDE" }
+        val btnText = project.omniConfig.customPrimaryButtonText.ifBlank {
+            identity?.detectedButtons?.firstOrNull() ?: "استكشاف الآن"
+        }
+        val linkCards = (identity?.detectedLinks.orEmpty().take(4)).joinToString("\n") { link ->
+            """<a class="nav-card" href="${link.url}">${link.title}</a>"""
+        }.ifBlank {
+            """<a class="nav-card" href="#features">المميزات</a><a class="nav-card" href="#contact">التواصل</a>"""
+        }
+        return """
+            <!DOCTYPE html>
+            <html dir="rtl" lang="ar">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+              <title>$title</title>
+              <style>
+                body { margin:0; font-family: system-ui, sans-serif; background:#0F1318; color:#F8FAFC; padding:24px; }
+                .hero { padding:26px; border-radius:20px; background:linear-gradient(135deg, ${project.primaryColorHex}, ${project.accentColorHex}); color:#fff; margin-bottom:18px; }
+                .hero h1 { margin:0 0 8px 0; font-size:24px; }
+                .hero p { margin:0 0 16px 0; opacity:0.92; font-size:14px; }
+                .btn-primary { display:inline-block; background:#0F1318; color:#fff; border:none; border-radius:12px; padding:12px 20px; font-weight:700; cursor:pointer; }
+                .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+                .nav-card { display:block; padding:14px; border-radius:14px; background:#192130; color:#E2E8F0; text-decoration:none; border:1px solid #2A3548; text-align:center; font-weight:600; }
+              </style>
+              <link rel="stylesheet" href="omni-overrides.css" />
+            </head>
+            <body>
+              <section class="hero">
+                <h1 data-omni-hero="true">$title</h1>
+                <p>$desc</p>
+                <button class="btn-primary" data-omni-cta="true" onclick="window.ApkForge && ApkForge.showToast ? ApkForge.showToast('$btnText') : alert('$btnText')">$btnText</button>
+              </section>
+              <div class="grid">$linkCards</div>
+              <script src="omni-overrides.js"></script>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    private fun injectOmniLinksIntoHtml(rawHtml: String, baseUrl: String, appTitle: String): String {
+        var html = rawHtml
+        val baseTag = if (baseUrl.startsWith("http", true) && !html.contains("<base ", true)) {
+            """<base href="$baseUrl" />"""
+        } else ""
+        val headInject = """$baseTag<link rel="stylesheet" href="omni-overrides.css" /><title>$appTitle</title>"""
+        html = when {
+            html.contains("</head>", ignoreCase = true) ->
+                html.replaceFirst(Regex("</head>", RegexOption.IGNORE_CASE), "$headInject</head>")
+            html.contains("<body", ignoreCase = true) ->
+                html.replaceFirst(Regex("<body", RegexOption.IGNORE_CASE), "<head>$headInject</head><body")
+            else -> "<!DOCTYPE html><html><head>$headInject</head><body>$html</body></html>"
+        }
+        val scriptTag = """<script src="omni-overrides.js"></script>"""
+        if (!html.contains("omni-overrides.js")) {
+            html = if (html.contains("</body>", ignoreCase = true)) {
+                html.replaceFirst(Regex("</body>", RegexOption.IGNORE_CASE), "$scriptTag</body>")
+            } else {
+                "$html\n$scriptTag"
+            }
+        }
+        return html
+    }
+
+    private fun escapeJsSingle(raw: String): String =
+        raw.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ").trim()
 
     private fun downloadIconToInternalCache(context: Context, host: String, iconUrl: String): String? {
         return try {

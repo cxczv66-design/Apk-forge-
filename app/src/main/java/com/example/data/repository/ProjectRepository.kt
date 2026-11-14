@@ -150,8 +150,11 @@ class ProjectRepository(private val context: Context) {
         val project = getProjectById(projectId) ?: return
         val now = System.currentTimeMillis()
         val resolvedFileName = customFileName ?: "${project.name}_v${project.packageConfig.versionName}.apk"
-        val isAab = resolvedFileName.endsWith(".aab", ignoreCase = true)
-        val buildTypeLabel = if (isAab) "AAB" else "APK"
+        val buildTypeLabel = when {
+            resolvedFileName.endsWith(".apks", ignoreCase = true) -> "APKS"
+            resolvedFileName.endsWith(".aab", ignoreCase = true) -> "AAB"
+            else -> "APK"
+        }
 
         val updatedHistory = if (status == BuildStatus.SUCCESS && apkPath != null) {
             val entry = BuildHistoryEntry(
@@ -207,6 +210,19 @@ class ProjectRepository(private val context: Context) {
     fun refreshFromPrefs() {
         loadProjects()
         loadDownloads()
+    }
+
+    fun clearAllProjectsAndDownloads() {
+        _projects.value = emptyList()
+        _downloads.value = emptyList()
+        prefs.edit().clear().apply()
+        listOf("workspaces", "builds", "exports", "app_icons", "quantum_jobs").forEach { dirName ->
+            runCatching {
+                java.io.File(context.filesDir, dirName).takeIf { it.exists() }?.deleteRecursively()
+                context.getExternalFilesDir(dirName)?.takeIf { it.exists() }?.deleteRecursively()
+            }
+        }
+        runCatching { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
     }
 
     fun serializeProjectToJson(project: AppProject): String {
@@ -463,6 +479,35 @@ class ProjectRepository(private val context: Context) {
                 put("fabWhatsappNumber", proj.proConfig.fabWhatsappNumber)
             })
 
+            // Omni IDE Config
+            put("omniConfig", JSONObject().apply {
+                put("gradientEnabled", proj.omniConfig.gradientEnabled)
+                put("gradientStartHex", proj.omniConfig.gradientStartHex)
+                put("gradientEndHex", proj.omniConfig.gradientEndHex)
+                put("gradientAngleDeg", proj.omniConfig.gradientAngleDeg)
+                put("fontScalePercent", proj.omniConfig.fontScalePercent)
+                put("authBuilderEnabled", proj.omniConfig.authBuilderEnabled)
+                put("authGoogleEnabled", proj.omniConfig.authGoogleEnabled)
+                put("authEmailEnabled", proj.omniConfig.authEmailEnabled)
+                put("authPhoneEnabled", proj.omniConfig.authPhoneEnabled)
+                put("localDbEnabled", proj.omniConfig.localDbEnabled)
+                put("localDbTableName", proj.omniConfig.localDbTableName)
+                put("apiEndpointsEnabled", proj.omniConfig.apiEndpointsEnabled)
+                put("apiBaseUrl", proj.omniConfig.apiBaseUrl)
+                put("apiEndpointsJson", proj.omniConfig.apiEndpointsJson)
+                put("i18nSupportedCodesCsv", proj.omniConfig.i18nSupportedCodesCsv)
+                put("i18nDefaultCode", proj.omniConfig.i18nDefaultCode)
+                put("smartPermissionsRationaleEnabled", proj.omniConfig.smartPermissionsRationaleEnabled)
+                put("appAcceleratorEnabled", proj.omniConfig.appAcceleratorEnabled)
+                put("acceleratorPrefetchLinks", proj.omniConfig.acceleratorPrefetchLinks)
+                put("acceleratorImageCompression", proj.omniConfig.acceleratorImageCompression)
+                put("customHeroTitle", proj.omniConfig.customHeroTitle)
+                put("customPrimaryButtonText", proj.omniConfig.customPrimaryButtonText)
+                put("customHideSelectorsCsv", proj.omniConfig.customHideSelectorsCsv)
+                put("customBannerImageUri", proj.omniConfig.customBannerImageUri ?: "")
+                put("domEditsJson", proj.omniConfig.domEditsJson)
+            })
+
             // Build History
             put("buildHistory", JSONArray().apply {
                 proj.buildHistory.forEach { h ->
@@ -697,6 +742,37 @@ class ProjectRepository(private val context: Context) {
             }
         }
 
+        val omniObj = obj.optJSONObject("omniConfig")
+        val omni = if (omniObj != null) {
+            OmniIdeConfig(
+                gradientEnabled = omniObj.optBoolean("gradientEnabled", false),
+                gradientStartHex = omniObj.optString("gradientStartHex", "#FF7A2F"),
+                gradientEndHex = omniObj.optString("gradientEndHex", "#7C3AED"),
+                gradientAngleDeg = omniObj.optInt("gradientAngleDeg", 135),
+                fontScalePercent = omniObj.optInt("fontScalePercent", 100),
+                authBuilderEnabled = omniObj.optBoolean("authBuilderEnabled", false),
+                authGoogleEnabled = omniObj.optBoolean("authGoogleEnabled", true),
+                authEmailEnabled = omniObj.optBoolean("authEmailEnabled", true),
+                authPhoneEnabled = omniObj.optBoolean("authPhoneEnabled", false),
+                localDbEnabled = omniObj.optBoolean("localDbEnabled", false),
+                localDbTableName = omniObj.optString("localDbTableName", "app_records"),
+                apiEndpointsEnabled = omniObj.optBoolean("apiEndpointsEnabled", false),
+                apiBaseUrl = omniObj.optString("apiBaseUrl", ""),
+                apiEndpointsJson = omniObj.optString("apiEndpointsJson", "[]"),
+                i18nSupportedCodesCsv = omniObj.optString("i18nSupportedCodesCsv", "ar,en"),
+                i18nDefaultCode = omniObj.optString("i18nDefaultCode", "ar"),
+                smartPermissionsRationaleEnabled = omniObj.optBoolean("smartPermissionsRationaleEnabled", true),
+                appAcceleratorEnabled = omniObj.optBoolean("appAcceleratorEnabled", true),
+                acceleratorPrefetchLinks = omniObj.optBoolean("acceleratorPrefetchLinks", true),
+                acceleratorImageCompression = omniObj.optBoolean("acceleratorImageCompression", true),
+                customHeroTitle = omniObj.optString("customHeroTitle", ""),
+                customPrimaryButtonText = omniObj.optString("customPrimaryButtonText", ""),
+                customHideSelectorsCsv = omniObj.optString("customHideSelectorsCsv", ""),
+                customBannerImageUri = omniObj.optString("customBannerImageUri").takeIf { it.isNotBlank() },
+                domEditsJson = omniObj.optString("domEditsJson", "[]")
+            )
+        } else OmniIdeConfig()
+
         return AppProject(
             id = obj.optString("id", "proj_${System.currentTimeMillis()}"),
             name = obj.optString("name", "App"),
@@ -718,6 +794,7 @@ class ProjectRepository(private val context: Context) {
             signingConfig = signing,
             bridgeConfig = bridge,
             proConfig = pro,
+            omniConfig = omni,
             buildHistory = history,
             lastBuildStatus = bs,
             lastBuiltAt = if (obj.has("lastBuiltAt") && obj.getLong("lastBuiltAt") > 0L) obj.getLong("lastBuiltAt") else null,

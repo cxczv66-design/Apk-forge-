@@ -1,17 +1,15 @@
 package com.example.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,28 +20,41 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import com.example.R
 import com.example.domain.model.AppProject
 import com.example.domain.model.SmartTemplatesCatalog
-import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.ImportApkForgeDialog
+import com.example.ui.components.OmniSupport3dButton
+import com.example.ui.components.OmniSupportDialog
 import com.example.ui.components.RealAppIconAvatar
 import com.example.ui.components.SmartUrlScraperDialog
+import com.example.ui.components.ThreeDIconBadge
+import com.example.ui.components.ThreeDSurfaceCard
 import com.example.ui.theme.*
 import com.example.ui.util.AppStrings
 import com.example.ui.util.LocalAppLanguage
 
+/**
+ * الشاشة الرئيسية (The Command Center) بنظام Clean 3D UI والذكاء التكيفي:
+ * - استيراد موقع (PWA Auto-Scraper)
+ * - استيراد ملف (HTML / ZIP / APK)
+ * - قوالب جاهزة 3D متنوعة
+ * - زر بناء APK مباشر + بوابة مساعد الذكاء الاصطناعي
+ * - التنزيلات والمشاريع الأخيرة + الدعم الفني العائم 3D
+ */
 @Composable
 fun DashboardScreen(
     projects: List<AppProject>,
@@ -54,13 +65,21 @@ fun DashboardScreen(
     onOpenProject: (AppProject) -> Unit,
     onOpenQuantumDiagnostic: () -> Unit,
     onUseTemplate: (AppProject) -> Unit = {},
-    onImportProjectJson: (String) -> AppProject? = { null }
+    onImportProjectJson: (String) -> AppProject? = { null },
+    onOpenSidebar: () -> Unit = {},
+    onOpenAppSetup: () -> Unit = {},
+    onOpenLiveSandbox: () -> Unit = {},
+    onOpenApkChoice: () -> Unit = {},
+    onOpenAiWizard: () -> Unit = {},
+    onDirectApkBuild: () -> Unit = {},
+    onOpenSupport: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val templates = remember { SmartTemplatesCatalog.getAll() }
     var showImportDialog by remember { mutableStateOf(false) }
     var showUrlScraperDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = DarkBackground,
@@ -74,17 +93,25 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Icon: Account Avatar Shortcut
-                IconButton(onClick = onOpenAccount) {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = AppStrings.account(lang),
-                        tint = OrangePrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onOpenSidebar, modifier = Modifier.testTag("open_studio_sidebar_btn")) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "قائمة الاستوديو",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    IconButton(onClick = onOpenAccount) {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = AppStrings.account(lang),
+                            tint = OrangePrimary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
 
-                // Center Title + Brand Icon
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -92,22 +119,29 @@ fun DashboardScreen(
                     Image(
                         painter = painterResource(id = R.drawable.apkforge_brand_logo_1794592633199),
                         contentDescription = "ApkForge Icon",
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, OrangePrimary.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.2.dp, OrangePrimary.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                     )
-                    Text(
-                        text = AppStrings.appTitle(lang),
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = TextPrimary
-                    )
+                    Column {
+                        Text(
+                            text = AppStrings.appTitle(lang),
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Omni-Adaptive Studio",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            color = CyanAccent
+                        )
+                    }
                 }
 
-                // Right Menu Button: Quantum On-Device Engine Status
                 IconButton(onClick = onOpenQuantumDiagnostic) {
                     Icon(
                         imageVector = Icons.Default.Memory,
@@ -118,38 +152,12 @@ fun DashboardScreen(
             }
         },
         floatingActionButton = {
-            // Direct Contact Developer Email Button (ziorio950@gmail.com)
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .shadow(12.dp, CircleShape, spotColor = OrangePrimary.copy(alpha = 0.5f))
-                    .clip(CircleShape)
-                    .background(Color(0xFF1A202E))
-                    .border(1.5.dp, OrangePrimary.copy(alpha = 0.65f), CircleShape)
-                    .clickable {
-                        val developerEmail = "ziorio950@gmail.com"
-                        val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                            data = Uri.parse("mailto:$developerEmail")
-                            putExtra(Intent.EXTRA_EMAIL, arrayOf(developerEmail))
-                            putExtra(Intent.EXTRA_SUBJECT, "تواصل مع مطور ApkForge")
-                        }
-                        try {
-                            context.startActivity(Intent.createChooser(emailIntent, "مراسلة المطور عبر البريد"))
-                        } catch (e: Exception) {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Developer Email", developerEmail))
-                            Toast.makeText(context, "تم نسخ بريد المطور: $developerEmail", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                    .testTag("contact_developer_email_fab"),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_email_dev),
-                    contentDescription = "تواصل مع المطور عبر البريد ziorio950@gmail.com",
-                    modifier = Modifier.size(30.dp)
-                )
-            }
+            OmniSupport3dButton(
+                onClick = {
+                    showSupportDialog = true
+                    onOpenSupport()
+                }
+            )
         },
         floatingActionButtonPosition = FabPosition.Start
     ) { paddingValues ->
@@ -160,133 +168,224 @@ fun DashboardScreen(
                 .padding(horizontal = 16.dp)
                 .testTag("dashboard_screen"),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 10.dp, bottom = 80.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 92.dp)
         ) {
-            // Two Big Cards Side-by-Side: ZIP Website & HTML Document
+            // 1) بطاقة استيراد موقع (PWA Auto-Scraper) 3D
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Left Card: ZIP
-                    DashboardActionCard(
-                        title = AppStrings.zipWebsite(lang),
-                        subtitle = AppStrings.zipWebsiteDesc(lang),
-                        icon = Icons.Default.Archive,
-                        modifier = Modifier.weight(1f),
-                        testTag = "zip_card",
-                        onClick = onOpenZipPicker
-                    )
-
-                    // Right Card: HTML
-                    DashboardActionCard(
-                        title = AppStrings.htmlFolder(lang),
-                        subtitle = AppStrings.htmlFolderDesc(lang),
-                        icon = Icons.Default.Code,
-                        modifier = Modifier.weight(1f),
-                        testTag = "html_card",
-                        onClick = onOpenHtmlPicker
-                    )
-                }
-            }
-
-            // Smart URL / PWA Auto-Scraper Bar
-            item {
-                Surface(
-                    color = DarkSurfaceElevated,
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0EA5E9).copy(alpha = 0.45f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { showUrlScraperDialog = true }
-                        .testTag("smart_url_scraper_card")
+                ThreeDSurfaceCard(
+                    accentColor = Color(0xFF38BDF8),
+                    onClick = { showUrlScraperDialog = true },
+                    testTag = "smart_url_scraper_card"
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(11.dp))
-                                    .background(Color(0xFF0EA5E9).copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "تحويل رابط موقع ذكي (PWA Auto-Scraper) 🌐",
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "ألصق رابط أي موقع لاستخراج الاسم والشعار والألوان وتعبئة المشروع تلقائياً",
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            }
+                        ThreeDIconBadge(
+                            icon = Icons.Default.Language,
+                            accentColor = Color(0xFF38BDF8),
+                            secondaryColor = Color(0xFF818CF8),
+                            size = 52.dp
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "استيراد موقع ذكي (PWA Auto-Scraper) 🌐",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "تحليل تلقائي للصور والأزرار وتوليد مراحل تكيفية مع المعاينة الحية",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
                         }
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
                     }
                 }
             }
 
-            // Middle Navigation Row: المشاريع | التنزيلات | الحساب
+            // 2) بطاقات استيراد ملف: HTML / ZIP / APK (3D Interactive Cards)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "استيراد ملف أو مصدر",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = TextPrimary
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CommandSource3dCard(
+                            title = "HTML",
+                            subtitle = "صفحة أو مجلد",
+                            icon = Icons.Default.Code,
+                            accentColor = OrangePrimary,
+                            tag = "html_card",
+                            modifier = Modifier.weight(1f),
+                            onClick = onOpenHtmlPicker
+                        )
+                        CommandSource3dCard(
+                            title = "ZIP",
+                            subtitle = "مشروع مضغوط",
+                            icon = Icons.Default.FolderZip,
+                            accentColor = Color(0xFF818CF8),
+                            tag = "zip_card",
+                            modifier = Modifier.weight(1f),
+                            onClick = onOpenZipPicker
+                        )
+                        CommandSource3dCard(
+                            title = "APK",
+                            subtitle = "تعديل أو AI",
+                            icon = Icons.Default.Android,
+                            accentColor = StatusGreen,
+                            tag = "apk_card",
+                            modifier = Modifier.weight(1f),
+                            onClick = onOpenApkChoice
+                        )
+                    }
+                }
+            }
+
+            // 3) زر بناء APK مباشر + بوابة مساعد الذكاء الاصطناعي من الصفر
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(DarkSurfaceElevated)
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    NavTabItem(
-                        title = AppStrings.myRecentProjects(lang),
-                        icon = Icons.Default.Folder,
-                        onClick = { /* already on projects */ }
-                    )
-                    NavTabItem(
-                        title = AppStrings.downloads(lang),
+                    ThreeDSurfaceCard(
+                        accentColor = OrangePrimary,
+                        cornerRadius = 18.dp,
+                        onClick = onDirectApkBuild,
+                        testTag = "direct_apk_build_btn",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ThreeDIconBadge(
+                                icon = Icons.Default.RocketLaunch,
+                                accentColor = OrangePrimary,
+                                secondaryColor = OrangeNeon,
+                                size = 42.dp,
+                                cornerRadius = 12.dp
+                            )
+                            Text(
+                                text = "بناء APK مباشر ⚡",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "الانتقال السريع للمعاينة 3D والبناء الفوري",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 10.sp,
+                                color = TextSecondary,
+                                maxLines = 2
+                            )
+                        }
+                    }
+
+                    ThreeDSurfaceCard(
+                        accentColor = Color(0xFFA855F7),
+                        cornerRadius = 18.dp,
+                        onClick = onOpenAiWizard,
+                        testTag = "ai_wizard_entry_card",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ThreeDIconBadge(
+                                icon = Icons.Default.AutoAwesome,
+                                accentColor = Color(0xFFA855F7),
+                                secondaryColor = Color(0xFF38BDF8),
+                                size = 42.dp,
+                                cornerRadius = 12.dp
+                            )
+                            Text(
+                                text = "مساعد AI Wizard ✨",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "اصنع تطبيقاً من الصفر بخطة +12 مرحلة",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 10.sp,
+                                color = TextSecondary,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4) شريط التنزيلات والإعدادات والمعاينة التفاعلية
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CommandQuickTile(
+                        label = AppStrings.downloads(lang),
                         icon = Icons.Default.Download,
+                        accent = StatusGreen,
+                        modifier = Modifier.weight(1f),
+                        tag = "dashboard_downloads_btn",
                         onClick = onOpenDownloads
                     )
-                    NavTabItem(
-                        title = AppStrings.account(lang),
-                        icon = Icons.Default.Person,
-                        onClick = onOpenAccount
+                    CommandQuickTile(
+                        label = "الاستوديو",
+                        icon = Icons.Default.Tune,
+                        accent = OrangePrimary,
+                        modifier = Modifier.weight(1f),
+                        tag = "dashboard_app_setup_btn",
+                        onClick = onOpenAppSetup
+                    )
+                    CommandQuickTile(
+                        label = "المعاينة 3D",
+                        icon = Icons.Default.Smartphone,
+                        accent = CyanAccent,
+                        modifier = Modifier.weight(1f),
+                        tag = "dashboard_live_sandbox_btn",
+                        onClick = onOpenLiveSandbox
                     )
                 }
             }
 
-            // Smart Ready-Made App Templates Strip
+            // 5) قوالب جاهزة بتصميم 3D
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "قوالب ذكية جاهزة ⚡",
+                            text = "قوالب جاهزة 3D ⚡",
                             fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
                             color = TextPrimary
                         )
                         Surface(
                             color = OrangePrimary.copy(alpha = 0.14f),
                             shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.4f)),
+                            border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.4f)),
                             modifier = Modifier
                                 .clickable { showImportDialog = true }
                                 .testTag("import_apkforge_btn")
@@ -302,32 +401,45 @@ fun DashboardScreen(
                         }
                     }
 
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(templates, key = { it.id }) { tpl ->
                             val tplColor = parseColorSafe(tpl.accentHex, OrangePrimary)
-                            Surface(
-                                color = DarkSurfaceElevated,
-                                shape = RoundedCornerShape(16.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, tplColor.copy(alpha = 0.35f)),
-                                modifier = Modifier
-                                    .width(172.dp)
-                                    .clickable { onUseTemplate(tpl.buildProject()) }
-                                    .testTag("template_${tpl.id}")
+                            val tplSecondary = parseColorSafe(tpl.secondaryHex, CyanAccent)
+                            val tplIcon = when (tpl.iconKey) {
+                                "store" -> Icons.Default.ShoppingBag
+                                "restaurant" -> Icons.Default.Restaurant
+                                "portfolio" -> Icons.Default.Workspaces
+                                "blog" -> Icons.Default.Article
+                                "academy" -> Icons.Default.School
+                                else -> Icons.Default.EventAvailable
+                            }
+                            ThreeDSurfaceCard(
+                                accentColor = tplColor,
+                                cornerRadius = 20.dp,
+                                elevation = 12.dp,
+                                onClick = { onUseTemplate(tpl.buildProject()) },
+                                testTag = "template_${tpl.id}",
+                                modifier = Modifier.width(182.dp)
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        ThreeDIconBadge(
+                                            icon = tplIcon,
+                                            accentColor = tplColor,
+                                            secondaryColor = tplSecondary,
+                                            size = 38.dp,
+                                            cornerRadius = 11.dp
+                                        )
                                         Surface(
                                             color = tplColor.copy(alpha = 0.18f),
-                                            shape = RoundedCornerShape(6.dp)
+                                            shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Text(
                                                 text = tpl.badgeAr,
@@ -335,17 +447,18 @@ fun DashboardScreen(
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = tplColor,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                                             )
                                         }
-                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = tplColor, modifier = Modifier.size(15.dp))
                                     }
                                     Text(
                                         text = tpl.titleAr,
                                         fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.ExtraBold,
                                         fontSize = 13.sp,
-                                        color = TextPrimary
+                                        color = TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = tpl.subtitleAr,
@@ -355,6 +468,13 @@ fun DashboardScreen(
                                         maxLines = 2,
                                         lineHeight = 14.sp
                                     )
+                                    Text(
+                                        text = "${tpl.featureCountLabel} • تكيفي",
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        color = tplColor
+                                    )
                                 }
                             }
                         }
@@ -362,7 +482,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Section: Recent Projects Header
+            // 6) المشاريع الأخيرة
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -372,41 +492,37 @@ fun DashboardScreen(
                     Text(
                         text = AppStrings.myRecentProjects(lang),
                         fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 16.sp,
                         color = TextPrimary
                     )
+                    if (projects.isNotEmpty()) {
+                        Text(
+                            text = "${projects.size} مشاريع",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
 
-            // Empty state when no projects exist (Removed fake Rio project!)
             if (projects.isEmpty()) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(DarkSurfaceElevated)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(OrangePrimary.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FolderOpen,
-                                    contentDescription = null,
-                                    tint = OrangePrimary,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
+                    ThreeDSurfaceCard(accentColor = GlassBorderSubtle, elevation = 6.dp) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ThreeDIconBadge(
+                                icon = Icons.Default.FolderOpen,
+                                accentColor = OrangePrimary,
+                                size = 54.dp,
+                                cornerRadius = 18.dp
+                            )
                             Text(
                                 text = AppStrings.noProjectsTitle(lang),
                                 fontFamily = CairoFontFamily,
@@ -414,23 +530,24 @@ fun DashboardScreen(
                                 fontSize = 15.sp,
                                 color = TextPrimary
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = AppStrings.noProjectsDesc(lang),
                                 fontFamily = TajawalFontFamily,
                                 fontSize = 12.sp,
                                 color = TextSecondary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                textAlign = TextAlign.Center,
                                 lineHeight = 18.sp
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Button(
-                                onClick = onOpenZipPicker,
-                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                onClick = onOpenAiWizard,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA855F7)),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = AppStrings.createNewProject(lang),
+                                    text = "ابدأ بمساعد الذكاء الاصطناعي ✨",
                                     fontFamily = CairoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -440,9 +557,7 @@ fun DashboardScreen(
                     }
                 }
             } else {
-                // User's Real Created Projects
-                items(projects.size) { index ->
-                    val project = projects[index]
+                items(projects, key = { it.id }) { project ->
                     RecentProjectItem(
                         project = project,
                         onClick = { onOpenProject(project) }
@@ -477,100 +592,104 @@ fun DashboardScreen(
             }
         )
     }
+
+    if (showSupportDialog) {
+        OmniSupportDialog(
+            activeProjectName = projects.firstOrNull()?.name ?: "ApkForge Omni IDE",
+            onDismiss = { showSupportDialog = false }
+        )
+    }
 }
 
 @Composable
-private fun DashboardActionCard(
+private fun CommandSource3dCard(
     title: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
+    accentColor: Color,
+    tag: String,
     modifier: Modifier = Modifier,
-    testTag: String = "",
     onClick: () -> Unit
 ) {
-    GlassmorphismCard(
-        modifier = modifier
-            .height(154.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .testTag(testTag),
-        backgroundColor = DarkSurfaceElevated,
-        borderColor = GlassBorderSubtle,
-        shape = RoundedCornerShape(20.dp)
+    ThreeDSurfaceCard(
+        accentColor = accentColor,
+        cornerRadius = 18.dp,
+        elevation = 10.dp,
+        onClick = onClick,
+        testTag = tag,
+        modifier = modifier.height(124.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
+                .padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF261A14))
-                    .border(1.dp, OrangePrimary.copy(alpha = 0.5f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = OrangePrimary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
+            ThreeDIconBadge(
+                icon = icon,
+                accentColor = accentColor,
+                size = 44.dp,
+                cornerRadius = 14.dp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = title,
                 fontFamily = CairoFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
                 color = TextPrimary
             )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
             Text(
                 text = subtitle,
                 fontFamily = TajawalFontFamily,
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 color = TextSecondary,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                lineHeight = 15.sp,
-                maxLines = 2
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun NavTabItem(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun CommandQuickTile(
+    label: String,
+    icon: ImageVector,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    tag: String,
     onClick: () -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+    Surface(
+        color = DarkSurfaceElevated,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+        modifier = modifier
+            .height(54.dp)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag(tag)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = title,
-            fontFamily = CairoFontFamily,
-            fontSize = 12.sp,
-            color = TextSecondary
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontFamily = CairoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -579,50 +698,51 @@ private fun RecentProjectItem(
     project: AppProject,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(DarkSurfaceElevated)
-            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(14.dp)
+    val accent = parseColorSafe(project.accentColorHex, OrangePrimary)
+    ThreeDSurfaceCard(
+        accentColor = accent,
+        cornerRadius = 16.dp,
+        elevation = 8.dp,
+        onClick = onClick
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 RealAppIconAvatar(
                     project = project,
-                    size = 44.dp,
-                    cornerRadius = 12.dp
+                    size = 46.dp,
+                    cornerRadius = 13.dp
                 )
-
                 Spacer(modifier = Modifier.width(12.dp))
-
                 Column {
                     Text(
                         text = project.name,
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = project.packageConfig.packageName,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = accent,
                 modifier = Modifier.size(18.dp)
             )
         }

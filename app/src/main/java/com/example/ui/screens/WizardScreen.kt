@@ -51,20 +51,36 @@ import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.GlowingButton
 import com.example.ui.components.ModernColorPickerDialog
 import com.example.ui.components.PhoneMockupFrame
+import com.example.ui.components.PwaSiteCustomizerDialog
+import com.example.ui.components.Step1PwaLocalEditorCard
+import com.example.ui.components.Step2DesignAndTypographyCard
+import com.example.ui.components.Step5EngineAndBackendCard
+import com.example.ui.components.Step6DrawerAndFabCard
+import com.example.ui.components.Step7AuthAndSecurityCard
+import com.example.ui.components.Step8SmartRationaleCard
 import com.example.ui.theme.*
 
 @Composable
 fun WizardScreen(
     initialProject: AppProject? = null,
+    initialStep: Int = 2,
     onFinish: (AppProject) -> Unit,
     onCancel: () -> Unit,
-    onOpenInteractivePhone: ((AppProject) -> Unit)? = null
+    onOpenInteractivePhone: ((AppProject) -> Unit)? = null,
+    onGenerateKeystore: ((AppProject, (AppProject) -> Unit) -> Unit)? = null
 ) {
     // Current active step (1 to 9)
-    var currentStep by remember { mutableIntStateOf(2) }
+    var currentStep by remember(initialProject?.id, initialStep) { mutableIntStateOf(initialStep.coerceIn(1, 9)) }
     var isPhoneExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Integrated Studio Config States (Design, Engine/Backend, Security, Signing)
+    var omniConfigState by remember(initialProject?.id) { mutableStateOf(initialProject?.omniConfig ?: OmniIdeConfig()) }
+    var proConfigState by remember(initialProject?.id) { mutableStateOf(initialProject?.proConfig ?: ProStudioConfig()) }
+    var bridgeConfigState by remember(initialProject?.id) { mutableStateOf(initialProject?.bridgeConfig ?: BridgeAndCloudConfig()) }
+    var signingConfigState by remember(initialProject?.id) { mutableStateOf(initialProject?.signingConfig ?: SigningKeyConfig()) }
+    var showStep1PwaEditor by remember { mutableStateOf(false) }
 
     // Step 1: Source
     var sourceType by remember { mutableStateOf(initialProject?.sourceType ?: SourceType.ZIP_ARCHIVE) }
@@ -273,8 +289,109 @@ fun WizardScreen(
     var showSplashColorPickerDialog by remember { mutableStateOf(false) }
     var showIndicatorDialog by remember { mutableStateOf(false) }
 
+    fun buildDraftProject(defaultId: String = "proj_${System.currentTimeMillis()}"): AppProject {
+        return (initialProject ?: AppProject(
+            id = defaultId,
+            name = appName
+        )).copy(
+            name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
+            sourceType = sourceType,
+            sourceValue = sourceValue,
+            localWorkspacePath = localWorkspacePath,
+            iconImageUri = selectedIconUri,
+            accentColorHex = accentColorHex,
+            primaryColorHex = accentColorHex,
+            splashConfig = SplashConfig(
+                enabled = true,
+                backgroundColorHex = splashBgColorHex,
+                fadeBackground = splashFadeBg,
+                indicatorStyle = splashIndicatorStyle,
+                iconSizeDp = splashIconSize,
+                iconCornerRadiusDp = splashIconCorner,
+                indicatorSizeDp = splashIndicatorSize,
+                spacingDp = splashSpacing
+            ),
+            onboardingConfig = OnboardingConfig(
+                enabled = onboardingEnabled,
+                slides = onboardingSlides,
+                layoutType = onboardingLayoutType,
+                imageShape = onboardingImageShape,
+                gradientBackground = onboardingGradientBg,
+                accentColorHex = onboardingAccentColorHex,
+                textColorHex = onboardingTextColorHex,
+                cardColorHex = onboardingCardColorHex,
+                showSkipButton = onboardingShowSkipButton
+            ),
+            webViewConfig = WebViewConfig(
+                fullScreen = fullScreen,
+                pullToRefresh = pullToRefresh,
+                pageLoader = PageLoaderConfig(
+                    enabled = pageLoaderEnabled,
+                    style = pageLoaderStyle,
+                    sizeDp = pageLoaderSize,
+                    thicknessDp = pageLoaderThickness,
+                    showOnCard = pageLoaderOnCard,
+                    cardColorHex = pageLoaderCardColorHex,
+                    cardOpacityPercent = pageLoaderCardOpacity,
+                    cardCornerRadiusDp = pageLoaderCardCornerRadius
+                ),
+                supportZoom = supportZoom,
+                cacheEnabled = true,
+                fileDownload = true,
+                offlineFallback = offlineFallback
+            ),
+            bottomNavConfig = BottomNavConfig(
+                enabled = bottomNavEnabled,
+                destinations = bottomDestinations,
+                barStyle = bottomNavBarStyle,
+                showLabels = bottomNavShowLabels,
+                activeColorHex = bottomNavActiveColorHex,
+                inactiveColorHex = bottomNavInactiveColorHex,
+                barColorHex = bottomNavBarColorHex
+            ),
+            packageConfig = PackageConfig(
+                packageName = packageName.trim().ifBlank { "com.zk.app" },
+                versionName = versionName.trim().ifBlank { "1.0" },
+                versionCode = versionCode,
+                minSdk = minSdk,
+                targetSdk = targetSdk
+            ),
+            permissionsConfig = PermissionsConfig(
+                camera = permCamera,
+                location = permLocation,
+                microphone = permMicrophone,
+                notifications = permNotifications,
+                storage = permStorage,
+                vibration = permVibration,
+                bluetooth = permBluetooth,
+                networkState = permNetworkState
+            ),
+            pushConfig = PushNotificationConfig(
+                enabled = pushEnabled,
+                provider = pushProvider,
+                appId = pushAppId.trim(),
+                channelName = pushChannelName.trim().ifBlank { "التنبيهات العامة" },
+                soundEnabled = pushSoundEnabled,
+                vibrationEnabled = pushVibrationEnabled,
+                badgeEnabled = pushBadgeEnabled,
+                openUrlOnTap = pushOpenUrlOnTap,
+                autoPromptOnFirstLaunch = pushAutoPrompt,
+                testTitle = pushTestTitle.trim(),
+                testBody = pushTestBody.trim()
+            ),
+            signingConfig = signingConfigState,
+            bridgeConfig = bridgeConfigState,
+            proConfig = proConfigState.copy(
+                iconShape = iconMaskShape,
+                iconBgColorHex = iconBgColorHex
+            ),
+            omniConfig = omniConfigState,
+            buildHistory = initialProject?.buildHistory ?: emptyList()
+        )
+    }
+
     BackHandler {
-        if (currentStep > 2) {
+        if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
             currentStep--
         } else {
             onCancel()
@@ -297,7 +414,11 @@ fun WizardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = {
-                        if (currentStep > 2) currentStep-- else onCancel()
+                        if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
+                            currentStep--
+                        } else {
+                            onCancel()
+                        }
                     }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -397,7 +518,11 @@ fun WizardScreen(
                     // Back button
                     Button(
                         onClick = {
-                            if (currentStep > 2) currentStep-- else onCancel()
+                            if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
+                                currentStep--
+                            } else {
+                                onCancel()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
@@ -441,103 +566,7 @@ fun WizardScreen(
                             } else {
                                 // Final step: finish and save
                                 Toast.makeText(context, "🎉 تم حفظ المشروع", Toast.LENGTH_SHORT).show()
-                                val project = (initialProject ?: AppProject(
-                                    id = "proj_${System.currentTimeMillis()}",
-                                    name = appName
-                                )).copy(
-                                    name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
-                                    sourceType = sourceType,
-                                    sourceValue = sourceValue,
-                                    localWorkspacePath = localWorkspacePath,
-                                    iconImageUri = selectedIconUri,
-                                    accentColorHex = accentColorHex,
-                                    primaryColorHex = accentColorHex,
-                                    splashConfig = SplashConfig(
-                                        enabled = true,
-                                        backgroundColorHex = splashBgColorHex,
-                                        fadeBackground = splashFadeBg,
-                                        indicatorStyle = splashIndicatorStyle,
-                                        iconSizeDp = splashIconSize,
-                                        iconCornerRadiusDp = splashIconCorner,
-                                        indicatorSizeDp = splashIndicatorSize,
-                                        spacingDp = splashSpacing
-                                    ),
-                                    onboardingConfig = OnboardingConfig(
-                                        enabled = onboardingEnabled,
-                                        slides = onboardingSlides,
-                                        layoutType = onboardingLayoutType,
-                                        imageShape = onboardingImageShape,
-                                        gradientBackground = onboardingGradientBg,
-                                        accentColorHex = onboardingAccentColorHex,
-                                        textColorHex = onboardingTextColorHex,
-                                        cardColorHex = onboardingCardColorHex,
-                                        showSkipButton = onboardingShowSkipButton
-                                    ),
-                                    webViewConfig = WebViewConfig(
-                                        fullScreen = fullScreen,
-                                        pullToRefresh = pullToRefresh,
-                                        pageLoader = PageLoaderConfig(
-                                            enabled = pageLoaderEnabled,
-                                            style = pageLoaderStyle,
-                                            sizeDp = pageLoaderSize,
-                                            thicknessDp = pageLoaderThickness,
-                                            showOnCard = pageLoaderOnCard,
-                                            cardColorHex = pageLoaderCardColorHex,
-                                            cardOpacityPercent = pageLoaderCardOpacity,
-                                            cardCornerRadiusDp = pageLoaderCardCornerRadius
-                                        ),
-                                        supportZoom = supportZoom,
-                                        cacheEnabled = true,
-                                        fileDownload = true,
-                                        offlineFallback = offlineFallback
-                                    ),
-                                    bottomNavConfig = BottomNavConfig(
-                                        enabled = bottomNavEnabled,
-                                        destinations = bottomDestinations,
-                                        barStyle = bottomNavBarStyle,
-                                        showLabels = bottomNavShowLabels,
-                                        activeColorHex = bottomNavActiveColorHex,
-                                        inactiveColorHex = bottomNavInactiveColorHex,
-                                        barColorHex = bottomNavBarColorHex
-                                    ),
-                                    packageConfig = PackageConfig(
-                                        packageName = packageName.trim(),
-                                        versionName = versionName.trim(),
-                                        versionCode = versionCode,
-                                        minSdk = minSdk,
-                                        targetSdk = targetSdk
-                                    ),
-                                    permissionsConfig = PermissionsConfig(
-                                        camera = permCamera,
-                                        location = permLocation,
-                                        microphone = permMicrophone,
-                                        notifications = permNotifications,
-                                        storage = permStorage,
-                                        vibration = permVibration,
-                                        bluetooth = permBluetooth,
-                                        networkState = permNetworkState
-                                    ),
-                                    pushConfig = PushNotificationConfig(
-                                        enabled = pushEnabled,
-                                        provider = pushProvider,
-                                        appId = pushAppId.trim(),
-                                        channelName = pushChannelName.trim().ifBlank { "التنبيهات العامة" },
-                                        soundEnabled = pushSoundEnabled,
-                                        vibrationEnabled = pushVibrationEnabled,
-                                        badgeEnabled = pushBadgeEnabled,
-                                        openUrlOnTap = pushOpenUrlOnTap,
-                                        autoPromptOnFirstLaunch = pushAutoPrompt,
-                                        testTitle = pushTestTitle.trim(),
-                                        testBody = pushTestBody.trim()
-                                    ),
-                                    bridgeConfig = initialProject?.bridgeConfig ?: BridgeAndCloudConfig(),
-                                    proConfig = (initialProject?.proConfig ?: ProStudioConfig()).copy(
-                                        iconShape = iconMaskShape,
-                                        iconBgColorHex = iconBgColorHex
-                                    ),
-                                    buildHistory = initialProject?.buildHistory ?: emptyList()
-                                )
-                                onFinish(project)
+                                onFinish(buildDraftProject())
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
@@ -614,93 +643,7 @@ fun WizardScreen(
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(parseColorSafe(accentColorHex, OrangePrimary).copy(alpha = 0.15f))
                                             .clickable {
-                                                val currentProj = (initialProject ?: AppProject(id = "preview_proj", name = appName)).copy(
-                                                    name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
-                                                    sourceType = sourceType,
-                                                    sourceValue = sourceValue,
-                                                    localWorkspacePath = localWorkspacePath,
-                                                    accentColorHex = accentColorHex,
-                                                    iconImageUri = selectedIconUri,
-                                                    splashConfig = SplashConfig(
-                                                        enabled = true,
-                                                        backgroundColorHex = splashBgColorHex,
-                                                        fadeBackground = splashFadeBg,
-                                                        indicatorStyle = splashIndicatorStyle,
-                                                        iconSizeDp = splashIconSize,
-                                                        iconCornerRadiusDp = splashIconCorner,
-                                                        indicatorSizeDp = splashIndicatorSize,
-                                                        spacingDp = splashSpacing
-                                                    ),
-                                                    onboardingConfig = OnboardingConfig(
-                                                        enabled = onboardingEnabled,
-                                                        slides = onboardingSlides,
-                                                        layoutType = onboardingLayoutType,
-                                                        imageShape = onboardingImageShape,
-                                                        gradientBackground = onboardingGradientBg,
-                                                        accentColorHex = onboardingAccentColorHex,
-                                                        textColorHex = onboardingTextColorHex,
-                                                        cardColorHex = onboardingCardColorHex,
-                                                        showSkipButton = onboardingShowSkipButton
-                                                    ),
-                                                    webViewConfig = WebViewConfig(
-                                                        fullScreen = fullScreen,
-                                                        pullToRefresh = pullToRefresh,
-                                                        pageLoader = PageLoaderConfig(
-                                                            enabled = pageLoaderEnabled,
-                                                            style = pageLoaderStyle,
-                                                            sizeDp = pageLoaderSize,
-                                                            thicknessDp = pageLoaderThickness,
-                                                            showOnCard = pageLoaderOnCard,
-                                                            cardColorHex = pageLoaderCardColorHex,
-                                                            cardOpacityPercent = pageLoaderCardOpacity,
-                                                            cardCornerRadiusDp = pageLoaderCardCornerRadius
-                                                        ),
-                                                        supportZoom = supportZoom,
-                                                        cacheEnabled = true,
-                                                        fileDownload = true,
-                                                        offlineFallback = offlineFallback
-                                                    ),
-                                                    bottomNavConfig = BottomNavConfig(
-                                                        enabled = bottomNavEnabled,
-                                                        destinations = bottomDestinations,
-                                                        barStyle = bottomNavBarStyle,
-                                                        showLabels = bottomNavShowLabels,
-                                                        activeColorHex = bottomNavActiveColorHex,
-                                                        inactiveColorHex = bottomNavInactiveColorHex,
-                                                        barColorHex = bottomNavBarColorHex
-                                                    ),
-                                                    packageConfig = PackageConfig(packageName = packageName, versionName = versionName, versionCode = versionCode, minSdk = minSdk, targetSdk = targetSdk),
-                                                    permissionsConfig = PermissionsConfig(
-                                                        camera = permCamera,
-                                                        location = permLocation,
-                                                        microphone = permMicrophone,
-                                                        notifications = permNotifications,
-                                                        storage = permStorage,
-                                                        vibration = permVibration,
-                                                        bluetooth = permBluetooth,
-                                                        networkState = permNetworkState
-                                                    ),
-                                                    pushConfig = PushNotificationConfig(
-                                                        enabled = pushEnabled,
-                                                        provider = pushProvider,
-                                                        appId = pushAppId.trim(),
-                                                        channelName = pushChannelName,
-                                                        soundEnabled = pushSoundEnabled,
-                                                        vibrationEnabled = pushVibrationEnabled,
-                                                        badgeEnabled = pushBadgeEnabled,
-                                                        openUrlOnTap = pushOpenUrlOnTap,
-                                                        autoPromptOnFirstLaunch = pushAutoPrompt,
-                                                        testTitle = pushTestTitle,
-                                                        testBody = pushTestBody
-                                                    ),
-                                                    bridgeConfig = initialProject?.bridgeConfig ?: BridgeAndCloudConfig(),
-                                                    proConfig = (initialProject?.proConfig ?: ProStudioConfig()).copy(
-                                                        iconShape = iconMaskShape,
-                                                        iconBgColorHex = iconBgColorHex
-                                                    ),
-                                                    buildHistory = initialProject?.buildHistory ?: emptyList()
-                                                )
-                                                onOpenInteractivePhone(currentProj)
+                                                onOpenInteractivePhone(buildDraftProject("preview_proj"))
                                             }
                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
@@ -856,6 +799,14 @@ fun WizardScreen(
                                 Text("استيراد من ذاكرة الهاتف", fontFamily = CairoFontFamily, fontSize = 12.sp, color = TextPrimary)
                             }
                         }
+                    }
+
+                    // ميزة المرحلة 1: محرر وتخصيص الموقع / PWA محلياً
+                    item {
+                        Step1PwaLocalEditorCard(
+                            omniConfig = omniConfigState,
+                            onOpenPwaCustomizer = { showStep1PwaEditor = true }
+                        )
                     }
                 }
 
@@ -1494,6 +1445,16 @@ fun WizardScreen(
                                 }
                             }
                         }
+                    }
+
+                    // ميزة المرحلة 2: التدرجات اللونية، تناسب الخطوط، والوضع الليلي القسري + CSS
+                    item {
+                        Step2DesignAndTypographyCard(
+                            omniConfig = omniConfigState,
+                            proConfig = proConfigState,
+                            onOmniChange = { omniConfigState = it },
+                            onProChange = { proConfigState = it }
+                        )
                     }
                 }
 
@@ -3216,6 +3177,18 @@ fun WizardScreen(
                             }
                         }
                     }
+
+                    // ميزات المرحلة 5: مسرّع التطبيق، قاعدة البيانات المحلية، REST API، تعدد اللغات، الجسر v2، ومانع الإعلانات
+                    item {
+                        Step5EngineAndBackendCard(
+                            omniConfig = omniConfigState,
+                            proConfig = proConfigState,
+                            bridgeConfig = bridgeConfigState,
+                            onOmniChange = { omniConfigState = it },
+                            onProChange = { proConfigState = it },
+                            onBridgeChange = { bridgeConfigState = it }
+                        )
+                    }
                 }
 
                 // STEP 6: التنقل السفلي (02:28 - 02:34) - matching screenshots perfectly
@@ -3960,6 +3933,14 @@ fun WizardScreen(
                             }
                         }
                     }
+
+                    // ميزات المرحلة 6: القائمة الجانبية (Drawer) وزر التواصل العائم (FAB)
+                    item {
+                        Step6DrawerAndFabCard(
+                            proConfig = proConfigState,
+                            onProChange = { proConfigState = it }
+                        )
+                    }
                 }
 
                 // STEP 7: الحزمة (02:35 - 02:38) - matching screenshot perfectly
@@ -4456,6 +4437,24 @@ fun WizardScreen(
                             }
                         }
                     }
+
+                    // ميزات المرحلة 7: منشئ المصادقة، FLAG_SECURE، SSL Pinning، وتوليد شهادة KeyVault
+                    item {
+                        Step7AuthAndSecurityCard(
+                            omniConfig = omniConfigState,
+                            proConfig = proConfigState,
+                            signingConfig = signingConfigState,
+                            onOmniChange = { omniConfigState = it },
+                            onProChange = { proConfigState = it },
+                            onGenerateKeystore = onGenerateKeystore?.let { cb ->
+                                {
+                                    cb(buildDraftProject()) { updatedProject ->
+                                        signingConfigState = updatedProject.signingConfig
+                                    }
+                                }
+                            }
+                        )
+                    }
                 }
 
                 // STEP 8: صلاحيات الجهاز (02:39 - 02:43) - مطابقة للصورة بدقة مع 5 صلاحيات جديدة وميزتين
@@ -4762,6 +4761,16 @@ fun WizardScreen(
                                 }
                             }
                         }
+                    }
+
+                    // ميزة المرحلة 8: شاشة توضيح الأذونات الذكية المنظمة قبل النظام
+                    item {
+                        Step8SmartRationaleCard(
+                            smartRationaleEnabled = omniConfigState.smartPermissionsRationaleEnabled,
+                            onToggle = {
+                                omniConfigState = omniConfigState.copy(smartPermissionsRationaleEnabled = it)
+                            }
+                        )
                     }
                 }
 
@@ -6341,6 +6350,31 @@ fun WizardScreen(
                 }
             }
         }
+    }
+
+    if (showStep1PwaEditor) {
+        PwaSiteCustomizerDialog(
+            initialProject = buildDraftProject(),
+            onDismiss = { showStep1PwaEditor = false },
+            onApplyAndSave = { updated ->
+                sourceType = updated.sourceType
+                sourceValue = updated.sourceValue
+                localWorkspacePath = updated.localWorkspacePath
+                appName = updated.name
+                omniConfigState = updated.omniConfig
+                showStep1PwaEditor = false
+                Toast.makeText(context, "✓ تم حفظ تعديلات الموقع المحلي في المشروع", Toast.LENGTH_SHORT).show()
+            },
+            onApplyAndPreview = { updated ->
+                sourceType = updated.sourceType
+                sourceValue = updated.sourceValue
+                localWorkspacePath = updated.localWorkspacePath
+                appName = updated.name
+                omniConfigState = updated.omniConfig
+                showStep1PwaEditor = false
+                onOpenInteractivePhone?.invoke(updated)
+            }
+        )
     }
 }
 
