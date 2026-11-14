@@ -235,6 +235,11 @@ fun LiveWebViewContainer(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        layoutParams = android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.allowFileAccess = true
@@ -242,6 +247,7 @@ fun LiveWebViewContainer(
                         settings.allowUniversalAccessFromFileURLs = true
                         settings.useWideViewPort = true
                         settings.loadWithOverviewMode = true
+                        settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
                         settings.setSupportZoom(project.webViewConfig.supportZoom)
                         settings.cacheMode = if (pro.assetPreloaderEnabled) WebSettings.LOAD_CACHE_ELSE_NETWORK else WebSettings.LOAD_DEFAULT
 

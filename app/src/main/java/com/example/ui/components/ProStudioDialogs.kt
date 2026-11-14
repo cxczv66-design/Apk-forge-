@@ -817,7 +817,13 @@ fun GitHubCloudBuildDialog(
                                 progressLogs = emptyList()
                                 cloudEngine.saveCredentials(token, repoName)
                                 val files = exporter.buildProjectTextEntries(project, options)
-                                val res = cloudEngine.pushAndTriggerCloudBuild(token, repoName, files) { msg ->
+                                val binaries = exporter.buildProjectBinaryEntries(project)
+                                val res = cloudEngine.pushAndTriggerCloudBuild(
+                                    token = token,
+                                    repoName = repoName,
+                                    filesToPush = files,
+                                    binaryFiles = binaries
+                                ) { msg ->
                                     progressLogs = (listOf(msg) + progressLogs).take(12)
                                 }
                                 isRunning = false

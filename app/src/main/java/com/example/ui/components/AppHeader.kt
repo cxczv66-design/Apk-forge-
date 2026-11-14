@@ -27,7 +27,7 @@ import com.example.ui.theme.*
 @Composable
 fun AppHeader(
     modifier: Modifier = Modifier,
-    isTermuxReady: Boolean,
+    isQuantumReady: Boolean,
     onDiagnosticClick: () -> Unit
 ) {
     Row(
@@ -90,7 +90,7 @@ fun AppHeader(
                     }
                 }
                 Text(
-                    text = "مصنع التطبيقات • Termux Engine",
+                    text = "مصنع التطبيقات • Quantum Engine",
                     fontFamily = TajawalFontFamily,
                     fontSize = 12.sp,
                     color = TextSecondary
@@ -98,18 +98,18 @@ fun AppHeader(
             }
         }
 
-        // Termux Connection Pill
+        // Quantum Engine Status Pill
         Box(
             modifier = Modifier
-                .testTag("termux_status_pill")
+                .testTag("quantum_status_pill")
                 .clip(RoundedCornerShape(30.dp))
                 .background(
-                    if (isTermuxReady) SuccessGreen.copy(alpha = 0.12f)
+                    if (isQuantumReady) SuccessGreen.copy(alpha = 0.12f)
                     else WarningYellow.copy(alpha = 0.15f)
                 )
                 .border(
                     1.dp,
-                    if (isTermuxReady) SuccessGreen.copy(alpha = 0.4f)
+                    if (isQuantumReady) SuccessGreen.copy(alpha = 0.4f)
                     else WarningYellow.copy(alpha = 0.5f),
                     RoundedCornerShape(30.dp)
                 )
@@ -123,15 +123,15 @@ fun AppHeader(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (isTermuxReady) SuccessGreen else WarningYellow)
+                        .background(if (isQuantumReady) SuccessGreen else WarningYellow)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (isTermuxReady) "Termux متصل" else "توصيف Termux",
+                    text = if (isQuantumReady) "Quantum جاهز ✓" else "فحص Quantum",
                     fontFamily = CairoFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
-                    color = if (isTermuxReady) SuccessGreen else WarningYellow
+                    color = if (isQuantumReady) SuccessGreen else WarningYellow
                 )
             }
         }

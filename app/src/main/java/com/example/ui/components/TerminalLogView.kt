@@ -99,7 +99,7 @@ fun TerminalLogView(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "termux@apkforge (${logs.size})",
+                        text = "quantum@apkforge (${logs.size})",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = TextSecondary,

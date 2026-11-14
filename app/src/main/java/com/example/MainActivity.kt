@@ -1,44 +1,32 @@
 package com.example
 
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
 import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
-import com.example.ui.components.TermuxDiagnosticDialog
+import com.example.ui.components.QuantumEngineStatusDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.util.LocalAppLanguage
-import com.example.utils.Constants
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,93 +49,14 @@ fun AppRoot(
     val downloads by viewModel.downloads.collectAsState()
     val hasPreviewedZip by viewModel.hasPreviewedZip.collectAsState()
     val hasPreviewedHtml by viewModel.hasPreviewedHtml.collectAsState()
-    val isTermuxInstalled by viewModel.isTermuxInstalled.collectAsState()
-    val hasTermuxPermission by viewModel.hasTermuxPermission.collectAsState()
-    val termuxReport by viewModel.termuxReport.collectAsState()
+    val quantumReport by viewModel.quantumReport.collectAsState()
     val showDiagnostic by viewModel.showDiagnosticDialog.collectAsState()
     val currentLanguage by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
 
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val isTermuxReady = isTermuxInstalled && hasTermuxPermission
 
-    val runCommandPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        viewModel.checkTermuxStatus()
-        if (isGranted) {
-            Toast.makeText(context, "✅ تم تفعيل صلاحية Termux RUN_COMMAND بنجاح", Toast.LENGTH_SHORT).show()
-        } else if (viewModel.termuxEngine.isTermuxInstalled()) {
-            Toast.makeText(
-                context,
-                "⚠️ يرجى منح إذن RUN_COMMAND من إعدادات التطبيق للاتصال بـ Termux",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    val requestRunCommandPermission: () -> Unit = {
-        val alreadyGranted = ContextCompat.checkSelfPermission(
-            context,
-            Constants.TERMUX_PERMISSION_RUN_COMMAND
-        ) == PackageManager.PERMISSION_GRANTED
-        if (alreadyGranted) {
-            viewModel.checkTermuxStatus()
-        } else if (viewModel.termuxEngine.isTermuxInstalled()) {
-            val prefs = context.getSharedPreferences("apkforge_perm_prefs", Context.MODE_PRIVATE)
-            val askedBefore = prefs.getBoolean("asked_run_command_once", false)
-            val activity = context as? ComponentActivity
-            val shouldShowRationale = activity?.shouldShowRequestPermissionRationale(
-                Constants.TERMUX_PERMISSION_RUN_COMMAND
-            ) ?: false
-            if (!askedBefore || shouldShowRationale) {
-                prefs.edit().putBoolean("asked_run_command_once", true).apply()
-                runCommandPermissionLauncher.launch(Constants.TERMUX_PERMISSION_RUN_COMMAND)
-            } else {
-                // إذا تم الرفض نهائياً مسبقاً، نفتح شاشة أذونات التطبيق أو نعيد طلب الإذن
-                try {
-                    val settingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.fromParts("package", context.packageName, null)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(settingsIntent)
-                } catch (_: Exception) {
-                    runCommandPermissionLauncher.launch(Constants.TERMUX_PERMISSION_RUN_COMMAND)
-                }
-            }
-        } else {
-            runCommandPermissionLauncher.launch(Constants.TERMUX_PERMISSION_RUN_COMMAND)
-        }
-    }
-
-    // طلب صلاحية Termux RUN_COMMAND تلقائياً عند فتح التطبيق لأول مرة
-    LaunchedEffect(Unit) {
-        val prefs = context.getSharedPreferences("apkforge_perm_prefs", Context.MODE_PRIVATE)
-        val hasPerm = ContextCompat.checkSelfPermission(
-            context,
-            Constants.TERMUX_PERMISSION_RUN_COMMAND
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasPerm && !prefs.getBoolean("first_launch_run_cmd_prompted", false)) {
-            prefs.edit().putBoolean("first_launch_run_cmd_prompted", true).apply()
-            runCommandPermissionLauncher.launch(Constants.TERMUX_PERMISSION_RUN_COMMAND)
-        }
-    }
-
-    // تحديث حالة Termux والأذونات تلقائياً عند العودة إلى التطبيق
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.checkTermuxStatus()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    // عرض إشعارات نتائج البناء الخلفي الصادرة من ViewModel
+    // عرض إشعارات نتائج البناء الخلفي الصادرة من ViewModel / WorkManager
     LaunchedEffect(Unit) {
         viewModel.uiToastEvents.collect { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
@@ -172,7 +81,12 @@ fun AppRoot(
                     }
                 },
                 transitionSpec = {
-                    fadeIn() togetherWith fadeOut()
+                    if (initialState is AppScreen.Splash && targetState is AppScreen.Dashboard) {
+                        (fadeIn(tween(420)) + scaleIn(initialScale = 0.96f, animationSpec = tween(420))) togetherWith
+                            fadeOut(tween(300))
+                    } else {
+                        fadeIn() togetherWith fadeOut()
+                    }
                 },
                 label = "screen_routing"
             ) { screen ->
@@ -193,7 +107,7 @@ fun AppRoot(
                             onOpenProject = { project ->
                                 viewModel.navigateTo(AppScreen.BuildCenter(project))
                             },
-                            onOpenTermuxDiagnostic = { viewModel.openDiagnosticDialog() },
+                            onOpenQuantumDiagnostic = { viewModel.openDiagnosticDialog() },
                             onUseTemplate = { templateProject ->
                                 viewModel.navigateTo(AppScreen.Wizard(templateProject))
                             },
@@ -360,11 +274,9 @@ fun AppRoot(
                         val liveProject = projects.find { it.id == screen.project.id } ?: screen.project
                         BuildCenterScreen(
                             project = liveProject,
-                            termuxEngine = viewModel.termuxEngine,
+                            quantumEngine = viewModel.quantumEngine,
                             toolchainManager = viewModel.toolchainManager,
-                            isTermuxReady = isTermuxReady,
                             onOpenDiagnostic = { viewModel.openDiagnosticDialog() },
-                            onRequestRunCommandPermission = requestRunCommandPermission,
                             onEditProject = {
                                 viewModel.navigateTo(AppScreen.Wizard(liveProject))
                             },
@@ -453,15 +365,11 @@ fun AppRoot(
             }
 
             if (showDiagnostic) {
-                TermuxDiagnosticDialog(
-                    report = termuxReport,
+                QuantumEngineStatusDialog(
+                    report = quantumReport,
                     toolchainManager = viewModel.toolchainManager,
-                    termuxEngine = viewModel.termuxEngine,
-                    onRequestRunCommandPermission = requestRunCommandPermission,
                     onDismiss = { viewModel.closeDiagnosticDialog() },
-                    onTestConnection = {
-                        viewModel.checkTermuxStatus()
-                    }
+                    onRefreshDiagnostic = { viewModel.refreshQuantumStatus() }
                 )
             }
         }

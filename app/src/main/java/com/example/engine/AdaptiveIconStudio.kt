@@ -9,9 +9,12 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
+import android.util.Base64
 import com.example.domain.model.AppProject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class GeneratedIconPack(
     val adaptiveXml: String,
@@ -36,7 +39,8 @@ object AdaptiveIconStudio {
     }
 
     /**
-     * يولّد حزمة أيقونات Android الكاملة باستخدام صورة التطبيق الحقيقية (من المعرض أو رابط) إن وجدت.
+     * يولّد حزمة أيقونات Android الكاملة باستخدام صورة التطبيق الحقيقية (من المعرض أو رابط أو Base64) إن وجدت،
+     * بما في ذلك drawable-nodpi/ic_launcher_foreground.png للأندرويد الحديث (API 26+) وأيقونة شاشة البداية.
      */
     fun generateIconPack(context: Context, project: AppProject): GeneratedIconPack {
         val decoded = decodeProjectIconBitmap(context, project.iconImageUri)
@@ -71,21 +75,27 @@ object AdaptiveIconStudio {
             </shape>
         """.trimIndent().trimStart()
 
-        val fgVectorXml = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <vector xmlns:android="http://schemas.android.com/apk/res/android"
-                android:width="108dp"
-                android:height="108dp"
-                android:viewportWidth="108"
-                android:viewportHeight="108">
-                <path
-                    android:fillColor="$accentHex"
-                    android:pathData="M54,20 C72.77,20 88,35.23 88,54 C88,72.77 72.77,88 54,88 C35.23,88 20,72.77 20,54 C20,35.23 35.23,20 54,20 Z" />
-                <path
-                    android:fillColor="#FFFFFF"
-                    android:pathData="M48,38 L66,54 L48,70 L54,54 Z" />
-            </vector>
-        """.trimIndent().trimStart()
+        // Only used when no custom user image is selected; when customBitmap != null,
+        // Android loads drawable-nodpi/ic_launcher_foreground.png directly without conflict.
+        val fgVectorXml = if (customBitmap != null) {
+            ""
+        } else {
+            """
+                <?xml version="1.0" encoding="utf-8"?>
+                <vector xmlns:android="http://schemas.android.com/apk/res/android"
+                    android:width="108dp"
+                    android:height="108dp"
+                    android:viewportWidth="108"
+                    android:viewportHeight="108">
+                    <path
+                        android:fillColor="$accentHex"
+                        android:pathData="M54,22 C71.67,22 86,36.33 86,54 C86,71.67 71.67,86 54,86 C36.33,86 22,71.67 22,54 C22,36.33 36.33,22 54,22 Z" />
+                    <path
+                        android:fillColor="#FFFFFF"
+                        android:pathData="M45,38 L67,54 L45,70 Z" />
+                </vector>
+            """.trimIndent().trimStart()
+        }
 
         val pngs = linkedMapOf<String, ByteArray>()
         densities.forEach { (folder, px) ->
@@ -106,6 +116,24 @@ object AdaptiveIconStudio {
                 sourceBitmap = customBitmap
             )
         }
+
+        if (customBitmap != null) {
+            // High-res 432x432 foreground layer for Android 8+ adaptive icons (mipmap-anydpi-v26)
+            pngs["app/src/main/res/drawable-nodpi/ic_launcher_foreground.png"] = renderAdaptiveForegroundPngBytes(
+                sizePx = 432,
+                sourceBitmap = customBitmap
+            )
+        }
+
+        // Dedicated crisp app logo PNG for Splash Screen & Navigation Drawer inside the built APK
+        pngs["app/src/main/res/drawable-nodpi/ic_splash_logo.png"] = renderIconPngBytes(
+            sizePx = 256,
+            bgHex = bgHex,
+            accentHex = accentHex,
+            shape = shape,
+            monogram = initial,
+            sourceBitmap = customBitmap
+        )
 
         return GeneratedIconPack(
             adaptiveXml = adaptiveXml,
@@ -132,11 +160,73 @@ object AdaptiveIconStudio {
                         BitmapFactory.decodeStream(it)
                     }
                 }
+                clean.startsWith("data:image", ignoreCase = true) -> {
+                    val b64 = clean.substringAfter("base64,", "")
+                    if (b64.isNotBlank()) {
+                        val decoded = Base64.decode(b64, Base64.DEFAULT)
+                        BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
+                    } else null
+                }
+                clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true) -> {
+                    val cacheDir = File(context.filesDir, "app_icons").apply { mkdirs() }
+                    val cachedFile = File(cacheDir, "url_icon_${clean.hashCode().toUInt()}.png")
+                    if (cachedFile.exists() && cachedFile.length() > 0L) {
+                        BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    } else {
+                        val conn = (URL(clean).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 4000
+                            readTimeout = 4000
+                            instanceFollowRedirects = true
+                            setRequestProperty("User-Agent", "ApkForge-IconFetcher/2.0")
+                        }
+                        try {
+                            if (conn.responseCode in 200..299) {
+                                val bytes = conn.inputStream.use { it.readBytes() }
+                                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                if (bmp != null) {
+                                    cachedFile.writeBytes(bytes)
+                                }
+                                bmp
+                            } else null
+                        } finally {
+                            conn.disconnect()
+                        }
+                    }
+                }
                 else -> null
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun renderAdaptiveForegroundPngBytes(
+        sizePx: Int,
+        sourceBitmap: Bitmap
+    ): ByteArray {
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        // Draw cleanly inside 82% of the 108dp adaptive layer (~88dp) with rounded corners
+        // so the full custom photo remains clear and centered across circle, squircle, and teardrop launcher masks.
+        val inset = sizePx * 0.14f
+        val dstRect = RectF(inset, inset, sizePx - inset, sizePx - inset)
+        val clip = Path().apply {
+            addRoundRect(dstRect, sizePx * 0.14f, sizePx * 0.14f, Path.Direction.CW)
+        }
+        canvas.save()
+        canvas.clipPath(clip)
+        val minSide = minOf(sourceBitmap.width, sourceBitmap.height)
+        val srcLeft = (sourceBitmap.width - minSide) / 2
+        val srcTop = (sourceBitmap.height - minSide) / 2
+        val srcRect = Rect(srcLeft, srcTop, srcLeft + minSide, srcTop + minSide)
+        canvas.drawBitmap(sourceBitmap, srcRect, dstRect, paint)
+        canvas.restore()
+
+        val baos = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 96, baos)
+        bitmap.recycle()
+        return baos.toByteArray()
     }
 
     private fun renderIconPngBytes(
@@ -170,7 +260,6 @@ object AdaptiveIconStudio {
         canvas.drawRect(rect, paint)
 
         if (sourceBitmap != null && sourceBitmap.width > 0 && sourceBitmap.height > 0) {
-            // Center-crop real user icon cleanly into the icon frame
             val minSide = minOf(sourceBitmap.width, sourceBitmap.height)
             val srcLeft = (sourceBitmap.width - minSide) / 2
             val srcTop = (sourceBitmap.height - minSide) / 2

@@ -224,6 +224,11 @@ fun PreviewScreen(
                                 },
                                 factory = { ctx ->
                                     WebView(ctx).apply {
+                                        layoutParams = android.view.ViewGroup.LayoutParams(
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
                                         settings.databaseEnabled = true
@@ -235,6 +240,7 @@ fun PreviewScreen(
                                         settings.allowUniversalAccessFromFileURLs = true
                                         settings.useWideViewPort = true
                                         settings.loadWithOverviewMode = true
+                                        settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
                                         settings.builtInZoomControls = true
                                         settings.displayZoomControls = false
                                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE

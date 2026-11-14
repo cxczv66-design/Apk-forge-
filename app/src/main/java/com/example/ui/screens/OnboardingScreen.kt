@@ -44,10 +44,10 @@ fun OnboardingScreen(
             badge = "الجيل الجديد من App Builders"
         ),
         OnboardingPageData(
-            title = "قوة Termux & Gradle المحلية",
-            description = "يعتمد التطبيق على بيئة Termux المفتوحة لتشغيل AAPT2 و D8 و Gradle و ApkSigner مباشرة على جهازك دون الحاجة لحاسوب أو خوادم خارجية.",
+            title = "محرك Quantum للبناء داخل التطبيق",
+            description = "يجمع التطبيق أدوات aapt2 و d8 و zipalign ومكتبة Google apksig الرسمية (v1-v4) مع تشفير AndroidKeyStore AES-256-GCM مباشرة داخل هاتفك دون الحاجة لأي تطبيق خارجي.",
             icon = Icons.Default.Terminal,
-            badge = "معالجة أصلية 100%"
+            badge = "بناء وتوقيع مدمج 100%"
         ),
         OnboardingPageData(
             title = "معالج تخصيص من 9 خطوات",

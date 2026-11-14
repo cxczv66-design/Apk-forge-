@@ -125,12 +125,12 @@ object AppStrings {
         else -> "الملف الشخصي وإدارة الإعدادات"
     }
 
-    fun termuxStatus(lang: AppLanguage) = when (lang) {
-        AppLanguage.ENGLISH -> "Termux Build Engine"
-        AppLanguage.FRENCH -> "Moteur de Construction Termux"
-        AppLanguage.SPANISH -> "Motor de Compilación Termux"
-        AppLanguage.TURKISH -> "Termux Derleme Motoru"
-        else -> "محرك بناء Termux المحلي"
+    fun quantumEngineStatus(lang: AppLanguage) = when (lang) {
+        AppLanguage.ENGLISH -> "Quantum Build Engine"
+        AppLanguage.FRENCH -> "Moteur Quantum Local"
+        AppLanguage.SPANISH -> "Motor Quantum Local"
+        AppLanguage.TURKISH -> "Quantum Derleme Motoru"
+        else -> "محرك Quantum المدمج"
     }
 
     fun back(lang: AppLanguage) = when (lang) {

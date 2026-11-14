@@ -488,10 +488,10 @@ fun AccountScreen(
                     }
                 }
 
-                // Section 3: محرك Termux وبيئة البناء
+                // Section 3: محرك Quantum وبيئة البناء المدمجة
                 item {
                     Text(
-                        text = "محرك بناء Termux",
+                        text = "محرك بناء Quantum (On-Device)",
                         fontFamily = CairoFontFamily,
                         fontSize = 12.sp,
                         color = TextMuted,
@@ -508,11 +508,11 @@ fun AccountScreen(
                             .border(1.dp, GlassBorderSubtle, RoundedCornerShape(18.dp))
                     ) {
                         AccountRowItem(
-                            title = "مسح كاش البناء المؤقت (Gradle Cache)",
-                            subtitle = "يحرر مساحة الذاكرة في Termux",
+                            title = "مسح كاش البناء المؤقت (Quantum Cache)",
+                            subtitle = "يحرر مساحة التخزين المؤقتة لمراحل aapt2 و d8",
                             icon = Icons.Default.CleaningServices,
                             onClick = {
-                                Toast.makeText(context, "تم تنظيف كاش بناء Gradle و AAPT2 بنجاح (تحرير 140MB) ✓", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم تنظيف كاش بناء aapt2 و d8 بنجاح ✓", Toast.LENGTH_SHORT).show()
                             }
                         )
                         HorizontalDivider(color = GlassBorderSubtle)

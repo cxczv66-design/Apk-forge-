@@ -33,26 +33,26 @@ import com.example.domain.model.AppProject
 import com.example.engine.BuildStageInfo
 import com.example.engine.BuildStageStatus
 import com.example.engine.BuildTelemetry
-import com.example.engine.TermuxEngine
+import com.example.engine.QuantumBuildEngine
 import com.example.ui.theme.*
 import java.util.Locale
 
 /**
- * لوحة البناء التفاعلية الحية المتكيفة مع حجم الشاشة:
- * تتيح للمستخدم مشاهدة مراحل تجميع التطبيق وتغليفه على القرص لحظة بلحظة بدون قص أو انقلاب للأرقام والوحدات.
+ * لوحة البناء التفاعلية الحية لنظام Quantum المدمج:
+ * تعرض مراحل البناء الحقيقية (KeyVault -> aapt2 -> d8 -> zipalign -> apksig v1-v4 -> Package) مع حالة التوقيع والمحاذاة.
  */
 @Composable
 fun AdaptiveBuildPipelineBoard(
     project: AppProject,
-    engineState: TermuxEngine.EngineStatus,
+    engineState: QuantumBuildEngine.EngineStatus,
     stages: List<BuildStageInfo>,
     telemetry: BuildTelemetry,
     onOpenDownloads: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isRunning = engineState is TermuxEngine.EngineStatus.Running
-    val isSuccess = engineState is TermuxEngine.EngineStatus.Success
-    val isError = engineState is TermuxEngine.EngineStatus.Failure
+    val isRunning = engineState is QuantumBuildEngine.EngineStatus.Running
+    val isSuccess = engineState is QuantumBuildEngine.EngineStatus.Success
+    val isError = engineState is QuantumBuildEngine.EngineStatus.Failure
     val accent = parseColorSafe(project.accentColorHex, OrangePrimary)
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -109,7 +109,7 @@ fun AdaptiveBuildPipelineBoard(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "خط البناء التفاعلي الحي",
+                                    text = "خط بناء Quantum الحي (On-Device)",
                                     fontFamily = CairoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
@@ -243,6 +243,20 @@ fun AdaptiveBuildPipelineBoard(
                                         )
                                     }
                                 }
+
+                                // Real Cryptographic & Alignment Verification Badges (v1-v4 + ZipAlign + AES-256-GCM)
+                                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        VerificationSchemeChip("v1", telemetry.v1Verified)
+                                        VerificationSchemeChip("v2", telemetry.v2Verified)
+                                        VerificationSchemeChip("v3", telemetry.v3Verified)
+                                        VerificationSchemeChip("v4 .idsig", telemetry.v4Verified)
+                                        VerificationSchemeChip("ZipAlign 4B", telemetry.alignmentVerified)
+                                    }
+                                }
                             }
                         }
                     }
@@ -308,11 +322,11 @@ private fun LiveAppAssemblyBlueprint(
     modifier: Modifier = Modifier
 ) {
     val layerLabels = listOf(
-        "Gradle" to Icons.Default.Settings,
-        "Manifest" to Icons.Default.Security,
-        "Assets" to Icons.Default.Language,
-        "Icons/Res" to Icons.Default.Layers,
-        "RSA Sign" to Icons.Default.VerifiedUser,
+        "KeyVault" to Icons.Default.Lock,
+        "AAPT2" to Icons.Default.Layers,
+        "D8 DEX" to Icons.Default.Memory,
+        "ZipAlign" to Icons.Default.ViewAgenda,
+        "apksig" to Icons.Default.VerifiedUser,
         "Package" to Icons.Default.Inventory2
     )
 
@@ -658,3 +672,26 @@ private fun LiveStagesTimeline(
         }
     }
 }
+
+@Composable
+private fun VerificationSchemeChip(label: String, verified: Boolean) {
+    val bgColor = if (verified) StatusGreen.copy(alpha = 0.16f) else Color(0xFF151C28)
+    val borderColor = if (verified) StatusGreen.copy(alpha = 0.6f) else Color(0xFF263144)
+    val contentColor = if (verified) StatusGreen else TextMuted
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+    ) {
+        Text(
+            text = if (verified) "$label ✓" else label,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            color = contentColor,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+        )
+    }
+}
+

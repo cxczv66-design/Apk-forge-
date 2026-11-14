@@ -3,7 +3,7 @@ package com.example.domain.usecase
 import com.example.data.repository.ProjectRepository
 import com.example.domain.model.AppProject
 import com.example.domain.model.BuildStatus
-import com.example.engine.TermuxEngine
+import com.example.engine.QuantumBuildEngine
 import kotlinx.coroutines.flow.StateFlow
 
 class GetProjectsUseCase(private val repository: ProjectRepository) {
@@ -28,13 +28,13 @@ class GetProjectByIdUseCase(private val repository: ProjectRepository) {
 
 class BuildProjectUseCase(
     private val repository: ProjectRepository,
-    private val termuxEngine: TermuxEngine
+    private val quantumBuildEngine: QuantumBuildEngine
 ) {
     suspend fun execute(project: AppProject, buildType: String): Boolean {
         repository.updateBuildStatus(project.id, BuildStatus.BUILDING, null)
-        val success = termuxEngine.executeBuildWithProgress(project, buildType)
+        val success = quantumBuildEngine.executeBuildWithProgress(project, buildType)
         val finalStatus = if (success) BuildStatus.SUCCESS else BuildStatus.FAILED
-        val tele = termuxEngine.telemetry.value
+        val tele = quantumBuildEngine.telemetry.value
         val apkPath = if (success) tele.lastOutputPath else null
         repository.updateBuildStatus(
             projectId = project.id,

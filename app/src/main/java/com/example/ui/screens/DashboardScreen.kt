@@ -52,7 +52,7 @@ fun DashboardScreen(
     onOpenDownloads: () -> Unit,
     onOpenAccount: () -> Unit,
     onOpenProject: (AppProject) -> Unit,
-    onOpenTermuxDiagnostic: () -> Unit,
+    onOpenQuantumDiagnostic: () -> Unit,
     onUseTemplate: (AppProject) -> Unit = {},
     onImportProjectJson: (String) -> AppProject? = { null }
 ) {
@@ -84,21 +84,35 @@ fun DashboardScreen(
                     )
                 }
 
-                // Center Title
-                Text(
-                    text = AppStrings.appTitle(lang),
-                    fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = TextPrimary
-                )
+                // Center Title + Brand Icon
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.apkforge_brand_logo_1794592633199),
+                        contentDescription = "ApkForge Icon",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, OrangePrimary.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                    )
+                    Text(
+                        text = AppStrings.appTitle(lang),
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = TextPrimary
+                    )
+                }
 
-                // Right Menu Button: Termux Diagnostic
-                IconButton(onClick = onOpenTermuxDiagnostic) {
+                // Right Menu Button: Quantum On-Device Engine Status
+                IconButton(onClick = onOpenQuantumDiagnostic) {
                     Icon(
-                        imageVector = Icons.Default.Terminal,
-                        contentDescription = AppStrings.termuxStatus(lang),
-                        tint = TextPrimary
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = AppStrings.quantumEngineStatus(lang),
+                        tint = OrangePrimary
                     )
                 }
             }

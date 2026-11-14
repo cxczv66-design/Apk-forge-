@@ -43,7 +43,8 @@ import com.example.engine.BuildAuditItem
 import com.example.engine.BuildOptimizationOptions
 import com.example.engine.GitHubCloudBuildEngine
 import com.example.engine.ProjectExporter
-import com.example.engine.TermuxEngine
+import com.example.engine.QuantumBuildEngine
+import com.example.engine.QuantumDiagnosticReport
 import com.example.engine.ToolchainManager
 import com.example.ui.components.AdaptiveBuildPipelineBoard
 import com.example.ui.components.AdaptiveIconAndUiStudioDialog
@@ -63,11 +64,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun BuildCenterScreen(
     project: AppProject,
-    termuxEngine: TermuxEngine,
+    quantumEngine: QuantumBuildEngine,
     toolchainManager: ToolchainManager? = null,
-    isTermuxReady: Boolean,
     onOpenDiagnostic: () -> Unit,
-    onRequestRunCommandPermission: () -> Unit = {},
     onEditProject: () -> Unit,
     onOpenInteractivePhone: () -> Unit = {},
     onOpenDownloads: () -> Unit,
@@ -83,11 +82,11 @@ fun BuildCenterScreen(
     val effectiveToolchain = toolchainManager ?: remember(context) { ToolchainManager(context) }
     val projectExporter = remember(context) { ProjectExporter(context) }
     val githubCloudEngine = remember(context) { GitHubCloudBuildEngine(context) }
-    val engineState by termuxEngine.engineState.collectAsState()
-    val logs by termuxEngine.logStream.collectAsState()
-    val buildStages by termuxEngine.buildStages.collectAsState()
-    val telemetry by termuxEngine.telemetry.collectAsState()
-    val termuxReport by termuxEngine.termuxReport.collectAsState()
+    val engineState by quantumEngine.engineState.collectAsState()
+    val logs by quantumEngine.logStream.collectAsState()
+    val buildStages by quantumEngine.buildStages.collectAsState()
+    val telemetry by quantumEngine.telemetry.collectAsState()
+    val quantumReport by quantumEngine.quantumReport.collectAsState()
 
     var activeProject by remember(project) { mutableStateOf(project) }
     var showScriptDialog by remember { mutableStateOf(false) }
@@ -128,11 +127,11 @@ fun BuildCenterScreen(
     }
 
     val auditItems: List<BuildAuditItem> = remember(activeProject, keystoreGenerated) {
-        termuxEngine.runPreBuildAudit(activeProject, keystoreGenerated)
+        quantumEngine.runPreBuildAudit(activeProject, keystoreGenerated)
     }
     val passedAuditCount = auditItems.count { it.passed }
 
-    val isBuilding = engineState is TermuxEngine.EngineStatus.Running
+    val isBuilding = engineState is QuantumBuildEngine.EngineStatus.Running
 
     fun launchAutomatedBuild(targetType: String) {
         if (onStartAutomatedBuild != null) {
@@ -153,7 +152,7 @@ fun BuildCenterScreen(
                     activeProject
                 }
 
-                val success = termuxEngine.executeBuildWithProgress(
+                val success = quantumEngine.executeBuildWithProgress(
                     project = projToBuild,
                     buildType = targetType,
                     options = buildOptions
@@ -306,17 +305,11 @@ fun BuildCenterScreen(
                                     expanded = showAuditDetails,
                                     onToggleExpand = { showAuditDetails = !showAuditDetails },
                                     onAutoFixAll = {
-                                        val fixed = termuxEngine.autoFixProject(activeProject).copy(
-                                            signingConfig = activeProject.signingConfig.copy(
-                                                useDebugKey = false,
-                                                keyAlias = keyAlias,
-                                                keystorePath = "${com.example.utils.Constants.DOWNLOADS_DIR}/$keyAlias.keystore"
-                                            )
-                                        )
+                                        val fixed = quantumEngine.autoFixProject(activeProject)
                                         activeProject = fixed
                                         keystoreGenerated = true
                                         onUpdateProject(fixed)
-                                        Toast.makeText(context, "تم إصلاح وتجهيز جميع متطلبات البناء تلقائياً ⚡", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "تم إصلاح وتجهيز الخزنة المشفّرة وكافة المتطلبات تلقائياً ⚡", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -344,8 +337,8 @@ fun BuildCenterScreen(
                             }
                             item {
                                 BuildCenterCard(
-                                    title = "مفتاح التوقيع",
-                                    subtitle = if (keystoreGenerated) "تم حفظ المفتاح $keyAlias.keystore ✓" else "مخزن مفاتيح نحتفظ به للأبد",
+                                    title = "مفتاح التوقيع المشفّر",
+                                    subtitle = if (keystoreGenerated) "خزنة Quantum محفوظة ($keyAlias.qvault) ✓" else "خزنة AES-256-GCM نحتفظ بها للأبد",
                                     icon = Icons.Default.VpnKey,
                                     buttonText = if (keystoreGenerated) "إعادة التوليد" else "بناء",
                                     isLoading = false,
@@ -387,8 +380,8 @@ fun BuildCenterScreen(
                                     onOpenDownloads = onOpenDownloads
                                 )
                             }
-                            if (engineState is TermuxEngine.EngineStatus.Running) {
-                                val running = engineState as TermuxEngine.EngineStatus.Running
+                            if (engineState is QuantumBuildEngine.EngineStatus.Running) {
+                                val running = engineState as QuantumBuildEngine.EngineStatus.Running
                                 item { BuildProgressCard(running) }
                             }
                             item {
@@ -414,43 +407,10 @@ fun BuildCenterScreen(
                                 }
                             }
                             item {
-                                TermuxDirectCard(
-                                    termuxReport = termuxReport,
-                                    onRunInTermux = {
-                                        termuxEngine.dispatchBuildToTermux(
-                                            project = activeProject,
-                                            buildType = "release",
-                                            options = buildOptions,
-                                            onMissingPrerequisites = { missing ->
-                                                Toast.makeText(context, missing.messageAr, Toast.LENGTH_LONG).show()
-                                                if (missing.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
-                                                    onRequestRunCommandPermission()
-                                                } else {
-                                                    onOpenDiagnostic()
-                                                }
-                                            }
-                                        ) {
-                                            Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    onPingTermux = {
-                                        val res = termuxEngine.pingTermuxConnection()
-                                        Toast.makeText(context, res.messageAr, Toast.LENGTH_SHORT).show()
-                                        if (!res.isReadyToDispatch && res.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
-                                            onRequestRunCommandPermission()
-                                        }
-                                    },
-                                    onCopyFixCommand = {
-                                        val cmd = termuxEngine.getEnableExternalAppsCommand()
-                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        cm.setPrimaryClip(ClipData.newPlainText("Termux Fix", cmd))
-                                        Toast.makeText(context, "تم نسخ أمر التفعيل — الصقه في Termux ✓", Toast.LENGTH_LONG).show()
-                                        context.packageManager.getLaunchIntentForPackage(com.example.utils.Constants.TERMUX_PACKAGE_NAME)?.let {
-                                            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(it)
-                                        }
-                                    },
-                                    onRequestPermission = onRequestRunCommandPermission,
+                                QuantumEngineDirectCard(
+                                    quantumReport = quantumReport,
+                                    isBuilding = isBuilding,
+                                    onRunQuantumBuild = { launchAutomatedBuild("release") },
                                     onOpenDiagnostic = onOpenDiagnostic
                                 )
                             }
@@ -489,8 +449,8 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    if (engineState is TermuxEngine.EngineStatus.Running) {
-                        val running = engineState as TermuxEngine.EngineStatus.Running
+                    if (engineState is QuantumBuildEngine.EngineStatus.Running) {
+                        val running = engineState as QuantumBuildEngine.EngineStatus.Running
                         item { BuildProgressCard(running) }
                     }
 
@@ -522,17 +482,11 @@ fun BuildCenterScreen(
                             expanded = showAuditDetails,
                             onToggleExpand = { showAuditDetails = !showAuditDetails },
                             onAutoFixAll = {
-                                val fixed = termuxEngine.autoFixProject(activeProject).copy(
-                                    signingConfig = activeProject.signingConfig.copy(
-                                        useDebugKey = false,
-                                        keyAlias = keyAlias,
-                                        keystorePath = "${com.example.utils.Constants.DOWNLOADS_DIR}/$keyAlias.keystore"
-                                    )
-                                )
+                                val fixed = quantumEngine.autoFixProject(activeProject)
                                 activeProject = fixed
                                 keystoreGenerated = true
                                 onUpdateProject(fixed)
-                                Toast.makeText(context, "تم إصلاح وتجهيز جميع متطلبات البناء تلقائياً ⚡", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم إصلاح وتجهيز الخزنة المشفّرة وكافة المتطلبات تلقائياً ⚡", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -599,8 +553,8 @@ fun BuildCenterScreen(
                     // Card 3: مفتاح التوقيع
                     item {
                         BuildCenterCard(
-                            title = "مفتاح التوقيع",
-                            subtitle = if (keystoreGenerated) "تم حفظ المفتاح $keyAlias.keystore في التنزيلات ✓" else "مخزن مفاتيح نحتفظ به للأبد",
+                            title = "مفتاح التوقيع المشفّر",
+                            subtitle = if (keystoreGenerated) "خزنة Quantum محفوظة ($keyAlias.qvault) ✓" else "خزنة AES-256-GCM نحتفظ بها للأبد",
                             icon = Icons.Default.VpnKey,
                             buttonText = if (keystoreGenerated) "إعادة التوليد" else "بناء",
                             isLoading = false,
@@ -663,45 +617,12 @@ fun BuildCenterScreen(
                         }
                     }
 
-                    // Direct Termux RunCommand Action
+                    // Quantum On-Device Pipeline & Security Matrix Card
                     item {
-                        TermuxDirectCard(
-                            termuxReport = termuxReport,
-                            onRunInTermux = {
-                                termuxEngine.dispatchBuildToTermux(
-                                    project = activeProject,
-                                    buildType = "release",
-                                    options = buildOptions,
-                                    onMissingPrerequisites = { missing ->
-                                        Toast.makeText(context, missing.messageAr, Toast.LENGTH_LONG).show()
-                                        if (missing.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
-                                            onRequestRunCommandPermission()
-                                        } else {
-                                            onOpenDiagnostic()
-                                        }
-                                    }
-                                ) {
-                                    Toast.makeText(context, "تم إرسال أمر البناء إلى Termux!", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            onPingTermux = {
-                                val res = termuxEngine.pingTermuxConnection()
-                                Toast.makeText(context, res.messageAr, Toast.LENGTH_SHORT).show()
-                                if (!res.isReadyToDispatch && res.connectionState == com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION) {
-                                    onRequestRunCommandPermission()
-                                }
-                            },
-                            onCopyFixCommand = {
-                                val cmd = termuxEngine.getEnableExternalAppsCommand()
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Termux Fix", cmd))
-                                Toast.makeText(context, "تم نسخ أمر التفعيل — الصقه في Termux ✓", Toast.LENGTH_LONG).show()
-                                context.packageManager.getLaunchIntentForPackage(com.example.utils.Constants.TERMUX_PACKAGE_NAME)?.let {
-                                    it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(it)
-                                }
-                            },
-                            onRequestPermission = onRequestRunCommandPermission,
+                        QuantumEngineDirectCard(
+                            quantumReport = quantumReport,
+                            isBuilding = isBuilding,
+                            onRunQuantumBuild = { launchAutomatedBuild("release") },
                             onOpenDiagnostic = onOpenDiagnostic
                         )
                     }
@@ -724,10 +645,10 @@ fun BuildCenterScreen(
             }
         }
 
-        // Script Inspector Dialog
+        // Quantum Build Spec Inspector Dialog
         if (showScriptDialog) {
             val fullScript = remember(activeProject, buildOptions) {
-                termuxEngine.generateBashBuildScript(activeProject, "release", buildOptions)
+                quantumEngine.generateQuantumBuildSpecText(activeProject, "release", buildOptions)
             }
             Dialog(
                 onDismissRequest = { showScriptDialog = false },
@@ -748,11 +669,12 @@ fun BuildCenterScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "سكربت البناء التلقائي الكامل (Bash + Gradle)",
+                                text = "مواصفات أوامر Quantum المدمجة (aapt2 + d8 + zipalign + apksig)",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = TextPrimary
+                                fontSize = 13.sp,
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { showScriptDialog = false }) {
                                 Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary)
@@ -800,10 +722,11 @@ fun BuildCenterScreen(
             }
         }
 
-        // Advanced Keystore Generator Dialog
+        // Quantum KeyVault Encrypted Keystore Generator Dialog
         if (showKeystoreDialog) {
             val keytoolCmd = remember(keyAlias, keyPassword, keyOrg, keyValidityYears) {
-                termuxEngine.generateKeytoolCommand(keyAlias, keyPassword, keyOrg, keyValidityYears)
+                val safeAlias = keyAlias.trim().ifBlank { "apkforge_release" }
+                "quantum-keyvault seal --alias=$safeAlias --cipher=AndroidKeyStore-AES256-GCM --cert=BouncyCastle-X509-RSA2048 --org=\"$keyOrg\" --validity=${keyValidityYears}y"
             }
             Dialog(
                 onDismissRequest = { showKeystoreDialog = false },
@@ -842,7 +765,7 @@ fun BuildCenterScreen(
                             }
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "توليد مفتاح توقيع مخصص (Keystore)",
+                                text = "خزنة التوقيع المشفّرة (Quantum KeyVault)",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
@@ -1349,7 +1272,7 @@ private fun PreBuildDoctorCard(
 }
 
 @Composable
-private fun BuildProgressCard(running: TermuxEngine.EngineStatus.Running) {
+private fun BuildProgressCard(running: QuantumBuildEngine.EngineStatus.Running) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1389,31 +1312,18 @@ private fun BuildProgressCard(running: TermuxEngine.EngineStatus.Running) {
 }
 
 @Composable
-private fun TermuxDirectCard(
-    termuxReport: TermuxEngine.TermuxDiagnosticReport,
-    onRunInTermux: () -> Unit,
-    onPingTermux: () -> Unit,
-    onCopyFixCommand: () -> Unit,
-    onRequestPermission: () -> Unit,
+private fun QuantumEngineDirectCard(
+    quantumReport: QuantumDiagnosticReport,
+    isBuilding: Boolean,
+    onRunQuantumBuild: () -> Unit,
     onOpenDiagnostic: () -> Unit
 ) {
-    val state = termuxReport.connectionState
-    val statusText = when (state) {
-        com.example.engine.TermuxConnectionState.VERIFIED_READY ->
-            "Termux متصل ومُتحقق فعلياً ✓ (allow-external-apps=true)"
-        com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ->
-            "⚠️ خطأ (2): يلزم تفعيل allow-external-apps=true داخل Termux"
-        com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED ->
-            "Termux مثبت — اضغط اختبار الاتصال قبل الإرسال"
-        com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION ->
-            "Termux مثبت — يلزم تفعيل إذن RUN_COMMAND"
-        com.example.engine.TermuxConnectionState.NOT_INSTALLED ->
-            "Termux غير مثبت — اضغط للتشخيص والتوجيه"
-    }
-    val statusColor = when (state) {
-        com.example.engine.TermuxConnectionState.VERIFIED_READY -> StatusGreen
-        com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS -> ErrorRed
-        else -> WarningYellow
+    val ready = quantumReport.isFullyOperational
+    val statusColor = if (ready) StatusGreen else WarningYellow
+    val statusText = if (ready) {
+        "جاهز للبناء الذاتي داخل التطبيق (v1-v4 • ${quantumReport.vaultProtectionMode})"
+    } else {
+        quantumReport.diagnosticSummaryAr
     }
 
     Box(
@@ -1423,9 +1333,7 @@ private fun TermuxDirectCard(
             .background(DarkSurfaceElevated)
             .border(
                 1.dp,
-                if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) {
-                    ErrorRed.copy(alpha = 0.55f)
-                } else GlassBorderSubtle,
+                if (ready) StatusGreen.copy(alpha = 0.4f) else GlassBorderSubtle,
                 RoundedCornerShape(16.dp)
             )
             .padding(14.dp)
@@ -1438,14 +1346,14 @@ private fun TermuxDirectCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(
-                        imageVector = Icons.Default.Terminal,
+                        imageVector = Icons.Default.Security,
                         contentDescription = null,
-                        tint = if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) ErrorRed else OrangePrimary
+                        tint = statusColor
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "تشغيل أوامر Termux المباشرة",
+                            text = "نظام البناء والأمان المدمج (Quantum Engine)",
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -1459,110 +1367,72 @@ private fun TermuxDirectCard(
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                when (state) {
-                    com.example.engine.TermuxConnectionState.VERIFIED_READY -> {
-                        Button(
-                            onClick = onRunInTermux,
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text(
-                                text = "تشغيل في Termux",
-                                fontFamily = CairoFontFamily,
-                                fontSize = 12.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-                    com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED -> {
-                        Button(
-                            onClick = onPingTermux,
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text(
-                                text = "اختبار الاتصال",
-                                fontFamily = CairoFontFamily,
-                                fontSize = 12.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-                    com.example.engine.TermuxConnectionState.NEEDS_RUN_COMMAND_PERMISSION -> {
-                        Button(
-                            onClick = onRequestPermission,
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text(
-                                text = "منح الإذن",
-                                fontFamily = CairoFontFamily,
-                                fontSize = 12.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-                    else -> {
-                        Button(
-                            onClick = onOpenDiagnostic,
-                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurface),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text(
-                                text = "تشخيص",
-                                fontFamily = CairoFontFamily,
-                                fontSize = 12.sp,
-                                color = OrangePrimary
-                            )
-                        }
+            // Quantum Capabilities Badges
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    "aapt2 + d8 + zipalign" to quantumReport.isAapt2AndD8PipelineReady,
+                    "Google apksig v1-v4" to quantumReport.isApkSigReady,
+                    "AndroidKeyStore AES-256-GCM" to quantumReport.isBouncyCastleLoaded,
+                    "WorkManager Background" to quantumReport.isWorkManagerReady
+                ).forEach { (label, active) ->
+                    Surface(
+                        color = if (active) StatusGreen.copy(alpha = 0.14f) else Color(0xFF141B27),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (active) StatusGreen.copy(alpha = 0.45f) else Color(0xFF253042)
+                        )
+                    ) {
+                        Text(
+                            text = if (active) "✓ $label" else label,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (active) StatusGreen else TextSecondary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
 
-            if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS ||
-                state == com.example.engine.TermuxConnectionState.INSTALLED_UNVERIFIED
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                OutlinedButton(
+                    onClick = onOpenDiagnostic,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onCopyFixCommand,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
-                    ) {
-                        Text(
-                            text = "نسخ أمر الإصلاح + فتح Termux",
-                            fontFamily = CairoFontFamily,
-                            fontSize = 11.sp,
-                            color = TextPrimary
-                        )
-                    }
-                    if (state == com.example.engine.TermuxConnectionState.NEEDS_ALLOW_EXTERNAL_APPS) {
-                        Button(
-                            onClick = onPingTermux,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text("فحص", fontFamily = CairoFontFamily, fontSize = 11.sp, color = Color.White)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = onRunInTermux,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text("بناء بـ Termux", fontFamily = CairoFontFamily, fontSize = 11.sp, color = OrangePrimary)
-                        }
-                    }
+                    Text(
+                        text = "تشغيل فحص المحرك ✓",
+                        fontFamily = CairoFontFamily,
+                        fontSize = 11.sp,
+                        color = TextPrimary
+                    )
+                }
+
+                Button(
+                    onClick = onRunQuantumBuild,
+                    enabled = !isBuilding,
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
+                ) {
+                    Text(
+                        text = if (isBuilding) "جارٍ البناء..." else "بناء وتوقيع Release",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = Color.White
+                    )
                 }
             }
         }

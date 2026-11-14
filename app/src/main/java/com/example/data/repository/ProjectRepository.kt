@@ -204,6 +204,27 @@ class ProjectRepository(private val context: Context) {
         }
     }
 
+    fun refreshFromPrefs() {
+        loadProjects()
+        loadDownloads()
+    }
+
+    fun serializeProjectToJson(project: AppProject): String {
+        return projectToJson(project).toString()
+    }
+
+    fun parseProjectFromJsonString(rawJson: String): AppProject? {
+        return try {
+            val trimmed = rawJson.trim()
+            if (trimmed.isBlank()) return null
+            val root = JSONObject(trimmed)
+            val projJson = if (root.has("project")) root.getJSONObject("project") else root
+            parseProject(projJson)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /**
      * تصدير مشروع كامل بصيغة .apkforge JSON (تشمل جميع الخطوات الـ 9 والجسر والسجل)
      */

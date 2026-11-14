@@ -211,7 +211,7 @@ class ApkForgePowerFeaturesTest {
     }
 
     @Test
-    fun `toolchain manager installs verifies tools generates RSA keystore and Termux diagnostic reports honest state`() = kotlinx.coroutines.test.runTest {
+    fun `toolchain manager installs verifies tools generates encrypted QuantumKeyVault and diagnostic reports ready state`() = kotlinx.coroutines.test.runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val toolchain = com.example.engine.ToolchainManager(context)
         val installed = toolchain.installAndVerifyAllTools()
@@ -223,12 +223,15 @@ class ApkForgePowerFeaturesTest {
         assertTrue(ksRes.isSuccess)
         val ksInfo = ksRes.getOrThrow()
         assertTrue(java.io.File(ksInfo.filePath).exists())
+        assertTrue(ksInfo.filePath.endsWith(".qvault"))
         assertTrue(ksInfo.sha256Fingerprint.isNotBlank())
 
-        val termux = com.example.engine.TermuxEngine(context)
-        val report = termux.runRealDiagnostic()
-        assertFalse(report.isTermuxInstalled)
-        assertFalse(report.hasRunCommandPermission)
+        val quantum = com.example.engine.QuantumBuildEngine(context)
+        val report = quantum.runRealDiagnostic("release_test")
+        assertTrue(report.isBouncyCastleLoaded)
+        assertTrue(report.isApkSigReady)
+        assertTrue(report.isAapt2AndD8PipelineReady)
+        assertTrue(report.isFullyOperational)
     }
 
     @Test
@@ -251,7 +254,7 @@ class ApkForgePowerFeaturesTest {
     }
 
     @Test
-    fun `termux engine executes real signed build on disk with workspace assets and archive analyzer reads real entries`() = kotlinx.coroutines.test.runTest {
+    fun `quantum engine executes real signed build on disk with workspace assets and archive analyzer reads real entries`() = kotlinx.coroutines.test.runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val wsDir = java.io.File(context.cacheDir, "real_build_ws_${System.currentTimeMillis()}").apply { mkdirs() }
         java.io.File(wsDir, "index.html").writeText("<html><body><h1>Real Site</h1></body></html>")
@@ -270,7 +273,7 @@ class ApkForgePowerFeaturesTest {
             )
         )
 
-        val engine = com.example.engine.TermuxEngine(context)
+        val engine = com.example.engine.QuantumBuildEngine(context)
         var producedFile: String? = null
         var producedPath: String? = null
         var producedSize: String? = null
@@ -288,6 +291,7 @@ class ApkForgePowerFeaturesTest {
 
         val artifact = java.io.File(producedPath!!)
         assertTrue(artifact.exists() && artifact.length() > 0L)
+        assertTrue(java.io.File(artifact.parentFile, "${artifact.name}.idsig").exists())
 
         val zipNames = mutableSetOf<String>()
         ZipFile(artifact).use { zip ->
@@ -297,15 +301,13 @@ class ApkForgePowerFeaturesTest {
             }
         }
 
-        assertTrue(zipNames.contains("META-INF/MANIFEST.MF"))
-        assertTrue(zipNames.contains("META-INF/APKFORGE.SF"))
-        assertTrue(zipNames.contains("META-INF/APKFORGE.SIG"))
-        assertTrue(zipNames.contains("META-INF/BUILD_RECEIPT.json"))
-        assertTrue(zipNames.contains("app/src/main/assets/index.html"))
-        assertTrue(zipNames.contains("app/src/main/assets/app.js"))
-        assertTrue(zipNames.contains("termux_standalone/AndroidManifest.xml"))
-        assertTrue(zipNames.contains("termux_standalone/src/com/roombk/app/MainActivity.java"))
-        assertTrue(zipNames.contains("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"))
+        assertTrue(zipNames.contains("AndroidManifest.xml"))
+        assertTrue(zipNames.contains("resources.arsc"))
+        assertTrue(zipNames.contains("classes.dex"))
+        assertTrue(zipNames.contains("assets/index.html"))
+        assertTrue(zipNames.contains("assets/app.js"))
+        assertTrue(zipNames.contains("META-INF/quantum_sources/standalone_cli/src/com/roombk/app/MainActivity.java"))
+        assertTrue(zipNames.contains("res/mipmap-xxxhdpi/ic_launcher.png"))
 
         val toolchain = com.example.engine.ToolchainManager(context)
         val breakdown = toolchain.analyzeArchiveBreakdown(artifact.absolutePath)
@@ -315,10 +317,10 @@ class ApkForgePowerFeaturesTest {
         assertEquals(artifact.length(), breakdown.totalBytes)
         assertTrue(breakdown.isSigned)
         assertTrue(breakdown.hasManifest)
-        assertTrue(breakdown.certificateEntriesCount >= 3)
 
-        val bash = engine.generateBashBuildScript(project, "release")
-        assertTrue(bash.contains("--manifest termux_standalone/AndroidManifest.xml"))
-        assertTrue(bash.contains("Theme.DeviceDefault.NoActionBar"))
+        val specText = engine.generateQuantumBuildSpecText(project, "release")
+        assertTrue(specText.contains("aapt2 link"))
+        assertTrue(specText.contains("zipalign"))
+        assertTrue(specText.contains("apksigner sign"))
     }
 }

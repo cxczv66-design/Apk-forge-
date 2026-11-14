@@ -5275,8 +5275,12 @@ fun WizardScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             val currentProj = (initialProject ?: AppProject(id = "preview_proj", name = appName)).copy(
-                                                name = appName,
+                                                name = appName.ifBlank { initialProject?.name ?: "تطبيق جديد" },
+                                                sourceType = sourceType,
+                                                sourceValue = sourceValue,
+                                                localWorkspacePath = localWorkspacePath,
                                                 accentColorHex = accentColorHex,
+                                                primaryColorHex = accentColorHex,
                                                 iconImageUri = selectedIconUri,
                                                 splashConfig = SplashConfig(
                                                     enabled = true,

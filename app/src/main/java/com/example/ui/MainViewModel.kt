@@ -1,17 +1,26 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.data.repository.DownloadedApk
 import com.example.data.repository.ProjectRepository
 import com.example.domain.model.AppProject
 import com.example.domain.usecase.*
 import com.example.engine.BuildOptimizationOptions
-import com.example.engine.TermuxEngine
+import com.example.engine.QuantumBuildEngine
+import com.example.engine.QuantumBuildWorker
+import com.example.engine.QuantumDiagnosticReport
 import com.example.engine.ToolchainManager
-import android.content.Context
 import com.example.ui.util.AppLanguage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -19,6 +28,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
 data class GoogleUser(
     val name: String,
@@ -50,8 +61,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("apkforge_settings_prefs", Context.MODE_PRIVATE)
 
     private val repository = ProjectRepository(application)
-    val termuxEngine = TermuxEngine(application)
+    val quantumEngine: QuantumBuildEngine = QuantumBuildEngine.getInstance(application)
     val toolchainManager = ToolchainManager(application)
+    private val workManager: WorkManager = WorkManager.getInstance(application)
 
     private val getProjectsUseCase = GetProjectsUseCase(repository)
     private val saveProjectUseCase = SaveProjectUseCase(repository)
@@ -60,13 +72,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val projects: StateFlow<List<AppProject>> = getProjectsUseCase()
     val downloads: StateFlow<List<DownloadedApk>> = repository.downloads
 
-    // App-wide language persistence
     private val _currentLanguage = MutableStateFlow(
         AppLanguage.fromCode(prefs.getString("app_language", "ar") ?: "ar")
     )
     val currentLanguage: StateFlow<AppLanguage> = _currentLanguage.asStateFlow()
 
-    // Persistent real Google user authentication (no hardcoded fake account)
     private val _currentUser = MutableStateFlow<GoogleUser?>(
         run {
             val logged = prefs.getBoolean("user_logged_in", false)
@@ -93,14 +103,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasPreviewedHtml = MutableStateFlow(false)
     val hasPreviewedHtml: StateFlow<Boolean> = _hasPreviewedHtml.asStateFlow()
 
-    private val _isTermuxInstalled = MutableStateFlow(false)
-    val isTermuxInstalled: StateFlow<Boolean> = _isTermuxInstalled.asStateFlow()
+    private val _quantumReport = MutableStateFlow(quantumEngine.runRealDiagnostic())
+    val quantumReport: StateFlow<QuantumDiagnosticReport> = _quantumReport.asStateFlow()
 
-    private val _hasTermuxPermission = MutableStateFlow(false)
-    val hasTermuxPermission: StateFlow<Boolean> = _hasTermuxPermission.asStateFlow()
-
-    private val _termuxReport = MutableStateFlow(termuxEngine.runRealDiagnostic())
-    val termuxReport: StateFlow<TermuxEngine.TermuxDiagnosticReport> = _termuxReport.asStateFlow()
+    private val _activeWorkState = MutableStateFlow<WorkInfo.State?>(null)
+    val activeWorkState: StateFlow<WorkInfo.State?> = _activeWorkState.asStateFlow()
 
     private val _showDiagnosticDialog = MutableStateFlow(false)
     val showDiagnosticDialog: StateFlow<Boolean> = _showDiagnosticDialog.asStateFlow()
@@ -108,13 +115,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiToastEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val uiToastEvents: SharedFlow<String> = _uiToastEvents.asSharedFlow()
 
+    private var workObserverJob: Job? = null
+
     init {
-        checkTermuxStatus()
+        refreshQuantumStatus()
         viewModelScope.launch {
-            termuxEngine.termuxReport.collect { report ->
-                _termuxReport.value = report
-                _isTermuxInstalled.value = report.isTermuxInstalled
-                _hasTermuxPermission.value = report.hasRunCommandPermission
+            quantumEngine.quantumReport.collect { report ->
+                _quantumReport.value = report
             }
         }
     }
@@ -156,7 +163,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDiagnosticDialog() {
-        checkTermuxStatus()
+        refreshQuantumStatus()
         _showDiagnosticDialog.value = true
     }
 
@@ -164,11 +171,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _showDiagnosticDialog.value = false
     }
 
-    fun checkTermuxStatus() {
-        val report = termuxEngine.runRealDiagnostic()
-        _termuxReport.value = report
-        _isTermuxInstalled.value = report.isTermuxInstalled
-        _hasTermuxPermission.value = report.hasRunCommandPermission
+    fun refreshQuantumStatus() {
+        _quantumReport.value = quantumEngine.runRealDiagnostic()
         toolchainManager.refreshInstalledToolsStatus()
     }
 
@@ -176,6 +180,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         saveProjectUseCase(project)
     }
 
+    /**
+     * تشغيل خط بناء Quantum في الخلفية عبر WorkManager (CoroutineWorker)
+     * لضمان عدم تأثر عملية التجميع والتوقيع بتدوير الشاشة أو مغادرة الواجهة.
+     */
     fun startAutomatedBuild(
         project: AppProject,
         targetType: String,
@@ -183,7 +191,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoBumpVersion: Boolean
     ) {
         viewModelScope.launch {
-            val ksInfo = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ksInfo = withContext(Dispatchers.IO) {
                 toolchainManager.ensureProjectKeystoreExists(project)
             }
             val baseProject = if (project.signingConfig.keystorePath.isBlank()) {
@@ -208,18 +216,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             saveProjectUseCase(projToBuild)
 
-            val success = termuxEngine.executeBuildWithProgress(
-                project = projToBuild,
-                buildType = targetType,
-                options = options
-            ) { fileName, outputPath, sizeText ->
-                recordCompletedBuild(projToBuild, fileName, outputPath, sizeText)
+            val jobFile = withContext(Dispatchers.IO) {
+                val serialized = repository.serializeProjectToJson(projToBuild)
+                QuantumBuildWorker.stageBuildJobFile(
+                    context = getApplication(),
+                    projectJson = serialized,
+                    buildType = targetType,
+                    options = options
+                )
             }
 
-            if (success) {
-                _uiToastEvents.tryEmit("🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!")
-            } else {
-                _uiToastEvents.tryEmit("⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه")
+            val request = OneTimeWorkRequestBuilder<QuantumBuildWorker>()
+                .setInputData(workDataOf(QuantumBuildWorker.KEY_JOB_FILE_PATH to jobFile.absolutePath))
+                .addTag("quantum_build_${projToBuild.id}")
+                .build()
+
+            workManager.enqueueUniqueWork(
+                QuantumBuildWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+            observeQuantumWork(request.id)
+        }
+    }
+
+    private fun observeQuantumWork(workId: UUID) {
+        workObserverJob?.cancel()
+        workObserverJob = viewModelScope.launch {
+            workManager.getWorkInfoByIdFlow(workId).collect { info ->
+                if (info == null) return@collect
+                _activeWorkState.value = info.state
+                when (info.state) {
+                    WorkInfo.State.SUCCEEDED -> {
+                        repository.refreshFromPrefs()
+                        refreshQuantumStatus()
+                        val outFile = info.outputData.getString(QuantumBuildWorker.KEY_OUTPUT_FILE_NAME).orEmpty()
+                        _uiToastEvents.tryEmit(
+                            if (outFile.isNotBlank()) "🎉 اكتمل بناء وتوقيع $outFile (v1-v4) وحفظه في التنزيلات!"
+                            else "🎉 اكتمل البناء والتوقيع وتم حفظ الحزمة في التنزيلات!"
+                        )
+                    }
+                    WorkInfo.State.FAILED -> {
+                        repository.refreshFromPrefs()
+                        val err = info.outputData.getString(QuantumBuildWorker.KEY_ERROR_MESSAGE).orEmpty()
+                        _uiToastEvents.tryEmit(
+                            if (err.isNotBlank()) "⚠️ تعذر إكمال البناء: $err"
+                            else "⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه"
+                        )
+                    }
+                    else -> Unit
+                }
             }
         }
     }
@@ -242,7 +288,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 saveProjectUseCase(updated)
-                _uiToastEvents.tryEmit("🔐 تم توليد وحفظ مفتاح RSA-2048 في الجهاز (${info.alias}) ✓")
+                refreshQuantumStatus()
+                _uiToastEvents.tryEmit("🔐 تم توليد وتشفير خزنة Quantum (${info.alias}) ✓")
                 onDone(true, updated)
             }.onFailure { err ->
                 _uiToastEvents.tryEmit("تعذر توليد المفتاح: ${err.message}")

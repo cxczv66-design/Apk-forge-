@@ -50,12 +50,13 @@ class GitHubCloudBuildEngine(
     }
 
     /**
-     * رفع ملفات المشروع النصية إلى مستودع GitHub وتشغيل سير عمل GitHub Actions تلقائياً
+     * رفع ملفات المشروع النصية والثنائية (أيقونات PNG + أصول ZIP) إلى مستودع GitHub في عملية دفع واحدة وتشغيل بناء GitHub Actions واحد.
      */
     suspend fun pushAndTriggerCloudBuild(
         token: String,
         repoName: String,
         filesToPush: Map<String, String>,
+        binaryFiles: Map<String, ByteArray> = emptyMap(),
         onProgress: (String) -> Unit
     ): Result<GitHubBuildTriggerResult> = withContext(Dispatchers.IO) {
         try {
@@ -122,21 +123,42 @@ class GitHubCloudBuildEngine(
                 }
             }
 
-            onProgress("🧩 تجميع ${filesToPush.size} ملف في دفعة واحدة (Single Commit Push)...")
+            val totalFileCount = filesToPush.size + binaryFiles.size
+            onProgress("🧩 تجميع $totalFileCount ملف (بما فيها الأيقونات والأصول) في دفعة واحدة...")
             val atomicCount = pushFilesInSingleCommit(
                 token = cleanToken,
                 owner = ownerLogin,
                 repo = cleanRepo,
                 branch = defaultBranch,
                 filesToPush = filesToPush,
+                binaryFiles = binaryFiles,
                 onProgress = onProgress
             )
 
             val uploaded = if (atomicCount > 0) {
                 atomicCount
             } else {
-                // Fallback: upload workflow file LAST so Actions triggers once at the end
+                // Fallback: upload binary + text files with workflow file LAST so Actions triggers once at the end
                 var count = 0
+                binaryFiles.forEach { (path, bytes) ->
+                    onProgress("🖼️ رفع أصل/أيقونة: $path")
+                    val existingSha = fetchFileSha(cleanToken, ownerLogin, cleanRepo, path)
+                    val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val putBody = JSONObject().apply {
+                        put("message", "ApkForge binary asset: $path")
+                        put("content", b64)
+                        if (!existingSha.isNullOrBlank()) put("sha", existingSha)
+                    }.toString().toRequestBody(jsonMedia)
+                    val putReq = Request.Builder()
+                        .url("https://api.github.com/repos/$ownerLogin/$cleanRepo/contents/$path")
+                        .put(putBody)
+                        .header("Authorization", "Bearer $cleanToken")
+                        .header("Accept", "application/vnd.github+json")
+                        .build()
+                    client.newCall(putReq).execute().use { resp ->
+                        if (resp.isSuccessful) count++
+                    }
+                }
                 val orderedEntries = filesToPush.entries.sortedBy {
                     if (it.key.startsWith(".github/workflows/")) 1 else 0
                 }
@@ -171,7 +193,7 @@ class GitHubCloudBuildEngine(
                     repoHtmlUrl = "https://github.com/$ownerLogin/$cleanRepo",
                     actionsUrl = "https://github.com/$ownerLogin/$cleanRepo/actions",
                     uploadedFilesCount = uploaded,
-                    statusMessage = "تم رفع $uploaded ملف في عملية دفع واحدة وتشغيل بناء GitHub Actions واحد بنجاح!"
+                    statusMessage = "تم رفع $uploaded ملف (شاملة الأيقونة والأصول الحقيقية) في عملية دفع واحدة!"
                 )
             )
         } catch (e: Exception) {
@@ -185,10 +207,10 @@ class GitHubCloudBuildEngine(
         repo: String,
         branch: String,
         filesToPush: Map<String, String>,
+        binaryFiles: Map<String, ByteArray>,
         onProgress: (String) -> Unit
     ): Int {
         return try {
-            // 1. Resolve HEAD commit SHA (retry briefly if repo was just initialized)
             var headCommitSha: String? = null
             for (attempt in 0 until 4) {
                 val refReq = Request.Builder()
@@ -207,7 +229,6 @@ class GitHubCloudBuildEngine(
             }
             val parentCommitSha = headCommitSha ?: return 0
 
-            // 2. Get base tree SHA from parent commit
             val commitReq = Request.Builder()
                 .url("https://api.github.com/repos/$owner/$repo/git/commits/$parentCommitSha")
                 .header("Authorization", "Bearer $token")
@@ -221,18 +242,34 @@ class GitHubCloudBuildEngine(
                     ?.takeIf { it.isNotBlank() }
             } ?: return 0
 
-            // 3. Create one unified Git Tree with all project files
-            onProgress("🌳 إنشاء شجرة المشروع الكاملة (${filesToPush.size} ملف)...")
             val treeArray = JSONArray()
+            if (binaryFiles.isNotEmpty()) {
+                onProgress("🖼️ تجهيز ${binaryFiles.size} ملف أيقونة وأصل ثنائي...")
+                binaryFiles.forEach { (path, bytes) ->
+                    val blobSha = createBinaryGitBlob(token, owner, repo, bytes) ?: return 0
+                    treeArray.put(
+                        JSONObject().apply {
+                            put("path", path)
+                            put("mode", "100644")
+                            put("type", "blob")
+                            put("sha", blobSha)
+                        }
+                    )
+                }
+            }
+
+            onProgress("🌳 إنشاء شجرة المشروع الكاملة (${filesToPush.size + binaryFiles.size} ملف)...")
             filesToPush.forEach { (path, content) ->
-                treeArray.put(
-                    JSONObject().apply {
-                        put("path", path)
-                        put("mode", "100644")
-                        put("type", "blob")
-                        put("content", content)
-                    }
-                )
+                if (!binaryFiles.containsKey(path)) {
+                    treeArray.put(
+                        JSONObject().apply {
+                            put("path", path)
+                            put("mode", "100644")
+                            put("type", "blob")
+                            put("content", content)
+                        }
+                    )
+                }
             }
             val treeBody = JSONObject().apply {
                 put("base_tree", baseTreeSha)
@@ -249,10 +286,9 @@ class GitHubCloudBuildEngine(
                 JSONObject(resp.body?.string().orEmpty()).optString("sha").takeIf { it.isNotBlank() }
             } ?: return 0
 
-            // 4. Create a single commit
             onProgress("📦 إنشاء التزام واحد شامل (Single Commit)...")
             val newCommitBody = JSONObject().apply {
-                put("message", "ApkForge: Full project build sync (${filesToPush.size} files)")
+                put("message", "ApkForge: Full project build sync (${filesToPush.size + binaryFiles.size} files)")
                 put("tree", newTreeSha)
                 put("parents", JSONArray().put(parentCommitSha))
             }.toString().toRequestBody(jsonMedia)
@@ -267,7 +303,6 @@ class GitHubCloudBuildEngine(
                 JSONObject(resp.body?.string().orEmpty()).optString("sha").takeIf { it.isNotBlank() }
             } ?: return 0
 
-            // 5. Fast-forward branch ref -> triggers ONE GitHub Actions workflow run
             onProgress("🚀 تشغيل مسار بناء واحد في GitHub Actions...")
             val patchRefBody = JSONObject().apply {
                 put("sha", newCommitSha)
@@ -280,10 +315,32 @@ class GitHubCloudBuildEngine(
                 .header("Accept", "application/vnd.github+json")
                 .build()
             client.newCall(patchRefReq).execute().use { resp ->
-                if (resp.isSuccessful) filesToPush.size else 0
+                if (resp.isSuccessful) filesToPush.size + binaryFiles.size else 0
             }
         } catch (_: Exception) {
             0
+        }
+    }
+
+    private fun createBinaryGitBlob(
+        token: String,
+        owner: String,
+        repo: String,
+        bytes: ByteArray
+    ): String? {
+        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val body = JSONObject().apply {
+            put("content", b64)
+            put("encoding", "base64")
+        }.toString().toRequestBody(jsonMedia)
+        val req = Request.Builder()
+            .url("https://api.github.com/repos/$owner/$repo/git/blobs")
+            .post(body)
+            .header("Authorization", "Bearer $token")
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        return client.newCall(req).execute().use { resp ->
+            if (resp.isSuccessful) JSONObject(resp.body?.string().orEmpty()).optString("sha").takeIf { it.isNotBlank() } else null
         }
     }
 
