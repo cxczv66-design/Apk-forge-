@@ -74,6 +74,7 @@ fun PreviewScreen(
     var inspectedFile by remember { mutableStateOf<Pair<ExtractedAssetItem, String>?>(null) }
     var rendererSessionKey by remember { mutableIntStateOf(0) }
     var rendererCrashCount by remember { mutableIntStateOf(0) }
+    var useSoftwareLayer by remember { mutableStateOf(false) }
     var isRendererFailed by remember { mutableStateOf(false) }
     var pendingRendererRecovery by remember { mutableStateOf(false) }
     val destroyedWebViews = remember { Collections.newSetFromMap(WeakHashMap<WebView, Boolean>()) }
@@ -94,9 +95,10 @@ fun PreviewScreen(
 
     fun triggerRendererRecovery() {
         showSplashFadeVeil = false
-        if (rendererCrashCount < 3) {
+        if (rendererCrashCount < 1) {
             rendererCrashCount++
-            rendererSessionKey++
+            useSoftwareLayer = true
+            mainHandler.postDelayed({ rendererSessionKey++ }, 250)
         } else {
             isRendererFailed = true
         }
@@ -328,8 +330,11 @@ fun PreviewScreen(
                                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                             )
                                             setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
+                                            if (useSoftwareLayer) {
+                                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                                            }
                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
+                                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
                                             }
                                             settings.javaScriptEnabled = true
                                             settings.domStorageEnabled = true
@@ -345,21 +350,29 @@ fun PreviewScreen(
                                             settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
                                             settings.builtInZoomControls = true
                                             settings.displayZoomControls = false
+                                            settings.setGeolocationEnabled(false)
+                                            settings.mediaPlaybackRequiresUserGesture = true
                                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
                                             webChromeClient = object : WebChromeClient() {
                                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                    pageProgress = newProgress
+                                                    if (view != null && !destroyedWebViews.contains(view)) {
+                                                        pageProgress = newProgress
+                                                    }
                                                 }
 
                                                 override fun onReceivedTitle(view: WebView?, title: String?) {
-                                                    if (!title.isNullOrBlank()) pageTitle = title
+                                                    if (view != null && !destroyedWebViews.contains(view) && !title.isNullOrBlank()) {
+                                                        pageTitle = title
+                                                    }
                                                 }
                                             }
 
                                             webViewClient = object : WebViewClient() {
                                                 override fun onPageFinished(view: WebView?, url: String?) {
-                                                    showSplashFadeVeil = false
+                                                    if (view != null && !destroyedWebViews.contains(view)) {
+                                                        showSplashFadeVeil = false
+                                                    }
                                                 }
 
                                                 @TargetApi(Build.VERSION_CODES.O)

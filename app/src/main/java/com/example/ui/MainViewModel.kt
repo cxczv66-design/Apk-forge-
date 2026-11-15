@@ -136,7 +136,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeAdaptiveAiPlan = MutableStateFlow<AiArchitectPlan?>(null)
     val activeAdaptiveAiPlan: StateFlow<AiArchitectPlan?> = _activeAdaptiveAiPlan.asStateFlow()
 
+    private val _activeProjectId = MutableStateFlow<String?>(null)
+    val activeProjectId: StateFlow<String?> = _activeProjectId.asStateFlow()
+
     private var workObserverJob: Job? = null
+    private var aiPlanJob: Job? = null
 
     init {
         refreshQuantumStatus()
@@ -173,6 +177,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearAllData() {
         repository.clearAllProjectsAndDownloads()
         quantumEngine.resetState()
+        _activeProjectId.value = null
         _hasPreviewedHtml.value = false
         _hasPreviewedZip.value = false
         _uiToastEvents.tryEmit("تم مسح جميع البيانات والمشاريع والتنزيلات بنجاح ✓")
@@ -182,6 +187,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         signOut()
         repository.clearAllProjectsAndDownloads()
         quantumEngine.resetState()
+        _activeProjectId.value = null
         prefs.edit().clear().apply()
         _hasPreviewedHtml.value = false
         _hasPreviewedZip.value = false
@@ -198,6 +204,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun navigateTo(screen: AppScreen) {
+        when (screen) {
+            is AppScreen.AdaptiveStudio -> _activeProjectId.value = screen.project.id
+            is AppScreen.InteractivePhone -> _activeProjectId.value = screen.project.id
+            is AppScreen.BuildCenter -> _activeProjectId.value = screen.project.id
+            is AppScreen.Wizard -> screen.projectToEdit?.let { _activeProjectId.value = it.id }
+            else -> Unit
+        }
         _currentScreen.value = screen
     }
 
@@ -216,12 +229,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveProject(project: AppProject) {
+        _activeProjectId.value = project.id
         saveProjectUseCase(project)
     }
 
     fun generateAiArchitectPlan(ideaPrompt: String, presetCategory: String?) {
+        aiPlanJob?.cancel()
         _aiWizardState.value = AiWizardUiState.GeneratingPlan
-        viewModelScope.launch {
+        aiPlanJob = viewModelScope.launch {
             val result = aiArchitectRepository.generateArchitectPlan(ideaPrompt, presetCategory)
             result.onSuccess { plan ->
                 _activeAdaptiveAiPlan.value = plan
@@ -239,8 +254,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         answers: List<AiSmartQuestion>,
         onProjectReady: (AppProject) -> Unit
     ) {
+        aiPlanJob?.cancel()
         _aiWizardState.value = AiWizardUiState.Materializing
-        viewModelScope.launch {
+        aiPlanJob = viewModelScope.launch {
             runCatching {
                 aiArchitectRepository.materializeProjectFromPlan(
                     context = getApplication(),
@@ -249,18 +265,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }.onSuccess { builtProject ->
                 _activeAdaptiveAiPlan.value = plan
+                _activeProjectId.value = builtProject.id
                 saveProjectUseCase(builtProject)
                 _aiWizardState.value = AiWizardUiState.Idle
                 onProjectReady(builtProject)
             }.onFailure { err ->
-                _aiWizardState.value = AiWizardUiState.Error(
-                    err.localizedMessage ?: "تعذر إنشاء ملفات المشروع التفاعلي."
-                )
+                _uiToastEvents.tryEmit(err.localizedMessage ?: "تعذر إنشاء ملفات المشروع التفاعلي.")
+                _aiWizardState.value = AiWizardUiState.PlanReady(plan)
             }
         }
     }
 
     fun resetAiWizardPrompt() {
+        aiPlanJob?.cancel()
         _aiWizardState.value = AiWizardUiState.Idle
     }
 

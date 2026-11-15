@@ -31,10 +31,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.domain.model.AppProject
+import com.example.domain.model.SourceType
 import com.example.engine.BuildOptimizationOptions
 import com.example.engine.ProjectExporter
 import com.example.engine.QuantumBuildEngine
@@ -76,17 +78,22 @@ fun FullInteractivePhoneScreen(
     var is3dView by remember { mutableStateOf(true) }
     var showLiveTerminalModal by remember { mutableStateOf(false) }
     var buildSessionStarted by remember { mutableStateOf(false) }
+    var sawRunningInSession by remember { mutableStateOf(false) }
     var showCompletionBottomSheet by remember { mutableStateOf(false) }
     var completedArtifactPath by remember { mutableStateOf("") }
 
     LaunchedEffect(engineState) {
-        if (buildSessionStarted && engineState is QuantumBuildEngine.EngineStatus.Success) {
+        if (buildSessionStarted && engineState is QuantumBuildEngine.EngineStatus.Running) {
+            sawRunningInSession = true
+        } else if (buildSessionStarted && sawRunningInSession && engineState is QuantumBuildEngine.EngineStatus.Success) {
             completedArtifactPath = (engineState as QuantumBuildEngine.EngineStatus.Success).apkPath
             showLiveTerminalModal = false
             showCompletionBottomSheet = true
             buildSessionStarted = false
-        } else if (buildSessionStarted && engineState is QuantumBuildEngine.EngineStatus.Failure) {
+            sawRunningInSession = false
+        } else if (buildSessionStarted && sawRunningInSession && engineState is QuantumBuildEngine.EngineStatus.Failure) {
             buildSessionStarted = false
+            sawRunningInSession = false
         }
     }
 
@@ -99,6 +106,8 @@ fun FullInteractivePhoneScreen(
             autoSignWithKeystore = !project.signingConfig.useDebugKey && project.signingConfig.keystorePath.isNotBlank(),
             autoBumpVersionCode = true
         )
+        effectiveEngine.resetState()
+        sawRunningInSession = false
         buildSessionStarted = true
         showLiveTerminalModal = true
         if (onStartAutomatedBuild != null) {
@@ -125,8 +134,10 @@ fun FullInteractivePhoneScreen(
     var isHomeScreenMode by remember { mutableStateOf(false) }
     var interactiveCounter by remember { mutableIntStateOf(1) }
 
-    // Real WebView + DevTools + Offline Simulator state (Active Sandbox enabled immediately)
-    var isLiveWebViewMode by remember { mutableStateOf(true) }
+    // Real WebView + DevTools + Offline Simulator state (APK projects launch directly in native sandbox)
+    var isLiveWebViewMode by remember(project.id) {
+        mutableStateOf(project.sourceType != SourceType.APK_PACKAGE)
+    }
     var isOfflineSimulated by remember { mutableStateOf(false) }
     var showDevToolsDrawer by remember { mutableStateOf(false) }
     var webReloadTrigger by remember { mutableIntStateOf(0) }
@@ -189,28 +200,49 @@ fun FullInteractivePhoneScreen(
                         )
                     }
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
-                            text = "📱 محاكي الهاتف التفاعلي المتطور",
+                            text = "محاكي الهاتف 3D التفاعلي",
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = TextPrimary
+                            fontSize = 15.sp,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${project.name} • ${project.packageConfig.packageName}",
                             fontFamily = TajawalFontFamily,
                             fontSize = 11.sp,
-                            color = TextMuted
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { is3dView = !is3dView }, modifier = Modifier.testTag("toggle_3d_phone_btn")) {
+                        IconButton(
+                            onClick = {
+                                val next3d = !is3dView
+                                is3dView = next3d
+                                if (next3d && isLiveWebViewMode) {
+                                    isLiveWebViewMode = false
+                                    Toast.makeText(
+                                        context,
+                                        "تم تفعيل العرض ثلاثي الأبعاد 3D التفاعلي ✨",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.testTag("toggle_3d_phone_btn")
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.ViewInAr,
                                 contentDescription = "عرض 3D",
-                                tint = if (is3dView) CyanAccent else TextSecondary
+                                tint = if (is3dView && !isLiveWebViewMode) CyanAccent else TextSecondary
                             )
                         }
                         IconButton(onClick = onEdit) {
@@ -555,7 +587,7 @@ fun FullInteractivePhoneScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .threeDPerspectiveTilt(is3dView)
+                    .threeDPerspectiveTilt(is3dView && !isLiveWebViewMode)
                     .shadow(
                         elevation = if (is3dView) 28.dp else 20.dp,
                         shape = RoundedCornerShape(36.dp),

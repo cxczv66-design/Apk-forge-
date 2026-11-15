@@ -71,6 +71,7 @@ fun AppRoot(
     val currentUser by viewModel.currentUser.collectAsState()
     val aiWizardState by viewModel.aiWizardState.collectAsState()
     val activeAdaptiveAiPlan by viewModel.activeAdaptiveAiPlan.collectAsState()
+    val activeProjectId by viewModel.activeProjectId.collectAsState()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -79,7 +80,19 @@ fun AppRoot(
     var showSidebarSupport by remember { mutableStateOf(false) }
 
     val layoutDirection = if (currentLanguage.isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
-    val fallbackActiveProject = projects.firstOrNull() ?: AppProject(
+    val currentActiveProject = remember(projects, activeProjectId, currentScreen) {
+        val screenProj = when (val s = currentScreen) {
+            is AppScreen.AdaptiveStudio -> projects.find { it.id == s.project.id } ?: s.project
+            is AppScreen.InteractivePhone -> projects.find { it.id == s.project.id } ?: s.project
+            is AppScreen.BuildCenter -> projects.find { it.id == s.project.id } ?: s.project
+            is AppScreen.Wizard -> s.projectToEdit?.let { p -> projects.find { it.id == p.id } ?: p }
+            else -> null
+        }
+        screenProj
+            ?: activeProjectId?.let { id -> projects.find { it.id == id } }
+            ?: projects.firstOrNull()
+    }
+    val fallbackActiveProject = currentActiveProject ?: AppProject(
         id = "omni_default_proj",
         name = "Omni Studio App",
         sourceValue = "https://example.com"
@@ -222,12 +235,12 @@ fun AppRoot(
                                         if (ok && updatedProject != null) onSigned(updatedProject)
                                     }
                                 },
-                                onProceedToLiveSandbox = { finalProject ->
+                                onProceedToLiveSandbox = { finalProject, phaseIdx ->
                                     viewModel.saveProject(finalProject)
                                     viewModel.navigateTo(
                                         AppScreen.InteractivePhone(
                                             project = finalProject,
-                                            fromScreen = AppScreen.AdaptiveStudio(finalProject, 0)
+                                            fromScreen = AppScreen.AdaptiveStudio(finalProject, phaseIdx)
                                         )
                                     )
                                 },
@@ -437,6 +450,7 @@ fun AppRoot(
 
                         is AppScreen.InteractivePhone -> {
                             val liveProject = projects.find { it.id == screen.project.id } ?: screen.project
+                            val originPhaseIndex = (screen.fromScreen as? AppScreen.AdaptiveStudio)?.initialPhaseIndex ?: 0
                             FullInteractivePhoneScreen(
                                 project = liveProject,
                                 quantumEngine = viewModel.quantumEngine,
@@ -448,7 +462,7 @@ fun AppRoot(
                                     viewModel.navigateTo(AppScreen.BuildCenter(liveProject))
                                 },
                                 onEdit = {
-                                    viewModel.navigateTo(AppScreen.AdaptiveStudio(liveProject, 0))
+                                    viewModel.navigateTo(AppScreen.AdaptiveStudio(liveProject, originPhaseIndex))
                                 }
                             )
                         }
@@ -504,7 +518,7 @@ fun AppRoot(
                 OmniStudioSidebarScaffold(
                     drawerState = drawerState,
                     currentScreen = currentScreen,
-                    activeProject = projects.firstOrNull(),
+                    activeProject = currentActiveProject,
                     projectsCount = projects.size,
                     downloadsCount = downloads.size,
                     onNavigate = { viewModel.navigateTo(it) },
@@ -539,7 +553,7 @@ fun AppRoot(
 
             if (showSidebarSupport) {
                 OmniSupportDialog(
-                    activeProjectName = projects.firstOrNull()?.name ?: "ApkForge Omni IDE",
+                    activeProjectName = currentActiveProject?.name ?: "ApkForge Omni IDE",
                     onDismiss = { showSidebarSupport = false }
                 )
             }

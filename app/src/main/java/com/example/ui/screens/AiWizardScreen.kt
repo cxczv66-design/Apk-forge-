@@ -55,6 +55,7 @@ fun AiWizardScreen(
 ) {
     var ideaText by remember { mutableStateOf("") }
     var selectedPreset by remember { mutableStateOf<String?>(null) }
+    var lastPresetDesc by remember { mutableStateOf<String?>(null) }
     var editableQuestions by remember { mutableStateOf<List<AiSmartQuestion>>(emptyList()) }
 
     LaunchedEffect(uiState) {
@@ -119,6 +120,7 @@ fun AiWizardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
                 .padding(horizontal = 16.dp)
                 .testTag("ai_wizard_screen"),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -190,6 +192,14 @@ fun AiWizardScreen(
                                             color = TextPrimary
                                         )
                                     }
+                                    if (ideaText.isNotBlank() || selectedPreset != null) {
+                                        FilledTonalButton(
+                                            onClick = { onGeneratePlan(ideaText, selectedPreset) },
+                                            modifier = Modifier.height(48.dp)
+                                        ) {
+                                            Text("إعادة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -210,8 +220,17 @@ fun AiWizardScreen(
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = {
-                                        selectedPreset = title
-                                        if (ideaText.isBlank()) ideaText = desc
+                                        if (isSelected) {
+                                            selectedPreset = null
+                                            if (ideaText == desc) ideaText = ""
+                                            lastPresetDesc = null
+                                        } else {
+                                            selectedPreset = title
+                                            if (ideaText.isBlank() || ideaText == lastPresetDesc) {
+                                                ideaText = desc
+                                            }
+                                            lastPresetDesc = desc
+                                        }
                                     },
                                     label = {
                                         Text(

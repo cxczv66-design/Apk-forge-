@@ -145,6 +145,10 @@ object AdaptiveSourceAnalyzer {
 
         val resolvedHtml = resolveSourceHtml(project, htmlOverride)
         val report = analyzeHtmlComplexity(sourceKind, resolvedHtml)
+        val domMap = runCatching {
+            val raw = project.omniConfig.domEditsJson
+            if (raw.startsWith("{")) JSONObject(raw) else JSONObject()
+        }.getOrElse { JSONObject() }
         val phases = mutableListOf<AdaptivePhase>()
         var phaseNum = 1
 
@@ -317,7 +321,7 @@ object AdaptiveSourceAnalyzer {
                                 categoryTag = "صورة",
                                 type = DynamicFeatureType.SWITCH,
                                 bindingKey = "dom.img.visible.$imgIdx",
-                                boolValue = true
+                                boolValue = domMap.optBoolean("dom.img.visible.$imgIdx", true)
                             )
                         )
                         features.add(
@@ -328,7 +332,7 @@ object AdaptiveSourceAnalyzer {
                                 categoryTag = "تأثير 3D",
                                 type = DynamicFeatureType.SWITCH,
                                 bindingKey = "dom.img.rounded.$imgIdx",
-                                boolValue = false
+                                boolValue = domMap.optBoolean("dom.img.rounded.$imgIdx", false)
                             )
                         )
                     }
@@ -366,7 +370,7 @@ object AdaptiveSourceAnalyzer {
                                 categoryTag = "زر",
                                 type = DynamicFeatureType.TEXT_INPUT,
                                 bindingKey = "dom.btn.text.$btnIdx",
-                                textValue = label
+                                textValue = domMap.optString("dom.btn.text.$btnIdx", label).ifBlank { label }
                             )
                         )
                         features.add(
@@ -377,7 +381,7 @@ object AdaptiveSourceAnalyzer {
                                 categoryTag = "تفاعل",
                                 type = DynamicFeatureType.SWITCH,
                                 bindingKey = "dom.btn.visible.$btnIdx",
-                                boolValue = true
+                                boolValue = domMap.optBoolean("dom.btn.visible.$btnIdx", true)
                             )
                         )
                     }
@@ -411,7 +415,7 @@ object AdaptiveSourceAnalyzer {
                             categoryTag = "نصوص",
                             type = DynamicFeatureType.TEXT_INPUT,
                             bindingKey = "dom.text.replace.$hIdx",
-                            textValue = headingText
+                            textValue = domMap.optString("dom.text.replace.$hIdx", headingText).ifBlank { headingText }
                         )
                     }
                     phases.add(
@@ -578,12 +582,18 @@ object AdaptiveSourceAnalyzer {
     ): AdaptiveWorkspacePlan {
         val phases = aiPlan.roadmap.mapIndexed { idx, stage ->
             val stageFeatures = when (stage.category.lowercase()) {
-                "identity", "design", "ui" -> listOf(
-                    DynamicPhaseFeature("ai_name_$idx", "اسم التطبيق", "تأكيد الاسم المقترح من AI", "هوية", DynamicFeatureType.TEXT_INPUT, "app.name", textValue = project.name),
+                "identity" -> listOf(
+                    DynamicPhaseFeature("ai_name_$idx", "اسم التطبيق الظاهر", "تأكيد الاسم المقترح من AI", "هوية", DynamicFeatureType.TEXT_INPUT, "app.name", textValue = project.name),
+                    DynamicPhaseFeature("ai_icon_$idx", "اختيار أيقونة التطبيق 3D", "أيقونة حقيقية تظهر على الهاتف", "أيقونة", DynamicFeatureType.ACTION_TRIGGER, "action.pick_icon"),
+                    DynamicPhaseFeature("ai_splash_$idx", "شاشة البداية المتحركة (Splash)", "تشغيل شاشة إقلاع عند فتح التطبيق", "إقلاع", DynamicFeatureType.SWITCH, "splash.enabled", boolValue = project.splashConfig.enabled),
+                    DynamicPhaseFeature("ai_pwa_$idx", "محرر العناصر والنصوص المباشر", "تخصيص العناوين والأزرار والبانر", "محرر", DynamicFeatureType.ACTION_TRIGGER, "action.open_pwa_editor")
+                )
+                "design", "ui", "theme", "colors" -> listOf(
                     DynamicPhaseFeature("ai_color_$idx", "اللون الأساسي المقترح", "لوحة ألوان 3D متناسقة", "ألوان", DynamicFeatureType.COLOR_PICKER, "app.accentColorHex", textValue = project.accentColorHex, options = listOf(aiPlan.accentColorHex, "#FF7A2F", "#38BDF8", "#10B981", "#A855F7", "#EC4899")),
                     DynamicPhaseFeature("ai_grad_$idx", "تدرجات الخلفية الذكية", "إضاءة وعمق 3D للواجهات", "مظهر", DynamicFeatureType.SWITCH, "omni.gradientEnabled", boolValue = project.omniConfig.gradientEnabled),
+                    DynamicPhaseFeature("ai_dark_$idx", "الوضع الليلي القسري (Dark CSS)", "تحسين التباين في الإضاءة المنخفضة", "ثيم", DynamicFeatureType.SWITCH, "pro.forceDarkCss", boolValue = project.proConfig.forceDarkCss),
                     DynamicPhaseFeature("ai_font_$idx", "تناسب الخطوط (${project.omniConfig.fontScalePercent}%)", "ضبط مقاس النصوص العربية والإنجليزية", "خطوط", DynamicFeatureType.SLIDER, "omni.fontScalePercent", intValue = project.omniConfig.fontScalePercent, minInt = 80, maxInt = 140),
-                    DynamicPhaseFeature("ai_icon_$idx", "اختيار أيقونة مخصصة", "أيقونة حقيقية تظهر على الهاتف", "أيقونة", DynamicFeatureType.ACTION_TRIGGER, "action.pick_icon")
+                    DynamicPhaseFeature("ai_css_$idx", "قواعد CSS مخصصة", "تنسيقات متقدمة تُحقن في الواجهة", "CSS", DynamicFeatureType.TEXT_INPUT, "pro.customCss", textValue = project.proConfig.customCss)
                 )
                 "auth", "security" -> listOf(
                     DynamicPhaseFeature("ai_auth_$idx", "تسجيل الدخول (Auth Builder)", "Google / Email / Phone", "مصادقة", DynamicFeatureType.SWITCH, "omni.authBuilderEnabled", boolValue = project.omniConfig.authBuilderEnabled),
@@ -594,24 +604,28 @@ object AdaptiveSourceAnalyzer {
                 "data", "api", "backend" -> listOf(
                     DynamicPhaseFeature("ai_db_$idx", "قاعدة البيانات المحلية (Key-Value)", "حفظ السجلات والمفضلة أوفلاين", "بيانات", DynamicFeatureType.SWITCH, "omni.localDbEnabled", boolValue = project.omniConfig.localDbEnabled),
                     DynamicPhaseFeature("ai_api_$idx", "ربط خادم REST API", "اتصال مباشر بواجهات JSON", "API", DynamicFeatureType.TEXT_INPUT, "omni.apiBaseUrl", textValue = project.omniConfig.apiBaseUrl),
-                    DynamicPhaseFeature("ai_acc_$idx", "مسرّع الأداء Cache-First", "تحميل فوري وضغط صور", "سرعة", DynamicFeatureType.SWITCH, "omni.appAcceleratorEnabled", boolValue = project.omniConfig.appAcceleratorEnabled)
+                    DynamicPhaseFeature("ai_acc_$idx", "مسرّع الأداء Cache-First", "تحميل فوري وضغط صور", "سرعة", DynamicFeatureType.SWITCH, "omni.appAcceleratorEnabled", boolValue = project.omniConfig.appAcceleratorEnabled),
+                    DynamicPhaseFeature("ai_adblock_$idx", "مانع الإعلانات والنوافذ المنبثقة", "حجب نطاقات التتبع والإعلانات", "أداء", DynamicFeatureType.SWITCH, "pro.adAndPopupBlocker", boolValue = project.proConfig.adAndPopupBlocker)
                 )
                 "navigation", "ux" -> listOf(
                     DynamicPhaseFeature("ai_nav_$idx", "شريط التنقل السفلي", "تبويبات سريعة بين الأقسام", "تنقل", DynamicFeatureType.SWITCH, "bottomNav.enabled", boolValue = project.bottomNavConfig.enabled),
                     DynamicPhaseFeature("ai_drawer_$idx", "القائمة الجانبية (Drawer)", "وصول سريع للأقسام والإعدادات", "تنقل", DynamicFeatureType.SWITCH, "pro.drawerEnabled", boolValue = project.proConfig.drawerEnabled),
                     DynamicPhaseFeature("ai_fab_$idx", "زر الإجراء العائم (FAB)", "تواصل سريع ودعم مباشر", "تفاعل", DynamicFeatureType.SWITCH, "pro.fabMenuEnabled", boolValue = project.proConfig.fabMenuEnabled),
+                    DynamicPhaseFeature("ai_ptr_$idx", "السحب للتحديث (Pull to Refresh)", "تحديث المحتوى بالسحب للأسفل", "تفاعل", DynamicFeatureType.SWITCH, "web.pullToRefresh", boolValue = project.webViewConfig.pullToRefresh),
                     DynamicPhaseFeature("ai_fs_$idx", "وضع ملء الشاشة (Full Screen)", "تجربة غامرة بدون أشرطة", "عرض", DynamicFeatureType.SWITCH, "web.fullScreen", boolValue = project.webViewConfig.fullScreen)
                 )
                 "notifications", "permissions" -> listOf(
                     DynamicPhaseFeature("ai_push_$idx", "الإشعارات الفورية (Push)", "تفعيل قنوات التنبيه المباشر", "إشعارات", DynamicFeatureType.SWITCH, "push.enabled", boolValue = project.pushConfig.enabled),
                     DynamicPhaseFeature("ai_cam_$idx", "صلاحية الكاميرا", "لالتقاط الصور ومسح QR", "أذونات", DynamicFeatureType.SWITCH, "perm.camera", boolValue = project.permissionsConfig.camera),
                     DynamicPhaseFeature("ai_loc_$idx", "صلاحية الموقع (GPS)", "لتحديد الموقع والخدمات القريبة", "أذونات", DynamicFeatureType.SWITCH, "perm.location", boolValue = project.permissionsConfig.location),
+                    DynamicPhaseFeature("ai_mic_$idx", "صلاحية الميكروفون", "للتسجيل الصوتي والمكالمات", "أذونات", DynamicFeatureType.SWITCH, "perm.microphone", boolValue = project.permissionsConfig.microphone),
                     DynamicPhaseFeature("ai_rat_$idx", "واجهة توضيح الأذونات الذكية", "شرح كل إذن قبل الطلب", "أذونات", DynamicFeatureType.SWITCH, "omni.smartPermissionsRationaleEnabled", boolValue = project.omniConfig.smartPermissionsRationaleEnabled)
                 )
                 else -> listOf(
+                    DynamicPhaseFeature("ai_hero_$idx", "عنوان الواجهة الرئيسية (Hero)", "تخصيص العنوان الرئيسي بالمعاينة", "محتوى", DynamicFeatureType.TEXT_INPUT, "omni.customHeroTitle", textValue = project.omniConfig.customHeroTitle),
+                    DynamicPhaseFeature("ai_cta_$idx", "نص الزر الأساسي (CTA)", "تغيير نص الزر التفاعلي الرئيسي", "زر", DynamicFeatureType.TEXT_INPUT, "omni.customPrimaryButtonText", textValue = project.omniConfig.customPrimaryButtonText),
                     DynamicPhaseFeature("ai_pkg_$idx", "معرّف الحزمة (Package ID)", "الهوية البرمجية على أندرويد", "حزمة", DynamicFeatureType.TEXT_INPUT, "pkg.packageName", textValue = project.packageConfig.packageName),
                     DynamicPhaseFeature("ai_ver_$idx", "إصدار البناء (Version Name)", "مثال: 1.0.0", "إصدار", DynamicFeatureType.TEXT_INPUT, "pkg.versionName", textValue = project.packageConfig.versionName),
-                    DynamicPhaseFeature("ai_pwa_$idx", "فتح محرر تخصيص الواجهة الحية", "تعديل النصوص والأزرار والعناصر مباشرة", "محرر", DynamicFeatureType.ACTION_TRIGGER, "action.open_pwa_editor"),
                     DynamicPhaseFeature("ai_bridge_$idx", "الجسر البرمجي v2 (Hardware APIs)", "البصمة، الاهتزاز، مشاركة النظام", "جسر", DynamicFeatureType.SWITCH, "bridge.jsBridgeEnabled", boolValue = project.bridgeConfig.jsBridgeEnabled)
                 )
             }
@@ -622,7 +636,7 @@ object AdaptiveSourceAnalyzer {
                 subtitle = stage.descriptionAr,
                 badge = "AI #${idx + 1}",
                 accentHex = aiPlan.accentColorHex,
-                supportsLiveWebPreview = true,
+                supportsLiveWebPreview = stage.category.lowercase() !in setOf("packaging", "release"),
                 features = stageFeatures
             )
         }
@@ -657,7 +671,12 @@ object AdaptiveSourceAnalyzer {
     ): AppProject {
         var updated = when (feature.bindingKey) {
             "app.name" -> project.copy(name = newText.ifBlank { project.name })
-            "app.accentColorHex" -> project.copy(accentColorHex = newText, primaryColorHex = newText)
+            "app.accentColorHex" -> project.copy(
+                accentColorHex = newText,
+                primaryColorHex = newText,
+                bottomNavConfig = project.bottomNavConfig.copy(activeColorHex = newText),
+                omniConfig = project.omniConfig.copy(gradientStartHex = newText)
+            )
             "splash.enabled" -> project.copy(splashConfig = project.splashConfig.copy(enabled = newBool))
             "omni.gradientEnabled" -> project.copy(omniConfig = project.omniConfig.copy(gradientEnabled = newBool))
             "omni.fontScalePercent" -> project.copy(omniConfig = project.omniConfig.copy(fontScalePercent = newInt.coerceIn(75, 145)))
@@ -803,11 +822,65 @@ object AdaptiveSourceAnalyzer {
         }
     }
 
+    fun buildLiveDomOverrideScript(project: AppProject): String {
+        val domObj = runCatching {
+            val raw = project.omniConfig.domEditsJson
+            if (raw.startsWith("{")) JSONObject(raw) else JSONObject()
+        }.getOrNull() ?: return ""
+        if (domObj.length() == 0) return ""
+
+        return buildString {
+            append("(function(){")
+            append("var imgs=document.querySelectorAll('img');")
+            append("var btns=document.querySelectorAll('button,a.btn,.btn,[role=\"button\"]');")
+            append("var texts=document.querySelectorAll('h1,h2,h3,h4,p');")
+            domObj.keys().forEach { key ->
+                when {
+                    key.startsWith("dom.img.visible.") -> {
+                        val idx = key.substringAfterLast(".").toIntOrNull() ?: return@forEach
+                        val show = domObj.optBoolean(key, true)
+                        append("if(imgs[$idx])imgs[$idx].style.display='${if (show) "" else "none"}';")
+                    }
+                    key.startsWith("dom.img.rounded.") -> {
+                        val idx = key.substringAfterLast(".").toIntOrNull() ?: return@forEach
+                        val rounded = domObj.optBoolean(key, false)
+                        if (rounded) {
+                            append("if(imgs[$idx]){imgs[$idx].style.borderRadius='18px';imgs[$idx].style.boxShadow='0 10px 24px rgba(0,0,0,0.35)';}")
+                        } else {
+                            append("if(imgs[$idx]){imgs[$idx].style.borderRadius='';imgs[$idx].style.boxShadow='';}")
+                        }
+                    }
+                    key.startsWith("dom.btn.visible.") -> {
+                        val idx = key.substringAfterLast(".").toIntOrNull() ?: return@forEach
+                        val show = domObj.optBoolean(key, true)
+                        append("if(btns[$idx])btns[$idx].style.display='${if (show) "" else "none"}';")
+                    }
+                    key.startsWith("dom.btn.text.") -> {
+                        val idx = key.substringAfterLast(".").toIntOrNull() ?: return@forEach
+                        val safe = domObj.optString(key).replace("\\", "\\\\").replace("'", "\\'")
+                        if (safe.isNotBlank()) append("if(btns[$idx])btns[$idx].textContent='$safe';")
+                    }
+                    key.startsWith("dom.text.replace.") -> {
+                        val idx = key.substringAfterLast(".").toIntOrNull() ?: return@forEach
+                        val safe = domObj.optString(key).replace("\\", "\\\\").replace("'", "\\'")
+                        if (safe.isNotBlank()) append("if(texts[$idx])texts[$idx].textContent='$safe';")
+                    }
+                }
+            }
+            append("})();")
+        }
+    }
+
     private fun resolveSourceHtml(project: AppProject, htmlOverride: String?): String {
         if (!htmlOverride.isNullOrBlank()) return htmlOverride
         val wsPath = project.localWorkspacePath
         if (!wsPath.isNullOrBlank()) {
-            val entry = LocalWorkspaceEngine.findEntryHtml(File(wsPath))
+            val wsDir = File(wsPath)
+            val snapshot = File(wsDir, "scraped_snapshot.html")
+            if (snapshot.exists()) {
+                return runCatching { snapshot.readText(Charsets.UTF_8) }.getOrDefault("")
+            }
+            val entry = LocalWorkspaceEngine.findEntryHtml(wsDir)
             if (entry != null && entry.exists()) {
                 return runCatching { entry.readText(Charsets.UTF_8) }.getOrDefault("")
             }

@@ -239,7 +239,10 @@ class UrlScraperEngine(
         )
     }
 
-    fun toPreConfiguredProject(identity: ScrapedSiteIdentity): AppProject {
+    fun toPreConfiguredProject(
+        identity: ScrapedSiteIdentity,
+        context: Context? = null
+    ): AppProject {
         val navDestinations = if (identity.detectedLinks.isNotEmpty()) {
             identity.detectedLinks.take(4).mapIndexed { index, link ->
                 BottomNavDestination(
@@ -264,6 +267,14 @@ class UrlScraperEngine(
 
         val permsSet = identity.detectedPermissions.toSet()
         val effectiveIcon = identity.localCachedIconUri ?: identity.iconUrl
+        val snapshotWorkspacePath = if (context != null && identity.rawHtmlSnapshot.isNotBlank()) {
+            runCatching {
+                val safeHost = identity.host.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(32)
+                val dir = File(context.filesDir, "workspaces/scraped_${safeHost}_${System.currentTimeMillis()}").apply { mkdirs() }
+                File(dir, "scraped_snapshot.html").writeText(identity.rawHtmlSnapshot, Charsets.UTF_8)
+                dir.absolutePath
+            }.getOrNull()
+        } else null
 
         return AppProject(
             id = "proj_url_${System.currentTimeMillis()}",
@@ -274,6 +285,7 @@ class UrlScraperEngine(
             accentColorHex = identity.themeColorHex,
             sourceType = SourceType.WEB_URL,
             sourceValue = identity.normalizedUrl,
+            localWorkspacePath = snapshotWorkspacePath,
             splashConfig = SplashConfig(
                 enabled = true,
                 backgroundColorHex = identity.backgroundColorHex,

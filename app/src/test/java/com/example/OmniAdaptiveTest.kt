@@ -181,4 +181,69 @@ class OmniAdaptiveTest {
         assertEquals(AdaptiveSourceKind.AI_SCRATCH, plan.sourceKind)
         assertEquals(12, plan.phases.size)
     }
+
+    @Test
+    fun `domEditsJson persists feature values across buildAdaptivePlan rebuilds and emits live js`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val wsDir = File(context.filesDir, "test_dom_persist_${System.currentTimeMillis()}").apply { mkdirs() }
+        val sampleHtml = "<html><body><h1>Title</h1><img src='a.png'><button>Buy</button></body></html>"
+        File(wsDir, "index.html").writeText(sampleHtml, Charsets.UTF_8)
+
+        val project = AppProject(
+            id = "test_dom_persist",
+            name = "PersistTest",
+            sourceType = SourceType.HTML_FOLDER,
+            sourceValue = "index.html",
+            localWorkspacePath = wsDir.absolutePath
+        )
+
+        val btnEditFeature = DynamicPhaseFeature(
+            id = "btn_txt_0",
+            title = "تعديل نص الزر #1",
+            subtitle = "",
+            categoryTag = "زر",
+            type = DynamicFeatureType.TEXT_INPUT,
+            bindingKey = "dom.btn.text.0",
+            textValue = "Buy"
+        )
+        val imgHideFeature = DynamicPhaseFeature(
+            id = "img_show_0",
+            title = "إظهار الصورة #1",
+            subtitle = "",
+            categoryTag = "صورة",
+            type = DynamicFeatureType.SWITCH,
+            bindingKey = "dom.img.visible.0",
+            boolValue = true
+        )
+
+        val edited1 = AdaptiveSourceAnalyzer.applyFeatureEdit(
+            context = context,
+            project = project,
+            feature = btnEditFeature,
+            newText = "اطلب الآن"
+        )
+        val edited2 = AdaptiveSourceAnalyzer.applyFeatureEdit(
+            context = context,
+            project = edited1,
+            feature = imgHideFeature,
+            newBool = false
+        )
+
+        val rebuiltPlan = AdaptiveSourceAnalyzer.buildAdaptivePlan(edited2, htmlOverride = sampleHtml)
+        val allFeatures = rebuiltPlan.phases.flatMap { it.features }
+
+        val restoredBtn = allFeatures.find { it.bindingKey == "dom.btn.text.0" }
+        val restoredImg = allFeatures.find { it.bindingKey == "dom.img.visible.0" }
+
+        assertNotNull(restoredBtn)
+        assertEquals("اطلب الآن", restoredBtn?.textValue)
+        assertNotNull(restoredImg)
+        assertEquals(false, restoredImg?.boolValue)
+
+        val liveJs = AdaptiveSourceAnalyzer.buildLiveDomOverrideScript(edited2)
+        assertTrue(liveJs.contains("اطلب الآن"))
+        assertTrue(liveJs.contains("imgs[0].style.display='none'"))
+
+        wsDir.deleteRecursively()
+    }
 }

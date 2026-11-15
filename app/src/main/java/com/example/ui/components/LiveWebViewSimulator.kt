@@ -44,6 +44,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.domain.model.AppProject
 import com.example.domain.model.SourceType
+import com.example.engine.AdaptiveSourceAnalyzer
 import com.example.engine.LocalWorkspaceEngine
 import com.example.ui.theme.*
 import java.io.ByteArrayInputStream
@@ -167,12 +168,14 @@ fun LiveWebViewContainer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentProject by rememberUpdatedState(project)
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var isLoading by remember { mutableStateOf(false) }
     var isDrawerOpen by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var rendererSessionKey by remember { mutableIntStateOf(0) }
     var rendererCrashCount by remember { mutableIntStateOf(0) }
+    var useSoftwareLayer by remember { mutableStateOf(false) }
     var isRendererFailed by remember { mutableStateOf(false) }
     var pendingRendererRecovery by remember { mutableStateOf(false) }
     var lastHandledReloadTrigger by remember { mutableIntStateOf(reloadTrigger) }
@@ -183,6 +186,55 @@ fun LiveWebViewContainer(
             onLog(level, msg)
         } else {
             mainHandler.post { onLog(level, msg) }
+        }
+    }
+
+    fun injectLiveCustomizations(wv: WebView?, proj: AppProject, logUpdates: Boolean) {
+        if (wv == null || destroyedWebViews.contains(wv)) return
+        val pro = proj.proConfig
+        val omni = proj.omniConfig
+        val darkCss = if (pro.forceDarkCss) {
+            "html{filter:invert(0.92) hue-rotate(180deg)!important;background:#0d1117!important;}img,video{filter:invert(1) hue-rotate(180deg)!important;}"
+        } else ""
+        val gradientCss = if (omni.gradientEnabled) {
+            "body,header,.hero{background:linear-gradient(135deg,${omni.gradientStartHex},${omni.gradientEndHex})!important;}"
+        } else ""
+        val fontScaleCss = "html{font-size:${omni.fontScalePercent.coerceIn(75, 145)}%!important;}"
+        val hideCss = omni.customHideSelectorsCsv.split(',')
+            .map { it.trim() }.filter { it.isNotBlank() }
+            .takeIf { it.isNotEmpty() }
+            ?.let { "${it.joinToString(",")}{display:none!important;}" } ?: ""
+        val mergedCss = "$darkCss $gradientCss $fontScaleCss $hideCss ${pro.customCss}"
+            .trim().replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+
+        wv.evaluateJavascript(
+            "(function(){var el=document.getElementById('omni-live-style');if(!el){el=document.createElement('style');el.id='omni-live-style';document.head.appendChild(el);}el.innerHTML='$mergedCss';})();",
+            null
+        )
+
+        val omniDomJs = buildString {
+            val accent = proj.accentColorHex.replace("'", "")
+            append("document.documentElement.style.setProperty('--accent','$accent');")
+            if (omni.customHeroTitle.isNotBlank()) {
+                val h = omni.customHeroTitle.replace("\\", "\\\\").replace("'", "\\'")
+                append("var _h=document.querySelector('[data-omni-hero],h1,.hero-title');if(_h)_h.textContent='$h';")
+            }
+            if (omni.customPrimaryButtonText.isNotBlank()) {
+                val b = omni.customPrimaryButtonText.replace("\\", "\\\\").replace("'", "\\'")
+                append("var _b=document.querySelector('[data-omni-cta],button.primary,.btn-primary,button');if(_b)_b.textContent='$b';")
+            }
+            if (omni.appAcceleratorEnabled && omni.acceleratorImageCompression) {
+                append("document.querySelectorAll('img').forEach(function(i){if(!i.getAttribute('loading'))i.setAttribute('loading','lazy');});")
+            }
+        }
+        val domOverrideJs = AdaptiveSourceAnalyzer.buildLiveDomOverrideScript(proj)
+        val combinedJs = "$omniDomJs $domOverrideJs ${pro.customJs}".trim()
+        if (combinedJs.isNotBlank()) {
+            wv.evaluateJavascript(combinedJs, null)
+        }
+        if (logUpdates) {
+            if (mergedCss.isNotBlank()) safeLog(ConsoleLevel.INFO, "🎨 تم حقن CSS وتدرجات Omni IDE (${mergedCss.length} حرف)")
+            if (combinedJs.isNotBlank()) safeLog(ConsoleLevel.INFO, "⚡ تم تنفيذ JS والمحسنات الحية")
         }
     }
 
@@ -203,17 +255,20 @@ fun LiveWebViewContainer(
 
     fun triggerRendererRecovery(crashed: Boolean) {
         isLoading = false
-        if (rendererCrashCount < 3) {
+        if (rendererCrashCount < 1) {
             rendererCrashCount++
+            useSoftwareLayer = true
             safeLog(
                 ConsoleLevel.WARN,
-                if (crashed) "تعافٍ تلقائي لمحرك العرض (المحاولة $rendererCrashCount/3)..."
-                else "استعادة محرك WebView بعد تحرير الذاكرة..."
+                if (crashed) "تعافٍ تلقائي لمحرك العرض بالوضع البرمجي الآمن..."
+                else "استعادة محرك WebView بالوضع البرمجي الآمن..."
             )
-            rendererSessionKey++
+            mainHandler.postDelayed({
+                rendererSessionKey++
+            }, 250)
         } else {
             isRendererFailed = true
-            safeLog(ConsoleLevel.ERROR, "توقف محرك العرض مؤقتاً بعد 3 محاولات — اضغط إعادة التشغيل.")
+            safeLog(ConsoleLevel.ERROR, "توقف محرك العرض مؤقتاً — اضغط إعادة التشغيل لإعادة المحاولة.")
         }
     }
 
@@ -269,10 +324,43 @@ fun LiveWebViewContainer(
                     isRendererFailed = false
                     rendererSessionKey++
                 } else {
-                    webViewRef?.reload()
+                    val wv = webViewRef
+                    val proj = currentProject
+                    val localEntry = proj.localWorkspacePath?.let { path ->
+                        val dir = File(path)
+                        LocalWorkspaceEngine.findEntryHtml(dir)
+                    }
+                    if (wv != null && !destroyedWebViews.contains(wv)) {
+                        if (proj.sourceType == SourceType.WEB_URL &&
+                            (proj.sourceValue.startsWith("http://") || proj.sourceValue.startsWith("https://"))
+                        ) {
+                            wv.reload()
+                        } else if (localEntry != null && localEntry.exists()) {
+                            wv.loadUrl(Uri.fromFile(localEntry).toString())
+                        } else {
+                            wv.loadDataWithBaseURL(
+                                "https://apkforge.local/",
+                                buildInteractivePreviewHtml(proj),
+                                "text/html",
+                                "UTF-8",
+                                null
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+
+    LaunchedEffect(
+        project.name,
+        project.accentColorHex,
+        project.omniConfig,
+        project.proConfig.forceDarkCss,
+        project.proConfig.customCss,
+        project.proConfig.customJs
+    ) {
+        injectLiveCustomizations(webViewRef, currentProject, logUpdates = false)
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0E16))) {
@@ -382,8 +470,11 @@ fun LiveWebViewContainer(
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
+                            if (useSoftwareLayer) {
+                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                            }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
+                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
                             }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
@@ -396,6 +487,8 @@ fun LiveWebViewContainer(
                             settings.loadWithOverviewMode = true
                             settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
                             settings.setSupportZoom(project.webViewConfig.supportZoom)
+                            settings.setGeolocationEnabled(false)
+                            settings.mediaPlaybackRequiresUserGesture = true
                             settings.cacheMode = if (pro.assetPreloaderEnabled) WebSettings.LOAD_CACHE_ELSE_NETWORK else WebSettings.LOAD_DEFAULT
 
                             if (project.bridgeConfig.jsBridgeEnabled) {
@@ -420,9 +513,11 @@ fun LiveWebViewContainer(
 
                             webViewClient = object : WebViewClient() {
                                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                    if (pro.adAndPopupBlocker) {
+                                    val livePro = currentProject.proConfig
+                                    val liveBlocked = livePro.blockedHostsCsv.split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
+                                    if (livePro.adAndPopupBlocker) {
                                         val host = request?.url?.host?.lowercase() ?: ""
-                                        if (blockedHosts.any { host.contains(it) }) {
+                                        if (liveBlocked.any { host.contains(it) }) {
                                             safeLog(ConsoleLevel.WARN, "AdBlocker حظر: $host")
                                             return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                                         }
@@ -436,51 +531,14 @@ fun LiveWebViewContainer(
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
+                                if (view == null || destroyedWebViews.contains(view)) return
                                 isLoading = false
-                                val omni = project.omniConfig
+                                val liveProj = currentProject
                                 safeLog(
                                     ConsoleLevel.NETWORK,
-                                    if (omni.appAcceleratorEnabled) "200 OK • App Accelerator ⚡ اكتمل التحميل" else "200 OK • اكتمل تحميل الصفحة"
+                                    if (liveProj.omniConfig.appAcceleratorEnabled) "200 OK • App Accelerator ⚡ اكتمل التحميل" else "200 OK • اكتمل تحميل الصفحة"
                                 )
-
-                                val darkCss = if (pro.forceDarkCss) {
-                                    "html{filter:invert(0.92) hue-rotate(180deg)!important;background:#0d1117!important;}img,video{filter:invert(1) hue-rotate(180deg)!important;}"
-                                } else ""
-                                val gradientCss = if (omni.gradientEnabled) {
-                                    "body,header,.hero{background:linear-gradient(135deg,${omni.gradientStartHex},${omni.gradientEndHex})!important;}"
-                                } else ""
-                                val fontScaleCss = "html{font-size:${omni.fontScalePercent.coerceIn(75, 145)}%!important;}"
-                                val hideCss = omni.customHideSelectorsCsv.split(',')
-                                    .map { it.trim() }.filter { it.isNotBlank() }
-                                    .takeIf { it.isNotEmpty() }
-                                    ?.let { "${it.joinToString(",")}{display:none!important;}" } ?: ""
-                                val mergedCss = "$darkCss $gradientCss $fontScaleCss $hideCss ${pro.customCss}"
-                                    .trim().replace("'", "\\'").replace("\n", " ")
-                                if (mergedCss.isNotBlank()) {
-                                    view?.evaluateJavascript(
-                                        "(function(){var s=document.createElement('style');s.innerHTML='$mergedCss';document.head.appendChild(s);})();",
-                                        null
-                                    )
-                                    safeLog(ConsoleLevel.INFO, "🎨 تم حقن CSS وتدرجات Omni IDE (${mergedCss.length} حرف)")
-                                }
-                                val omniDomJs = buildString {
-                                    if (omni.customHeroTitle.isNotBlank()) {
-                                        val h = omni.customHeroTitle.replace("'", "\\'")
-                                        append("var _h=document.querySelector('[data-omni-hero],h1,.hero-title');if(_h)_h.textContent='$h';")
-                                    }
-                                    if (omni.customPrimaryButtonText.isNotBlank()) {
-                                        val b = omni.customPrimaryButtonText.replace("'", "\\'")
-                                        append("var _b=document.querySelector('[data-omni-cta],button.primary,.btn-primary,button');if(_b)_b.textContent='$b';")
-                                    }
-                                    if (omni.appAcceleratorEnabled && omni.acceleratorImageCompression) {
-                                        append("document.querySelectorAll('img').forEach(function(i){if(!i.getAttribute('loading'))i.setAttribute('loading','lazy');});")
-                                    }
-                                }
-                                val combinedJs = "$omniDomJs ${pro.customJs}".trim()
-                                if (combinedJs.isNotBlank()) {
-                                    view?.evaluateJavascript(combinedJs, null)
-                                    safeLog(ConsoleLevel.INFO, "⚡ تم تنفيذ JS والمحسنات الحية")
-                                }
+                                injectLiveCustomizations(view, liveProj, logUpdates = true)
                             }
 
                             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -802,7 +860,15 @@ private fun QuickJsChip(label: String, onClick: () -> Unit) {
 
 private fun buildInteractivePreviewHtml(project: AppProject): String {
     val accent = project.accentColorHex
+    val heroTitle = project.omniConfig.customHeroTitle.ifBlank { project.name }
+    val ctaText = project.omniConfig.customPrimaryButtonText.ifBlank { "ابدأ الآن" }
     val pro = project.proConfig
+    val navTabsHtml = if (project.bottomNavConfig.enabled && project.bottomNavConfig.destinations.isNotEmpty()) {
+        val tabs = project.bottomNavConfig.destinations.take(4).joinToString("") { dest ->
+            "<span style='padding:6px 10px;border-radius:10px;background:${accent}22;color:#fff;font-size:11px;'>${dest.title}</span>"
+        }
+        "<div style='display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:10px;'>$tabs</div>"
+    } else ""
     val bridgeDemoButtons = if (project.bridgeConfig.jsBridgeEnabled) {
         """
         <div class="card">
@@ -823,19 +889,37 @@ private fun buildInteractivePreviewHtml(project: AppProject): String {
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <style>
-            body { margin: 0; font-family: system-ui, sans-serif; background: #0d1117; color: #f1f5f9; padding: 16px; }
+            :root { --accent: $accent; }
+            body { margin: 0; font-family: system-ui, sans-serif; background: #0d1117; color: #f1f5f9; padding: 14px; }
             .hero { background: linear-gradient(135deg, ${accent}33, #161b22); border: 1px solid ${accent}66; border-radius: 16px; padding: 16px; text-align: center; }
             .card { background: #161b22; border: 1px solid #263042; border-radius: 14px; padding: 14px; margin-top: 12px; }
-            h2 { margin: 0 0 6px 0; color: #fff; font-size: 18px; }
-            h3 { margin: 0 0 10px 0; color: $accent; font-size: 14px; }
+            .media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+            .media-grid img { width: 100%; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid ${accent}44; }
+            h1, h2 { margin: 0 0 6px 0; color: #fff; font-size: 18px; }
+            h3 { margin: 0 0 10px 0; color: var(--accent); font-size: 14px; }
             p { margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.6; }
-            button { background: $accent; color: #fff; border: none; border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: bold; margin: 4px; cursor: pointer; }
+            button { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: bold; margin: 4px; cursor: pointer; }
+            button.btn-secondary { background: #1f2937; border: 1px solid ${accent}55; }
           </style>
         </head>
         <body>
-          <div class="hero">
-            <h2>${project.name}</h2>
-            <p>WebView حقيقي • AdBlock=${pro.adAndPopupBlocker} • DarkCSS=${pro.forceDarkCss} • Secure=${pro.flagSecureEnabled}</p>
+          <header class="hero">
+            <h1 data-omni-hero>$heroTitle</h1>
+            <p>${project.description.ifBlank { "معاينة حية تفاعلية لبيئة التطبيق والمكونات" }}</p>
+            <div style="margin-top:10px;">
+              <button class="btn-primary" data-omni-cta onclick="ApkForge.showToast('تم تفعيل: $ctaText')">$ctaText</button>
+              <button class="btn-secondary" onclick="ApkForge.showToast('اكتشف الأقسام')">اكتشف المزيد</button>
+            </div>
+            $navTabsHtml
+          </header>
+          <div class="media-grid">
+            <img alt="العرض الأول" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='${accent.replace("#", "%23")}'/><stop offset='100%' stop-color='%231e293b'/></linearGradient></defs><rect width='120' height='80' fill='url(%23g1)'/></svg>"/>
+            <img alt="العرض الثاني" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><defs><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2338bdf8'/><stop offset='100%' stop-color='%230f172a'/></linearGradient></defs><rect width='120' height='80' fill='url(%23g2)'/></svg>"/>
+            <img alt="العرض الثالث" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><defs><linearGradient id='g3' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23a855f7'/><stop offset='100%' stop-color='%230f172a'/></linearGradient></defs><rect width='120' height='80' fill='url(%23g3)'/></svg>"/>
+          </div>
+          <div class="card">
+            <h3>حالة المحرك التكيفي</h3>
+            <p>AdBlock=${pro.adAndPopupBlocker} • DarkCSS=${pro.forceDarkCss} • DB=${project.omniConfig.localDbEnabled} • Auth=${project.omniConfig.authBuilderEnabled}</p>
           </div>
           $bridgeDemoButtons
           <script>

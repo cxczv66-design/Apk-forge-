@@ -274,7 +274,7 @@ fun SmartUrlScraperDialog(
 
                         Button(
                             onClick = {
-                                val proj = scraper.toPreConfiguredProject(id)
+                                val proj = scraper.toPreConfiguredProject(id, context)
                                 onCreateFromUrl(proj)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
@@ -297,7 +297,7 @@ fun SmartUrlScraperDialog(
                         }
 
                         if (showPwaEditor) {
-                            val preProj = remember(id.normalizedUrl) { scraper.toPreConfiguredProject(id) }
+                            val preProj = remember(id.normalizedUrl) { scraper.toPreConfiguredProject(id, context) }
                             PwaSiteCustomizerDialog(
                                 initialProject = preProj,
                                 scrapedIdentity = id,

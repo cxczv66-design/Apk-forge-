@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,14 +14,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,12 +44,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.domain.model.*
 import com.example.engine.AdaptiveSourceAnalyzer
 import com.example.engine.LocalWorkspaceEngine
-import com.example.ui.components.LiveWebViewContainer
+import com.example.ui.components.PhaseInteractivePhoneCard
 import com.example.ui.components.PwaSiteCustomizerDialog
 import com.example.ui.components.RealAppIconAvatar
 import com.example.ui.components.ThreeDStatPill
 import com.example.ui.components.ThreeDSurfaceCard
 import com.example.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -61,13 +66,19 @@ fun AdaptivePhaseStudioScreen(
     initialPhaseIndex: Int = 0,
     onSaveProject: (AppProject) -> Unit,
     onGenerateKeystore: (AppProject, (AppProject) -> Unit) -> Unit,
-    onProceedToLiveSandbox: (AppProject) -> Unit,
+    onProceedToLiveSandbox: (AppProject, Int) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var activeProject by remember(initialProject.id) { mutableStateOf(initialProject) }
+    LaunchedEffect(initialProject) {
+        if (initialProject.id == activeProject.id && initialProject != activeProject) {
+            activeProject = initialProject
+        }
+    }
+
     val adaptivePlan = remember(activeProject, activeAiPlan) {
         AdaptiveSourceAnalyzer.buildAdaptivePlan(
             project = activeProject,
@@ -75,12 +86,25 @@ fun AdaptivePhaseStudioScreen(
         )
     }
 
-    var currentPhaseIndex by remember(adaptivePlan.phases.size) {
+    var currentPhaseIndex by rememberSaveable(initialProject.id) {
         mutableIntStateOf(initialPhaseIndex.coerceIn(0, (adaptivePlan.phases.size - 1).coerceAtLeast(0)))
+    }
+    LaunchedEffect(adaptivePlan.phases.size) {
+        val maxIdx = (adaptivePlan.phases.size - 1).coerceAtLeast(0)
+        if (currentPhaseIndex > maxIdx) {
+            currentPhaseIndex = maxIdx
+        }
     }
     val currentPhase = adaptivePlan.phases.getOrNull(currentPhaseIndex) ?: return
 
-    var showPreviewPane by remember { mutableStateOf(true) }
+    val chipListState = rememberLazyListState()
+    val featureListState = rememberLazyListState()
+    LaunchedEffect(currentPhaseIndex) {
+        runCatching { chipListState.animateScrollToItem(currentPhaseIndex) }
+        runCatching { featureListState.scrollToItem(0) }
+    }
+
+    var showPreviewPane by rememberSaveable(initialProject.id) { mutableStateOf(true) }
     var webReloadTrigger by remember { mutableIntStateOf(0) }
     var showAllPhasesDialog by remember { mutableStateOf(false) }
     var showPwaEditorDialog by remember { mutableStateOf(false) }
@@ -168,8 +192,23 @@ fun AdaptivePhaseStudioScreen(
 
                 Spacer(Modifier.height(6.dp))
 
+                LinearProgressIndicator(
+                    progress = {
+                        ((currentPhaseIndex + 1).toFloat() / adaptivePlan.phases.size.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    },
+                    color = phaseAccent,
+                    trackColor = DarkSurfaceElevated,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+
+                Spacer(Modifier.height(8.dp))
+
                 // Adaptive phase chips bar
                 LazyRow(
+                    state = chipListState,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -252,7 +291,7 @@ fun AdaptivePhaseStudioScreen(
                             if (!isLastPhase) {
                                 currentPhaseIndex++
                             } else {
-                                onProceedToLiveSandbox(activeProject)
+                                onProceedToLiveSandbox(activeProject, currentPhaseIndex)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -284,7 +323,7 @@ fun AdaptivePhaseStudioScreen(
                         FilledTonalIconButton(
                             onClick = {
                                 onSaveProject(activeProject)
-                                onProceedToLiveSandbox(activeProject)
+                                onProceedToLiveSandbox(activeProject, currentPhaseIndex)
                             },
                             modifier = Modifier
                                 .size(50.dp)
@@ -297,29 +336,49 @@ fun AdaptivePhaseStudioScreen(
             }
         }
     ) { paddingValues ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
                 .padding(horizontal = 16.dp)
-                .testTag("adaptive_phase_studio_screen"),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp)
+                .testTag("adaptive_phase_studio_screen")
         ) {
-            // Complexity report telemetry header
-            item {
-                val rep = adaptivePlan.report
-                ThreeDSurfaceCard(accentColor = phaseAccent, elevation = 10.dp) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+            PhaseInteractivePhoneCard(
+                project = activeProject,
+                currentPhase = currentPhase,
+                totalPhases = adaptivePlan.phases.size,
+                phaseAccent = phaseAccent,
+                isExpandedPane = showPreviewPane,
+                reloadTrigger = webReloadTrigger,
+                onToggleCollapsePane = { showPreviewPane = !showPreviewPane },
+                onReloadWebView = { webReloadTrigger++ },
+                onProceedToFullSandbox = {
+                    onSaveProject(activeProject)
+                    onProceedToLiveSandbox(activeProject, currentPhaseIndex)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 6.dp)
+            )
+
+            LazyColumn(
+                state = featureListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp)
+            ) {
+                // Complexity report telemetry header
+                item {
+                    val rep = adaptivePlan.report
+                    ThreeDSurfaceCard(accentColor = phaseAccent, elevation = 10.dp) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
                                     text = currentPhase.title,
                                     fontFamily = CairoFontFamily,
@@ -334,87 +393,27 @@ fun AdaptivePhaseStudioScreen(
                                     color = TextSecondary
                                 )
                             }
-                            if (currentPhase.supportsLiveWebPreview) {
-                                FilledTonalButton(
-                                    onClick = { showPreviewPane = !showPreviewPane },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (showPreviewPane) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (showPreviewPane) "إخفاء" else "معاينة", fontFamily = CairoFontFamily, fontSize = 11.sp)
-                                }
-                            }
-                        }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ThreeDStatPill("المراحل", "${adaptivePlan.phases.size}", phaseAccent, Modifier.weight(1f))
-                            if (activeProject.sourceType == SourceType.APK_PACKAGE) {
-                                ThreeDStatPill("الصلاحيات", "${rep.permissionCount}", CyanAccent, Modifier.weight(1f))
-                                ThreeDStatPill("الميزات", "${currentPhase.features.size}", StatusGreen, Modifier.weight(1f))
-                            } else {
-                                ThreeDStatPill("الصور", "${rep.imageCount}", CyanAccent, Modifier.weight(1f))
-                                ThreeDStatPill("الأزرار", "${rep.buttonCount}", OrangePrimary, Modifier.weight(1f))
-                                ThreeDStatPill("النصوص", "${rep.textBlockCount}", Color(0xFFA855F7), Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Interactive Live WebView inside Web/AI phases OR 3D APK Identity Card inside APK phases
-            if (currentPhase.supportsLiveWebPreview) {
-                item {
-                    AnimatedVisibility(visible = showPreviewPane) {
-                        ThreeDSurfaceCard(accentColor = CyanAccent, elevation = 12.dp) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(StatusGreen))
-                                        Text(
-                                            text = "معاينة حية تفاعلية للمرحلة #${currentPhase.index}",
-                                            fontFamily = CairoFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = CyanAccent
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { webReloadTrigger++ },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(Icons.Filled.Refresh, contentDescription = "تحديث المعاينة", tint = TextPrimary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(250.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .border(1.dp, CyanAccent.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                                ) {
-                                    LiveWebViewContainer(
-                                        project = activeProject,
-                                        reloadTrigger = webReloadTrigger,
-                                        accentColor = parseColorSafe(activeProject.accentColorHex, phaseAccent),
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ThreeDStatPill("المراحل", "${adaptivePlan.phases.size}", phaseAccent, Modifier.weight(1f))
+                                if (activeProject.sourceType == SourceType.APK_PACKAGE) {
+                                    ThreeDStatPill("الصلاحيات", "${rep.permissionCount}", CyanAccent, Modifier.weight(1f))
+                                    ThreeDStatPill("الميزات", "${currentPhase.features.size}", StatusGreen, Modifier.weight(1f))
+                                } else {
+                                    ThreeDStatPill("الصور", "${rep.imageCount}", CyanAccent, Modifier.weight(1f))
+                                    ThreeDStatPill("الأزرار", "${rep.buttonCount}", OrangePrimary, Modifier.weight(1f))
+                                    ThreeDStatPill("النصوص", "${rep.textBlockCount}", Color(0xFFA855F7), Modifier.weight(1f))
                                 }
                             }
                         }
                     }
                 }
-            } else if (activeProject.sourceType == SourceType.APK_PACKAGE) {
+
+                // 3D APK Identity Card inside APK phases
+                if (!currentPhase.supportsLiveWebPreview && activeProject.sourceType == SourceType.APK_PACKAGE) {
                 item {
                     ThreeDSurfaceCard(accentColor = StatusGreen, elevation = 10.dp) {
                         Row(
@@ -483,6 +482,7 @@ fun AdaptivePhaseStudioScreen(
                         }
                     }
                 )
+            }
             }
         }
     }
@@ -615,7 +615,7 @@ private fun DynamicFeatureCard(
                             )
                         }
                         Text(
-                            text = feature.title,
+                            text = if (feature.type == DynamicFeatureType.SLIDER) "${feature.title} ($localInt)" else feature.title,
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -647,6 +647,13 @@ private fun DynamicFeatureCard(
 
             when (feature.type) {
                 DynamicFeatureType.TEXT_INPUT -> {
+                    val isModified = localText != feature.textValue
+                    LaunchedEffect(localText, feature.id) {
+                        if (localText != feature.textValue) {
+                            delay(550)
+                            onUpdateFeature(localBool, localInt, localText)
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -656,6 +663,10 @@ private fun DynamicFeatureCard(
                             value = localText,
                             onValueChange = { localText = it },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = { onUpdateFeature(localBool, localInt, localText) }
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f)
                         )
@@ -663,7 +674,12 @@ private fun DynamicFeatureCard(
                             onClick = { onUpdateFeature(localBool, localInt, localText) },
                             modifier = Modifier.height(50.dp)
                         ) {
-                            Text("تطبيق", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(
+                                text = if (isModified) "حفظ ✓" else "تطبيق",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
@@ -678,21 +694,42 @@ private fun DynamicFeatureCard(
                 }
 
                 DynamicFeatureType.COLOR_PICKER -> {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(feature.options) { hex ->
                             val c = parseColorSafe(hex, accentColor)
                             val selected = localText.equals(hex, ignoreCase = true)
                             Box(
+                                contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(48.dp)
                                     .clip(CircleShape)
-                                    .background(c)
-                                    .border(if (selected) 3.dp else 1.dp, if (selected) Color.White else Color.White.copy(alpha = 0.25f), CircleShape)
                                     .clickable {
                                         localText = hex
                                         onUpdateFeature(localBool, localInt, hex)
                                     }
-                            )
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(c)
+                                        .border(
+                                            if (selected) 3.dp else 1.dp,
+                                            if (selected) Color.White else Color.White.copy(alpha = 0.25f),
+                                            CircleShape
+                                        )
+                                ) {
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = "مختار",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.domain.model.*
 import com.google.firebase.Firebase
+import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.generationConfig
@@ -18,55 +19,83 @@ import java.io.File
 private const val TAG = "AiAppArchitect"
 
 /**
- * مستودع مساعد الذكاء الاصطناعي (AI Wizard) المبني على Firebase AI Logic (gemini-3.8-flash):
- * يحلل فكرة المستخدم، ويولد خطة عمل من 12+ مرحلة، وأسئلة ذكية مخصصة،
- * ثم يحوّل إجابات المستخدم إلى تطبيق حقيقي كامل في Omni-Adaptive Studio.
+ * مستودع مساعد الذكاء الاصطناعي (AI Wizard) المبني على Firebase AI Logic:
+ * يستخدم البث التدفقي (generateContentStream) لتقليل زمن الاستجابة الأولي (TTFT)،
+ * مع نموذج gemini-3.8-flash افتراضياً ونموذج gemini-3.5-flash-lite كمسار احتياطي فائق السرعة.
  */
 class AiAppArchitectRepository {
 
     private val architectSchema = Schema.obj(
         properties = mapOf(
-            "appNameAr" to Schema.string("اسم عربي إبداعي ومختصر للتطبيق"),
+            "appNameAr" to Schema.string("اسم عربي مختصر (2-3 كلمات)"),
             "packageSuffix" to Schema.string("معرّف إنجليزي صغير بدون فراغات مثل mystore"),
-            "summaryAr" to Schema.string("ملخص تنفيذي لخطة التطبيق والمعمارية"),
-            "accentColorHex" to Schema.string("لون رئيسي بصيغة HEX مثل #FF7A2F"),
+            "summaryAr" to Schema.string("ملخص مختصر في جملة واحدة"),
+            "accentColorHex" to Schema.string("لون رئيسي HEX مثل #FF7A2F"),
             "roadmap" to Schema.array(
                 items = Schema.obj(
                     properties = mapOf(
                         "stageNumber" to Schema.integer("رقم المرحلة بدءاً من 1"),
-                        "titleAr" to Schema.string("عنوان المرحلة بالعربية"),
-                        "descriptionAr" to Schema.string("وصف المهام والميزات داخل المرحلة"),
-                        "featureCountHint" to Schema.integer("عدد الميزات التقديري بين 8 و 30"),
+                        "titleAr" to Schema.string("عنوان مختصر (2-4 كلمات)"),
+                        "descriptionAr" to Schema.string("وصف موجز في سطر واحد"),
+                        "featureCountHint" to Schema.integer("عدد الميزات بين 8 و 28"),
                         "category" to Schema.string("أحد التصنيفات: identity, design, auth, data, api, navigation, notifications, permissions, packaging")
                     )
                 ),
-                description = "قائمة من 12 مرحلة متسلسلة لبناء التطبيق من الصفر"
+                description = "قائمة من 12 مرحلة متسلسلة ومختصرة"
             ),
             "smartQuestions" to Schema.array(
                 items = Schema.obj(
                     properties = mapOf(
-                        "id" to Schema.string("معرف فريد مثل q_auth"),
-                        "questionAr" to Schema.string("سؤال ذكي باللغة العربية للمستخدم لتخصيص التطبيق"),
+                        "id" to Schema.string("معرف مثل q_auth"),
+                        "questionAr" to Schema.string("سؤال مختصر وواضح بالعربية"),
                         "kind" to Schema.enumeration(listOf("boolean", "choice"), "نوع السؤال"),
                         "options" to Schema.array(
                             items = Schema.string(),
-                            description = "خيارات الإجابة إذا كان النوع choice (2 إلى 4 خيارات)"
+                            description = "خيارات الإجابة إذا كان النوع choice (3 خيارات قصيرة)"
                         )
                     )
                 ),
-                description = "5 إلى 7 أسئلة ذكية مولّدة خصيصاً بناءً على فكرة التطبيق"
+                description = "5 أسئلة ذكية مختصرة مخصصة للفكرة"
             )
         )
     )
 
-    private val model by lazy {
+    private val structuredConfig = generationConfig {
+        responseMimeType = "application/json"
+        responseSchema = architectSchema
+        temperature = 0.4f
+        maxOutputTokens = 2048
+    }
+
+    private val primaryModel by lazy {
         Firebase.ai.generativeModel(
             modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = architectSchema
-            }
+            generationConfig = structuredConfig
         )
+    }
+
+    private val fastFallbackModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.5-flash-lite",
+            generationConfig = structuredConfig
+        )
+    }
+
+    private suspend fun streamJsonFromModel(
+        model: GenerativeModel,
+        instruction: String,
+        timeoutMs: Long
+    ): String {
+        val sb = StringBuilder()
+        withTimeout(timeoutMs) {
+            model.generateContentStream(instruction).collect { chunk ->
+                val part = chunk.text
+                if (!part.isNullOrEmpty()) {
+                    sb.append(part)
+                }
+            }
+        }
+        return sb.toString().trim()
     }
 
     suspend fun generateArchitectPlan(
@@ -80,26 +109,26 @@ class AiAppArchitectRepository {
         }
 
         val instruction = """
-            أنت المهندس المعماري الرئيسي في منصة ApkForge.
-            حلّل فكرة التطبيق التالية وأنشئ خطة عمل متكاملة باللغة العربية:
+            أنت المهندس المعماري لمنصة ApkForge. حلّل الفكرة وأرجع JSON مختصراً وسريعاً بالعربية:
             الفكرة: "$combinedIdea"
-
-            المتطلبات الصارمة:
-            1) اقترح 12 مرحلة عمل واضحة ومرتبة (roadmap) تغطي الهوية والتصميم والمحتوى والمصادقة والبيانات والتنقل والأمان والإشعارات والحزمة.
-            2) اقترح 6 أسئلة ذكية (smartQuestions) تتعلق مباشرة بهذه الفكرة تحديداً، مثل:
-               - تسجيل دخول Google
-               - تفعيل الإشعارات الفورية
-               - قاعدة البيانات المحلية / API
-               - نمط الألوان المفضل (kind="choice" مع خيارات hex وأسماء مثل "برتقالي عصري #FF7A2F", "أزرق تقني #38BDF8", "أخضر حيوي #10B981", "بنفسجي 3D #A855F7")
-               - ميزات خاصة بفكرة التطبيق نفسها.
-            3) التزم بصيغة JSON المطلوبة تماماً.
+            الشروط:
+            - roadmap: 12 مرحلة بعناوين قصيرة (2-4 كلمات) وأوصاف موجزة (أقل من 10 كلمات).
+            - smartQuestions: 5 أسئلة ذكية قصيرة خاصة بالفكرة (مثل تسجيل Google، الإشعارات، قاعدة البيانات، ونمط الألوان بصيغة choice مع أكواد hex مثل "#FF7A2F").
         """.trimIndent()
 
         return try {
-            val response = withTimeout(60_000L) {
-                model.generateContent(instruction)
+            val rawJson = try {
+                streamJsonFromModel(primaryModel, instruction, timeoutMs = 45_000L)
+                    .ifBlank { throw IllegalStateException("استجابة النموذج الأولي فارغة.") }
+            } catch (primaryTimeoutOrErr: TimeoutCancellationException) {
+                Log.w(TAG, "Primary model timed out at 45s; falling back to gemini-3.5-flash-lite", primaryTimeoutOrErr)
+                streamJsonFromModel(fastFallbackModel, instruction, timeoutMs = 45_000L)
             }
-            val rawJson = response.text ?: throw IllegalStateException("استجابة النموذج فارغة.")
+
+            if (rawJson.isBlank()) {
+                throw IllegalStateException("استجابة النموذج فارغة.")
+            }
+
             val json = JSONObject(rawJson)
 
             val appNameAr = json.optString("appNameAr", "تطبيقي الذكي").ifBlank { "تطبيقي الذكي" }
@@ -155,8 +184,8 @@ class AiAppArchitectRepository {
                 )
             )
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "AI architect generation timed out", e)
-            Result.failure(Exception("انتهت مهلة الاتصال بالذكاء الاصطناعي (60 ثانية). يرجى المحاولة مرة أخرى."))
+            Log.e(TAG, "AI architect generation timed out across primary and fallback models", e)
+            Result.failure(Exception("انتهت مهلة الاتصال بالذكاء الاصطناعي. تحقق من الاتصال بالإنترنت وأعد المحاولة."))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
