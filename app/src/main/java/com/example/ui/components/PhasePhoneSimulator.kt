@@ -139,6 +139,7 @@ import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.ErrorRed
 import com.example.ui.theme.GlassBorderSubtle
 import com.example.ui.theme.OrangePrimary
+import com.example.ui.theme.SpaceColors
 import com.example.ui.theme.StatusGreen
 import com.example.ui.theme.TajawalFontFamily
 import com.example.ui.theme.TextMuted
@@ -505,20 +506,24 @@ fun PhaseInteractivePhoneCard(
                             .height(phoneHeight)
                             .threeDPerspectiveTilt(!usesLiveWebView)
                             .shadow(
-                                elevation = 18.dp,
+                                elevation = 20.dp,
                                 shape = RoundedCornerShape(30.dp),
-                                spotColor = phaseAccent.copy(alpha = 0.45f),
-                                ambientColor = Color.Black
+                                spotColor = phaseAccent.copy(alpha = 0.55f),
+                                ambientColor = SpaceColors.NeonPurple.copy(alpha = 0.35f)
                             )
                             .clip(RoundedCornerShape(30.dp))
-                            .background(Color(0xFF151824))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(SpaceColors.MidnightBlue, SpaceColors.DeepSpace)
+                                )
+                            )
                             .border(
-                                width = 2.5.dp,
-                                brush = Brush.verticalGradient(
+                                width = 2.2.dp,
+                                brush = Brush.linearGradient(
                                     listOf(
-                                        phaseAccent.copy(alpha = 0.9f),
-                                        Color(0xFF333950),
-                                        appAccent.copy(alpha = 0.6f)
+                                        phaseAccent.copy(alpha = 0.92f),
+                                        SpaceColors.NeonCyan.copy(alpha = 0.65f),
+                                        appAccent.copy(alpha = 0.72f)
                                     )
                                 ),
                                 shape = RoundedCornerShape(30.dp)
@@ -530,7 +535,7 @@ fun PhaseInteractivePhoneCard(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(24.dp))
-                                .background(Color(0xFF0A0C12))
+                                .background(SpaceColors.DeepSpace)
                         ) {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 // شريط حالة أندرويد الحقيقي + الجزيرة الديناميكية

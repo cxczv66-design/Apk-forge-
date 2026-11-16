@@ -58,6 +58,13 @@ import com.example.ui.components.Step5EngineAndBackendCard
 import com.example.ui.components.Step6DrawerAndFabCard
 import com.example.ui.components.Step7AuthAndSecurityCard
 import com.example.ui.components.Step8SmartRationaleCard
+import com.example.ui.components.space.NeonButton
+import com.example.ui.components.space.NeonButtonStyle
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.NeonIconButton
+import com.example.ui.components.space.Space3DFeatureBadge
+import com.example.ui.components.space.SpaceApkForgeLogoMark
+import com.example.ui.components.space.SpaceDialog
 import com.example.ui.theme.*
 
 @Composable
@@ -399,50 +406,71 @@ fun WizardScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkBackground)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                SpaceColors.DeepSpace.copy(alpha = 0.94f),
+                                SpaceColors.MidnightBlue.copy(alpha = 0.84f),
+                                SpaceColors.DeepSpace.copy(alpha = 0.55f)
+                            )
+                        )
+                    )
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 // Header bar with back button & title "إعداد تطبيقك"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(onClick = {
-                        if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
-                            currentStep--
-                        } else {
-                            onCancel()
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        NeonIconButton(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "رجوع",
-                            tint = TextPrimary
+                            onClick = {
+                                if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
+                                    currentStep--
+                                } else {
+                                    onCancel()
+                                }
+                            },
+                            tint = SpaceColors.White,
+                            borderAccent = SpaceColors.NeonCyan,
+                            size = 44.dp
                         )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "إعداد تطبيقك",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 17.sp,
+                                color = SpaceColors.White
+                            )
+                            Text(
+                                text = "المرحلة $currentStep من 9 • محرك التخصيص الفضائي",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.NeonCyan
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "إعداد تطبيقك",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = TextPrimary
-                    )
+                    SpaceApkForgeLogoMark(size = 34.dp)
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Circular Stepper 1 to 9 (matching video at 01:06 - 02:44)
+                // Circular Neon Stepper 1 to 9
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
+                        .padding(horizontal = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -452,23 +480,29 @@ fun WizardScreen(
 
                         Box(
                             modifier = Modifier
-                                .size(30.dp)
+                                .size(31.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    when {
-                                        isCurrent -> OrangePrimary
-                                        isDone -> StatusGreen.copy(alpha = 0.25f)
-                                        else -> Color(0xFF232530)
+                                    brush = when {
+                                        isCurrent -> Brush.radialGradient(
+                                            listOf(SpaceColors.NeonCyan, SpaceColors.ElectricBlue)
+                                        )
+                                        isDone -> Brush.radialGradient(
+                                            listOf(SpaceColors.Emerald.copy(alpha = 0.35f), SpaceColors.MidnightBlue)
+                                        )
+                                        else -> Brush.radialGradient(
+                                            listOf(SpaceColors.SurfaceElevated, SpaceColors.SurfaceDeep)
+                                        )
                                     }
                                 )
                                 .border(
-                                    1.dp,
-                                    when {
-                                        isCurrent -> OrangePrimary
-                                        isDone -> StatusGreen
-                                        else -> Color(0xFF373A4D)
+                                    width = if (isCurrent) 1.6.dp else 1.dp,
+                                    color = when {
+                                        isCurrent -> SpaceColors.White.copy(alpha = 0.9f)
+                                        isDone -> SpaceColors.Emerald
+                                        else -> SpaceColors.GlassBorderSubtle
                                     },
-                                    CircleShape
+                                    shape = CircleShape
                                 )
                                 .clickable {
                                     currentStep = step
@@ -478,12 +512,12 @@ fun WizardScreen(
                             Text(
                                 text = "$step",
                                 fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp,
                                 color = when {
-                                    isCurrent -> Color.White
-                                    isDone -> StatusGreen
-                                    else -> TextMuted
+                                    isCurrent -> SpaceColors.DeepSpace
+                                    isDone -> SpaceColors.Emerald
+                                    else -> SpaceColors.MutedText
                                 }
                             )
                         }
@@ -492,8 +526,14 @@ fun WizardScreen(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(2.dp)
-                                    .background(if (step < currentStep) StatusGreen else Color(0xFF282B3A))
+                                    .height(2.5.dp)
+                                    .background(
+                                        brush = if (step < currentStep) {
+                                            Brush.horizontalGradient(listOf(SpaceColors.Emerald, SpaceColors.NeonCyan))
+                                        } else {
+                                            Brush.horizontalGradient(listOf(SpaceColors.GlassBorderSubtle, SpaceColors.GlassBorderSubtle))
+                                        }
+                                    )
                             )
                         }
                     }
@@ -502,12 +542,30 @@ fun WizardScreen(
         },
         bottomBar = {
             // Wizard Bottom Navigation Bar: رجوع > | < التالي / إنهاء وحفظ
-            Surface(
-                color = DarkBackground,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                SpaceColors.DeepSpace.copy(alpha = 0.92f),
+                                SpaceColors.DeepSpace
+                            )
+                        )
+                    )
                     .navigationBarsPadding()
             ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color.Transparent, SpaceColors.NeonCyan.copy(alpha = 0.55f), SpaceColors.NeonPurple.copy(alpha = 0.45f), Color.Transparent)
+                            )
+                        )
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -515,8 +573,8 @@ fun WizardScreen(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Back button
-                    Button(
+                    NeonButton(
+                        text = "< رجوع",
                         onClick = {
                             if (currentStep > 1 && (initialStep == 1 || currentStep > 2)) {
                                 currentStep--
@@ -524,28 +582,17 @@ fun WizardScreen(
                                 onCancel()
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                    ) {
-                        Text(
-                            text = "< رجوع",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextSecondary
-                        )
-                    }
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        height = 52.dp,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                    // Next / Finish button (bright orange in video)
-                    Button(
+                    NeonButton(
+                        text = if (currentStep == 9) "إنهاء وحفظ ✓" else "التالي >",
                         onClick = {
                             if (currentStep == 6 && bottomNavEnabled && bottomDestinations.any { it.title.isBlank() }) {
                                 Toast.makeText(context, "املأ كل وجهة، أو احذف الفارغة", Toast.LENGTH_SHORT).show()
-                                return@Button
+                                return@NeonButton
                             }
 
                             if (currentStep == 7) {
@@ -553,37 +600,26 @@ fun WizardScreen(
                                 val isPkgValid = cleanPkg.matches(Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$"))
                                 if (!isPkgValid) {
                                     Toast.makeText(context, "يجب أن يكون معرّف الحزمة بصيغة صحيحة مثل com.company.app", Toast.LENGTH_SHORT).show()
-                                    return@Button
+                                    return@NeonButton
                                 }
                                 if (versionName.isBlank()) {
                                     Toast.makeText(context, "يرجى إدخال اسم الإصدار (مثال: 1.0)", Toast.LENGTH_SHORT).show()
-                                    return@Button
+                                    return@NeonButton
                                 }
                             }
 
                             if (currentStep < 9) {
                                 currentStep++
                             } else {
-                                // Final step: finish and save
                                 Toast.makeText(context, "🎉 تم حفظ المشروع", Toast.LENGTH_SHORT).show()
                                 onFinish(buildDraftProject())
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1.5f)
-                            .height(52.dp)
-                            .testTag("wizard_next_btn")
-                    ) {
-                        Text(
-                            text = if (currentStep == 9) "إنهاء وحفظ ✓" else "التالي >",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = Color.White
-                        )
-                    }
+                        style = if (currentStep == 9) NeonButtonStyle.EMERALD_SUCCESS else NeonButtonStyle.PRIMARY_GLOW,
+                        height = 52.dp,
+                        testTag = "wizard_next_btn",
+                        modifier = Modifier.weight(1.5f)
+                    )
                 }
             }
         }
@@ -600,14 +636,14 @@ fun WizardScreen(
             // Live Interactive Smartphone Display Header (Shown when expanded)
             if (isPhoneExpanded) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(DarkSurfaceElevated)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                            .padding(12.dp)
+                    NeonGlassCard(
+                        accentColor = parseColorSafe(accentColorHex, SpaceColors.NeonCyan),
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(22.dp),
+                        elevation = 14.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -698,6 +734,7 @@ fun WizardScreen(
                             height = 420.dp,
                             isInteractive = true
                         )
+                        }
                     }
                 }
             }
@@ -710,93 +747,96 @@ fun WizardScreen(
                     }
 
                     item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(DarkSurfaceElevated)
-                                .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        NeonGlassCard(
+                            accentColor = SpaceColors.NeonCyan,
+                            secondaryAccent = SpaceColors.NeonPurple,
+                            shape = RoundedCornerShape(18.dp),
+                            elevation = 12.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("نوع المشروع:", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 13.sp)
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Surface(
-                                    color = if (sourceType == SourceType.ZIP_ARCHIVE) OrangePrimary.copy(alpha = 0.2f) else DarkSurface,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.ZIP_ARCHIVE) OrangePrimary else GlassBorderSubtle),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { sourceType = SourceType.ZIP_ARCHIVE }
+                                Text("نوع المشروع:", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = SpaceColors.White, fontSize = 13.sp)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    Surface(
+                                        color = if (sourceType == SourceType.ZIP_ARCHIVE) SpaceColors.NeonCyan.copy(alpha = 0.2f) else SpaceColors.SurfaceDeep.copy(alpha = 0.8f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.ZIP_ARCHIVE) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { sourceType = SourceType.ZIP_ARCHIVE }
                                     ) {
-                                        Icon(Icons.Default.Archive, contentDescription = null, tint = OrangePrimary)
-                                        Text("أرشيف ZIP", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(Icons.Default.Archive, contentDescription = null, tint = SpaceColors.NeonCyan)
+                                            Text("أرشيف ZIP", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
+                                        }
+                                    }
+
+                                    Surface(
+                                        color = if (sourceType == SourceType.HTML_FOLDER) SpaceColors.NeonPurple.copy(alpha = 0.2f) else SpaceColors.SurfaceDeep.copy(alpha = 0.8f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.HTML_FOLDER) SpaceColors.NeonPurple else SpaceColors.GlassBorderSubtle),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { sourceType = SourceType.HTML_FOLDER }
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(Icons.Default.Code, contentDescription = null, tint = SpaceColors.NeonPurple)
+                                            Text("مجلد HTML", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
+                                        }
+                                    }
+
+                                    Surface(
+                                        color = if (sourceType == SourceType.WEB_URL) SpaceColors.Emerald.copy(alpha = 0.2f) else SpaceColors.SurfaceDeep.copy(alpha = 0.8f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.WEB_URL) SpaceColors.Emerald else SpaceColors.GlassBorderSubtle),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { sourceType = SourceType.WEB_URL }
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(Icons.Default.Language, contentDescription = null, tint = SpaceColors.Emerald)
+                                            Text("رابط URL", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
+                                        }
                                     }
                                 }
 
-                                Surface(
-                                    color = if (sourceType == SourceType.HTML_FOLDER) OrangePrimary.copy(alpha = 0.2f) else DarkSurface,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.HTML_FOLDER) OrangePrimary else GlassBorderSubtle),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { sourceType = SourceType.HTML_FOLDER }
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(Icons.Default.Code, contentDescription = null, tint = OrangePrimary)
-                                        Text("مجلد HTML", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
-                                    }
-                                }
+                                Spacer(modifier = Modifier.height(4.dp))
 
-                                Surface(
-                                    color = if (sourceType == SourceType.WEB_URL) OrangePrimary.copy(alpha = 0.2f) else DarkSurface,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (sourceType == SourceType.WEB_URL) OrangePrimary else GlassBorderSubtle),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { sourceType = SourceType.WEB_URL }
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(Icons.Default.Language, contentDescription = null, tint = OrangePrimary)
-                                        Text("رابط URL", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
-                                    }
-                                }
-                            }
+                                Text("الملف / الرابط المحدد: $sourceValue", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = SpaceColors.MutedText)
 
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Text("الملف / الرابط المحدد: $sourceValue", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextSecondary)
-
-                            Button(
-                                onClick = {
-                                    try {
-                                        sourceArchivePicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "text/html", "*/*"))
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "تعذر فتح منتقي الملفات", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = DarkSurface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.5f)),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.FileUpload, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("استيراد من ذاكرة الهاتف", fontFamily = CairoFontFamily, fontSize = 12.sp, color = TextPrimary)
+                                NeonButton(
+                                    text = "استيراد من ذاكرة الهاتف",
+                                    onClick = {
+                                        try {
+                                            sourceArchivePicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "text/html", "*/*"))
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "تعذر فتح منتقي الملفات", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    icon = Icons.Default.FileUpload,
+                                    style = NeonButtonStyle.CYBER_OUTLINE,
+                                    height = 46.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     }
@@ -2139,8 +2179,8 @@ fun WizardScreen(
                                             modifier = Modifier
                                                 .size(56.dp)
                                                 .clip(RoundedCornerShape(14.dp))
-                                                .background(Color(0xFF1B2030))
-                                                .border(1.dp, Color(0xFF323B50), RoundedCornerShape(14.dp))
+                                                .background(SpaceColors.MidnightBlue)
+                                                .border(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
                                                 .clickable {
                                                     showIconPickerDialogForSlideIndex = onboardingActiveSlideIndex
                                                 },
@@ -5183,10 +5223,11 @@ fun WizardScreen(
                                         )
 
                                         // بطاقة معاينة شكل إشعار أندرويد الحقيقي
-                                        Surface(
-                                            color = Color(0xFF1C2333),
+                                        NeonGlassCard(
+                                            accentColor = SpaceColors.NeonCyan,
+                                            secondaryAccent = SpaceColors.NeonPurple,
                                             shape = RoundedCornerShape(16.dp),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C364B)),
+                                            elevation = 8.dp,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
@@ -5444,56 +5485,53 @@ fun WizardScreen(
                         .padding(top = 24.dp, start = 16.dp, end = 16.dp),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    Surface(
-                        color = Color(0xFF1C2333),
+                    NeonGlassCard(
+                        accentColor = SpaceColors.NeonCyan,
+                        secondaryAccent = SpaceColors.NeonPurple,
                         shape = RoundedCornerShape(18.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.2.dp, OrangePrimary),
-                        shadowElevation = 14.dp,
+                        elevation = 16.dp,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(parseColorSafe(accentColorHex, OrangePrimary)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.NotificationsActive,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                            Space3DFeatureBadge(
+                                icon = Icons.Default.NotificationsActive,
+                                accentColor = parseColorSafe(accentColorHex, SpaceColors.NeonCyan),
+                                secondaryColor = SpaceColors.NeonPurple,
+                                size = 42.dp
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "${appName.ifBlank { "ApkForge App" }} • $pushProvider • الآن",
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 10.sp,
-                                    color = OrangePrimary
+                                    color = SpaceColors.NeonCyan
                                 )
                                 Text(
                                     text = pushTestTitle.ifBlank { "مرحباً بك!" },
                                     fontFamily = CairoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = TextPrimary
+                                    color = SpaceColors.White
                                 )
                                 Text(
                                     text = pushTestBody.ifBlank { "تم إرسال الإشعار التجريبي بنجاح." },
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 12.sp,
-                                    color = TextSecondary
+                                    color = SpaceColors.MutedText
                                 )
                             }
-                            IconButton(onClick = { showLivePushBanner = false }) {
-                                Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                            }
+                            NeonIconButton(
+                                icon = Icons.Default.Close,
+                                contentDescription = "إغلاق",
+                                onClick = { showLivePushBanner = false },
+                                tint = SpaceColors.MutedText,
+                                borderAccent = SpaceColors.GlassBorderSubtle,
+                                size = 40.dp
+                            )
                         }
                     }
                 }
@@ -5501,7 +5539,7 @@ fun WizardScreen(
         }
     }
 
-    // Modern Color Picker Dialog (matching Screenshot 2 with HSV sliders, Hex input, and palette)
+    // Modern Color Picker Dialog
     if (showColorPickerDialog) {
         ModernColorPickerDialog(
             title = "لون التمييز",
@@ -5513,7 +5551,7 @@ fun WizardScreen(
         )
     }
 
-    // Splash Background Color Picker Dialog (Matching Screenshot 2 exactly)
+    // Splash Background Color Picker Dialog
     if (showSplashColorPickerDialog) {
         ModernColorPickerDialog(
             title = "خلفية شاشة البداية",
@@ -5525,69 +5563,58 @@ fun WizardScreen(
         )
     }
 
-    // Indicator Style Dialog (matching video at 01:54 & Screenshot 1)
+    // Indicator Style Dialog
     if (showIndicatorDialog) {
         val styles = listOf("بدون", "حلقة", "شريط", "حلقة - L", "حلقة - S", "نبض")
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showIndicatorDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "نمط المؤشر",
+            icon = Icons.Default.Tune,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.88f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "نمط المؤشر",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    styles.forEach { style ->
-                        val isSel = splashIndicatorStyle == style
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    splashIndicatorStyle = style
-                                    showIndicatorDialog = false
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSel,
-                                onClick = {
-                                    splashIndicatorStyle = style
-                                    showIndicatorDialog = false
-                                },
-                                colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = style,
-                                fontFamily = CairoFontFamily,
-                                fontSize = 14.sp,
-                                color = if (isSel) OrangePrimary else TextPrimary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = { showIndicatorDialog = false },
-                        modifier = Modifier.align(Alignment.End)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                styles.forEach { style ->
+                    val isSel = splashIndicatorStyle == style
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSel) SpaceColors.NeonCyan.copy(alpha = 0.14f) else Color.Transparent)
+                            .clickable {
+                                splashIndicatorStyle = style
+                                showIndicatorDialog = false
+                            }
+                            .padding(vertical = 8.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "إلغاء", color = OrangePrimary, fontFamily = CairoFontFamily)
+                        RadioButton(
+                            selected = isSel,
+                            onClick = {
+                                splashIndicatorStyle = style
+                                showIndicatorDialog = false
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = SpaceColors.NeonCyan)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = style,
+                            fontFamily = CairoFontFamily,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            color = if (isSel) SpaceColors.NeonCyan else SpaceColors.White
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showIndicatorDialog = false },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -5629,66 +5656,55 @@ fun WizardScreen(
     // Layout Type Dialog
     if (showLayoutTypeDialog) {
         val layouts = listOf("بطاقة سفلية", "كامل الشاشة", "بطاقة وسطية")
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showLayoutTypeDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "نمط التخطيط",
+            icon = Icons.Default.ViewCarousel,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.88f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "نمط التخطيط",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    layouts.forEach { layout ->
-                        val isSel = onboardingLayoutType == layout
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    onboardingLayoutType = layout
-                                    showLayoutTypeDialog = false
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSel,
-                                onClick = {
-                                    onboardingLayoutType = layout
-                                    showLayoutTypeDialog = false
-                                },
-                                colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = layout,
-                                fontFamily = CairoFontFamily,
-                                fontSize = 14.sp,
-                                color = if (isSel) OrangePrimary else TextPrimary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = { showLayoutTypeDialog = false },
-                        modifier = Modifier.align(Alignment.End)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                layouts.forEach { layout ->
+                    val isSel = onboardingLayoutType == layout
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSel) SpaceColors.NeonCyan.copy(alpha = 0.14f) else Color.Transparent)
+                            .clickable {
+                                onboardingLayoutType = layout
+                                showLayoutTypeDialog = false
+                            }
+                            .padding(vertical = 8.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "إلغاء", color = OrangePrimary, fontFamily = CairoFontFamily)
+                        RadioButton(
+                            selected = isSel,
+                            onClick = {
+                                onboardingLayoutType = layout
+                                showLayoutTypeDialog = false
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = SpaceColors.NeonCyan)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = layout,
+                            fontFamily = CairoFontFamily,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            color = if (isSel) SpaceColors.NeonCyan else SpaceColors.White
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showLayoutTypeDialog = false },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -5696,208 +5712,165 @@ fun WizardScreen(
     // Image Shape Dialog
     if (showImageShapeDialog) {
         val shapes = listOf("دائرة", "مربع منحني", "كبسولة")
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showImageShapeDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "شكل الصورة",
+            icon = Icons.Default.RoundedCorner,
+            accentColor = SpaceColors.NeonPurple,
+            secondaryAccent = SpaceColors.NeonCyan,
+            widthFraction = 0.88f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "شكل الصورة",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    shapes.forEach { shape ->
-                        val isSel = onboardingImageShape == shape
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    onboardingImageShape = shape
-                                    showImageShapeDialog = false
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSel,
-                                onClick = {
-                                    onboardingImageShape = shape
-                                    showImageShapeDialog = false
-                                },
-                                colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = shape,
-                                fontFamily = CairoFontFamily,
-                                fontSize = 14.sp,
-                                color = if (isSel) OrangePrimary else TextPrimary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = { showImageShapeDialog = false },
-                        modifier = Modifier.align(Alignment.End)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                shapes.forEach { shape ->
+                    val isSel = onboardingImageShape == shape
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSel) SpaceColors.NeonPurple.copy(alpha = 0.16f) else Color.Transparent)
+                            .clickable {
+                                onboardingImageShape = shape
+                                showImageShapeDialog = false
+                            }
+                            .padding(vertical = 8.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "إلغاء", color = OrangePrimary, fontFamily = CairoFontFamily)
+                        RadioButton(
+                            selected = isSel,
+                            onClick = {
+                                onboardingImageShape = shape
+                                showImageShapeDialog = false
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = SpaceColors.NeonPurple)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = shape,
+                            fontFamily = CairoFontFamily,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            color = if (isSel) SpaceColors.NeonCyan else SpaceColors.White
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showImageShapeDialog = false },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
 
-    // Icon & Image Selector Dialog (Advanced Feature 2)
+    // Icon & Image Selector Dialog
     if (showIconPickerDialogForSlideIndex != null) {
         val targetIndex = showIconPickerDialogForSlideIndex!!
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showIconPickerDialogForSlideIndex = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "تخصيص أيقونة وصورة الشاشة",
+            subtitle = "اختر صورة حقيقية من هاتفك أو اختر من الأيقونات الفضائية",
+            icon = Icons.Default.AutoAwesome,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.9f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1B2030))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "تخصيص أيقونة وصورة الشاشة",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "اختر صورة حقيقية من هاتفك أو اختر من الأيقونات العصرية",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                NeonButton(
+                    text = "اختيار صورة من معرض الهاتف",
+                    onClick = {
+                        slideImagePicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    icon = Icons.Default.Image,
+                    style = NeonButtonStyle.PRIMARY_GLOW,
+                    height = 46.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = {
-                            slideImagePicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                    ) {
-                        Icon(Icons.Default.Image, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "اختيار صورة من معرض الهاتف",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                Text(
+                    text = "أو اختر أيقونة متجهة",
+                    fontFamily = CairoFontFamily,
+                    fontSize = 12.sp,
+                    color = SpaceColors.MutedText,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val iconOptions = listOf(
+                    "bolt" to Icons.Default.Bolt,
+                    "rocket" to Icons.Default.RocketLaunch,
+                    "shield" to Icons.Default.Shield,
+                    "star" to Icons.Default.Star,
+                    "notification" to Icons.Default.Notifications,
+                    "web" to Icons.Default.Language,
+                    "diamond" to Icons.Default.Diamond,
+                    "design" to Icons.Default.Palette
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    iconOptions.take(4).forEach { (name, icon) ->
+                        NeonIconButton(
+                            icon = icon,
+                            contentDescription = name,
+                            onClick = {
+                                if (targetIndex in onboardingSlides.indices) {
+                                    val updated = onboardingSlides.toMutableList()
+                                    updated[targetIndex] = updated[targetIndex].copy(iconName = name, imageUri = null)
+                                    onboardingSlides = updated
+                                }
+                                showIconPickerDialogForSlideIndex = null
+                            },
+                            tint = SpaceColors.NeonCyan,
+                            borderAccent = SpaceColors.NeonCyan,
+                            size = 48.dp
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = "أو اختر أيقونة متجهة",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.align(Alignment.Start)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val iconOptions = listOf(
-                        "bolt" to Icons.Default.Bolt,
-                        "rocket" to Icons.Default.RocketLaunch,
-                        "shield" to Icons.Default.Shield,
-                        "star" to Icons.Default.Star,
-                        "notification" to Icons.Default.Notifications,
-                        "web" to Icons.Default.Language,
-                        "diamond" to Icons.Default.Diamond,
-                        "design" to Icons.Default.Palette
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        iconOptions.take(4).forEach { (name, icon) ->
-                            IconButton(
-                                onClick = {
-                                    if (targetIndex in onboardingSlides.indices) {
-                                        val updated = onboardingSlides.toMutableList()
-                                        updated[targetIndex] = updated[targetIndex].copy(iconName = name, imageUri = null)
-                                        onboardingSlides = updated
-                                    }
-                                    showIconPickerDialogForSlideIndex = null
-                                },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF242A3E))
-                            ) {
-                                Icon(icon, contentDescription = name, tint = OrangePrimary)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        iconOptions.drop(4).forEach { (name, icon) ->
-                            IconButton(
-                                onClick = {
-                                    if (targetIndex in onboardingSlides.indices) {
-                                        val updated = onboardingSlides.toMutableList()
-                                        updated[targetIndex] = updated[targetIndex].copy(iconName = name, imageUri = null)
-                                        onboardingSlides = updated
-                                    }
-                                    showIconPickerDialogForSlideIndex = null
-                                },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF242A3E))
-                            ) {
-                                Icon(icon, contentDescription = name, tint = OrangePrimary)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    TextButton(
-                        onClick = { showIconPickerDialogForSlideIndex = null },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("إلغاء", color = TextSecondary, fontFamily = CairoFontFamily)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    iconOptions.drop(4).forEach { (name, icon) ->
+                        NeonIconButton(
+                            icon = icon,
+                            contentDescription = name,
+                            onClick = {
+                                if (targetIndex in onboardingSlides.indices) {
+                                    val updated = onboardingSlides.toMutableList()
+                                    updated[targetIndex] = updated[targetIndex].copy(iconName = name, imageUri = null)
+                                    onboardingSlides = updated
+                                }
+                                showIconPickerDialogForSlideIndex = null
+                            },
+                            tint = SpaceColors.NeonPurple,
+                            borderAccent = SpaceColors.NeonPurple,
+                            size = 48.dp
+                        )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showIconPickerDialogForSlideIndex = null },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -5917,66 +5890,55 @@ fun WizardScreen(
     // Step 6: Bottom Navigation Bar Style Dialog
     if (showBottomNavBarStyleDialog) {
         val styles = listOf("مسطح", "عائم", "كبسولة")
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showBottomNavBarStyleDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "نمط شريط التنقل السفلي",
+            icon = Icons.Default.Dock,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.ElectricBlue,
+            widthFraction = 0.88f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "نمط شريط التنقل السفلي",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    styles.forEach { style ->
-                        val isSel = bottomNavBarStyle == style
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    bottomNavBarStyle = style
-                                    showBottomNavBarStyleDialog = false
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSel,
-                                onClick = {
-                                    bottomNavBarStyle = style
-                                    showBottomNavBarStyleDialog = false
-                                },
-                                colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = style,
-                                fontFamily = CairoFontFamily,
-                                fontSize = 14.sp,
-                                color = if (isSel) OrangePrimary else TextPrimary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = { showBottomNavBarStyleDialog = false },
-                        modifier = Modifier.align(Alignment.End)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                styles.forEach { style ->
+                    val isSel = bottomNavBarStyle == style
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSel) SpaceColors.NeonCyan.copy(alpha = 0.14f) else Color.Transparent)
+                            .clickable {
+                                bottomNavBarStyle = style
+                                showBottomNavBarStyleDialog = false
+                            }
+                            .padding(vertical = 8.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "إلغاء", color = OrangePrimary, fontFamily = CairoFontFamily)
+                        RadioButton(
+                            selected = isSel,
+                            onClick = {
+                                bottomNavBarStyle = style
+                                showBottomNavBarStyleDialog = false
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = SpaceColors.NeonCyan)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = style,
+                            fontFamily = CairoFontFamily,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            color = if (isSel) SpaceColors.NeonCyan else SpaceColors.White
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showBottomNavBarStyleDialog = false },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -6042,124 +6004,92 @@ fun WizardScreen(
 
         val quickPaths = listOf("/", "/shop", "/cart", "/account", "/search", "/settings", "/categories")
 
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showBottomNavIconPickerDialogForIndex = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "تخصيص أيقونة الوجهة",
+            subtitle = "اختر الأيقونة المناسبة لـ: ${dest.title.ifBlank { "الوجهة" }}",
+            icon = Icons.Default.Apps,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.92f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(18.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "تخصيص أيقونة الوجهة",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = TextPrimary
-                        )
-                        IconButton(onClick = { showBottomNavIconPickerDialogForIndex = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "اختر الأيقونة المناسبة لـ: ${dest.title.ifBlank { "الوجهة" }}",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 4x4 Grid of Icons
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (row in 0 until 4) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceAround
-                            ) {
-                                for (col in 0 until 4) {
-                                    val itemIdx = row * 4 + col
-                                    if (itemIdx < iconChoices.size) {
-                                        val (name, iconVector) = iconChoices[itemIdx]
-                                        val isSel = dest.iconName.equals(name, ignoreCase = true)
-                                        Box(
-                                            modifier = Modifier
-                                                .size(46.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(if (isSel) OrangePrimary.copy(alpha = 0.2f) else Color(0xFF262C40))
-                                                .border(
-                                                    width = if (isSel) 1.5.dp else 1.dp,
-                                                    color = if (isSel) OrangePrimary else Color.Transparent,
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
-                                                .clickable {
-                                                    val updated = bottomDestinations.toMutableList()
-                                                    updated[iconPickerTargetIndex] = dest.copy(iconName = name)
-                                                    bottomDestinations = updated
-                                                    showBottomNavIconPickerDialogForIndex = null
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = iconVector,
-                                                contentDescription = name,
-                                                tint = if (isSel) OrangePrimary else Color.White,
-                                                modifier = Modifier.size(22.dp)
+            Column {
+                // 4x4 Grid of Icons
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (row in 0 until 4) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            for (col in 0 until 4) {
+                                val itemIdx = row * 4 + col
+                                if (itemIdx < iconChoices.size) {
+                                    val (name, iconVector) = iconChoices[itemIdx]
+                                    val isSel = dest.iconName.equals(name, ignoreCase = true)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(if (isSel) SpaceColors.NeonCyan.copy(alpha = 0.22f) else SpaceColors.SurfaceDeep.copy(alpha = 0.85f))
+                                            .border(
+                                                width = if (isSel) 1.5.dp else 1.dp,
+                                                color = if (isSel) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle,
+                                                shape = RoundedCornerShape(12.dp)
                                             )
-                                        }
+                                            .clickable {
+                                                val updated = bottomDestinations.toMutableList()
+                                                updated[iconPickerTargetIndex] = dest.copy(iconName = name)
+                                                bottomDestinations = updated
+                                                showBottomNavIconPickerDialogForIndex = null
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = iconVector,
+                                            contentDescription = name,
+                                            tint = if (isSel) SpaceColors.NeonCyan else SpaceColors.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    // Quick URL path suggestions
-                    Text(
-                        text = "اقتراحات المسارات السريعة:",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        quickPaths.take(4).forEach { path ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF262C40))
-                                    .clickable {
-                                        val updated = bottomDestinations.toMutableList()
-                                        updated[iconPickerTargetIndex] = dest.copy(targetUrl = path)
-                                        bottomDestinations = updated
-                                        Toast.makeText(context, "تم تحديد المسار: $path", Toast.LENGTH_SHORT).show()
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = path,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = OrangePrimary
-                                )
-                            }
+                Text(
+                    text = "اقتراحات المسارات السريعة:",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 11.sp,
+                    color = SpaceColors.MutedText
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    quickPaths.take(4).forEach { path ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SpaceColors.SurfaceDeep)
+                                .border(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val updated = bottomDestinations.toMutableList()
+                                    updated[iconPickerTargetIndex] = dest.copy(targetUrl = path)
+                                    bottomDestinations = updated
+                                    Toast.makeText(context, "تم تحديد المسار: $path", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = path,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                color = SpaceColors.NeonCyan
+                            )
                         }
                     }
                 }
@@ -6178,75 +6108,64 @@ fun WizardScreen(
             Triple(33, "Android 13", "74.5% من الأجهزة")
         )
 
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showMinSdkDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "الحد الأدنى لنظام أندرويد (minSdk)",
+            icon = Icons.Default.Android,
+            accentColor = SpaceColors.Emerald,
+            secondaryAccent = SpaceColors.NeonCyan,
+            widthFraction = 0.92f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E212E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "الحد الأدنى لنظام أندرويد (minSdk)",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    sdkOptions.forEach { (api, name, coverage) ->
-                        val isSel = minSdk == api
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                sdkOptions.forEach { (api, name, coverage) ->
+                    val isSel = minSdk == api
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSel) SpaceColors.Emerald.copy(alpha = 0.14f) else Color.Transparent)
+                            .clickable {
+                                minSdk = api
+                                showMinSdkDialog = false
+                            }
+                            .padding(vertical = 8.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = coverage,
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = if (isSel) SpaceColors.Emerald else SpaceColors.MutedText
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "$name (API $api)",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp,
+                                color = if (isSel) SpaceColors.Emerald else SpaceColors.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            RadioButton(
+                                selected = isSel,
+                                onClick = {
                                     minSdk = api
                                     showMinSdkDialog = false
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = coverage,
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 11.sp,
-                                color = if (isSel) OrangePrimary else TextSecondary
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = SpaceColors.Emerald)
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "$name (API $api)",
-                                    fontFamily = CairoFontFamily,
-                                    fontSize = 13.sp,
-                                    color = if (isSel) OrangePrimary else TextPrimary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                RadioButton(
-                                    selected = isSel,
-                                    onClick = {
-                                        minSdk = api
-                                        showMinSdkDialog = false
-                                    },
-                                    colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary)
-                                )
-                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = { showMinSdkDialog = false },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text(text = "إلغاء", color = OrangePrimary, fontFamily = CairoFontFamily)
-                    }
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                NeonButton(
+                    text = "إلغاء",
+                    onClick = { showMinSdkDialog = false },
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -6263,90 +6182,64 @@ fun WizardScreen(
         if (permBluetooth) activePerms.add("البلوتوث (BLUETOOTH)" to "للاتصال بالطابعات المحمولة أو الملحقات الذكية المتوافقة مع الويب.\n• EN: BLUETOOTH is used to connect with thermal receipt printers or smart accessories supported by the web app.")
         if (permNetworkState) activePerms.add("حالة الشبكة (ACCESS_NETWORK_STATE)" to "للتحقق من الاتصال بالإنترنت وتوفير واجهة بديلة تعمل دون اتصال عند انقطاع الشبكة.\n• EN: ACCESS_NETWORK_STATE monitors connectivity to seamlessly switch to offline cached content when disconnected.")
 
-        Dialog(
+        SpaceDialog(
             onDismissRequest = { showJustificationDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            title = "نصوص تبرير الصلاحيات لـ Google Play",
+            icon = Icons.Default.VerifiedUser,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.92f
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF19202E))
-                    .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                    .padding(20.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (activePerms.isEmpty()) {
+                    Text(
+                        text = "لم يتم تفعيل أي صلاحيات خاصة بعد. عند تفعيل أي صلاحية، ستظهر هنا نصوص التبرير القانونية المعتمدة لنسخها في Google Play Console.",
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 13.sp,
+                        color = SpaceColors.MutedText,
+                        lineHeight = 18.sp
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .heightIn(max = 340.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "نصوص تبرير الصلاحيات لـ Google Play",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = TextPrimary
-                        )
-                        IconButton(onClick = { showJustificationDialog = false }) {
-                            Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    if (activePerms.isEmpty()) {
-                        Text(
-                            text = "لم يتم تفعيل أي صلاحيات خاصة بعد. عند تفعيل أي صلاحية، ستظهر هنا نصوص التبرير القانونية المعتمدة لنسخها في Google Play Console.",
-                            fontFamily = TajawalFontFamily,
-                            fontSize = 13.sp,
-                            color = TextSecondary,
-                            lineHeight = 18.sp
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .heightIn(max = 340.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(activePerms.size) { index ->
-                                val (title, justification) = activePerms[index]
-                                Surface(
-                                    color = Color(0xFF101520),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF222C3D)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(text = title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = OrangePrimary)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(text = justification, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary, lineHeight = 16.sp)
-                                    }
+                        items(activePerms.size) { index ->
+                            val (title, justification) = activePerms[index]
+                            NeonGlassCard(
+                                accentColor = SpaceColors.NeonCyan,
+                                secondaryAccent = SpaceColors.ElectricBlue,
+                                shape = RoundedCornerShape(14.dp),
+                                elevation = 6.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(text = title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = SpaceColors.NeonCyan)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = justification, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText, lineHeight = 16.sp)
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Button(
-                            onClick = {
-                                val fullText = activePerms.joinToString("\n\n") { "【${it.first}】\n${it.second}" }
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Permissions Justifications", fullText))
-                                Toast.makeText(context, "تم نسخ جميع مبررات الصلاحيات للحافظة بنجاح ✓", Toast.LENGTH_SHORT).show()
-                                showJustificationDialog = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "نسخ جميع المبررات للحافظة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold)
-                        }
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    NeonButton(
+                        text = "نسخ جميع المبررات للحافظة",
+                        onClick = {
+                            val fullText = activePerms.joinToString("\n\n") { "【${it.first}】\n${it.second}" }
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Permissions Justifications", fullText))
+                            Toast.makeText(context, "تم نسخ جميع مبررات الصلاحيات للحافظة بنجاح ✓", Toast.LENGTH_SHORT).show()
+                            showJustificationDialog = false
+                        },
+                        icon = Icons.Default.ContentCopy,
+                        style = NeonButtonStyle.PRIMARY_GLOW,
+                        height = 48.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -6396,17 +6289,15 @@ private fun ExactPermissionRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icon on the right (start in RTL - matches user screenshot)
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = if (checked) OrangePrimary else Color(0xFF8B9BB4),
-                modifier = Modifier.size(24.dp)
+            Space3DFeatureBadge(
+                icon = icon,
+                accentColor = if (checked) SpaceColors.NeonCyan else SpaceColors.MutedText,
+                secondaryColor = SpaceColors.NeonPurple,
+                size = 38.dp
             )
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // Text in the middle (aligned right in RTL)
             Column(
                 modifier = Modifier.weight(1f),
                 horizontalAlignment = Alignment.Start
@@ -6416,35 +6307,34 @@ private fun ExactPermissionRow(
                     fontFamily = CairoFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    color = TextPrimary
+                    color = SpaceColors.White
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
                     fontFamily = TajawalFontFamily,
                     fontSize = 12.sp,
-                    color = TextSecondary
+                    color = SpaceColors.MutedText
                 )
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // Switch on the left (end in RTL - matches user screenshot)
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = OrangePrimary,
-                    uncheckedThumbColor = Color(0xFF9EABB8),
-                    uncheckedTrackColor = Color(0xFF1E2836),
-                    uncheckedBorderColor = Color(0xFF2E3A4B)
+                    checkedThumbColor = SpaceColors.DeepSpace,
+                    checkedTrackColor = SpaceColors.NeonCyan,
+                    uncheckedThumbColor = SpaceColors.MutedText,
+                    uncheckedTrackColor = SpaceColors.SurfaceDeep,
+                    uncheckedBorderColor = SpaceColors.GlassBorderSubtle
                 )
             )
         }
         if (showDivider) {
             HorizontalDivider(
-                color = Color(0xFF1E2633),
+                color = SpaceColors.GlassBorderSubtle.copy(alpha = 0.55f),
                 thickness = 1.dp,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
@@ -6473,13 +6363,13 @@ private fun PushSubOptionRow(
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp,
-                color = TextPrimary
+                color = SpaceColors.White
             )
             Text(
                 text = subtitle,
                 fontFamily = TajawalFontFamily,
                 fontSize = 11.sp,
-                color = TextSecondary
+                color = SpaceColors.MutedText
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
@@ -6487,11 +6377,11 @@ private fun PushSubOptionRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color(0xFF0A0E14),
-                checkedTrackColor = OrangePrimary,
-                uncheckedThumbColor = Color(0xFF9EABB8),
-                uncheckedTrackColor = Color(0xFF1E2836),
-                uncheckedBorderColor = Color(0xFF2E3A4B)
+                checkedThumbColor = SpaceColors.DeepSpace,
+                checkedTrackColor = SpaceColors.NeonCyan,
+                uncheckedThumbColor = SpaceColors.MutedText,
+                uncheckedTrackColor = SpaceColors.SurfaceDeep,
+                uncheckedBorderColor = SpaceColors.GlassBorderSubtle
             )
         )
     }
@@ -6521,10 +6411,44 @@ private fun getBottomNavIcon(iconName: String): ImageVector {
 
 @Composable
 private fun StepTitleHeader(title: String, subtitle: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(text = subtitle, fontFamily = TajawalFontFamily, fontSize = 12.sp, color = TextSecondary)
+    NeonGlassCard(
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(18.dp),
+        elevation = 10.dp,
+        glassAlpha = 0.72f,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Space3DFeatureBadge(
+                icon = Icons.Default.AutoAwesome,
+                accentColor = SpaceColors.NeonCyan,
+                secondaryColor = SpaceColors.NeonPurple,
+                size = 38.dp
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontFamily = CairoFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = SpaceColors.White
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 12.sp,
+                    color = SpaceColors.MutedText
+                )
+            }
+        }
     }
 }
 
@@ -6535,26 +6459,38 @@ private fun FeatureSwitchCard(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(DarkSurfaceElevated)
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    NeonGlassCard(
+        accentColor = if (checked) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(16.dp),
+        elevation = if (checked) 10.dp else 6.dp,
+        onClick = { onCheckedChange(!checked) },
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = SpaceColors.White)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SpaceColors.DeepSpace,
+                    checkedTrackColor = SpaceColors.NeonCyan,
+                    uncheckedThumbColor = SpaceColors.MutedText,
+                    uncheckedTrackColor = SpaceColors.SurfaceDeep
+                )
+            )
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = OrangePrimary)
-        )
     }
 }
 
@@ -6570,16 +6506,17 @@ private fun SliderWithLabel(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = label, fontFamily = CairoFontFamily, fontSize = 12.sp, color = TextSecondary)
-            Text(text = "${value}dp", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = OrangePrimary)
+            Text(text = label, fontFamily = CairoFontFamily, fontSize = 12.sp, color = SpaceColors.MutedText)
+            Text(text = "${value}dp", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SpaceColors.NeonCyan)
         }
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toInt()) },
             valueRange = range.first.toFloat()..range.last.toFloat(),
             colors = SliderDefaults.colors(
-                thumbColor = OrangePrimary,
-                activeTrackColor = OrangePrimary
+                thumbColor = SpaceColors.NeonCyan,
+                activeTrackColor = SpaceColors.NeonCyan,
+                inactiveTrackColor = SpaceColors.SurfaceDeep
             )
         )
     }
@@ -6590,9 +6527,10 @@ private fun DottedSliderWithLabel(
     label: String,
     value: Int,
     range: IntRange,
-    accentColor: Color = OrangePrimary,
+    accentColor: Color = SpaceColors.NeonCyan,
     onValueChange: (Int) -> Unit
 ) {
+    val activeAccent = if (accentColor == OrangePrimary) SpaceColors.NeonCyan else accentColor
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -6604,14 +6542,14 @@ private fun DottedSliderWithLabel(
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
-                color = accentColor
+                color = activeAccent
             )
             Text(
                 text = label,
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp,
-                color = Color(0xFFD0D5DD)
+                color = SpaceColors.White
             )
         }
 
@@ -6646,14 +6584,14 @@ private fun DottedSliderWithLabel(
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            // Dotted capsule track matching Screenshot 3
+            // Neon capsule dotted track
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(14.dp)
                     .clip(RoundedCornerShape(7.dp))
-                    .background(Color(0xFF261B16))
-                    .border(1.dp, Color(0xFF4A3428).copy(alpha = 0.5f), RoundedCornerShape(7.dp))
+                    .background(SpaceColors.MidnightBlue)
+                    .border(1.dp, activeAccent.copy(alpha = 0.45f), RoundedCornerShape(7.dp))
                     .padding(horizontal = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -6668,13 +6606,13 @@ private fun DottedSliderWithLabel(
                             modifier = Modifier
                                 .size(3.5.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFFF7A2F))
+                                .background(activeAccent.copy(alpha = 0.72f))
                         )
                     }
                 }
             }
 
-            // Vertical orange thumb bar (matching Screenshot 3: vertical bar with rounded edges)
+            // Vertical glowing neon thumb bar
             val thumbOffsetDp = if (trackWidthPx > 0) {
                 val paddingOffset = 4f
                 val usableWidth = (trackWidthPx - 16f).coerceAtLeast(0f)
@@ -6689,10 +6627,9 @@ private fun DottedSliderWithLabel(
                     .width(6.dp)
                     .height(28.dp)
                     .clip(RoundedCornerShape(3.dp))
-                    .background(accentColor)
-                    .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
+                    .background(activeAccent)
+                    .border(1.dp, SpaceColors.White.copy(alpha = 0.7f), RoundedCornerShape(3.dp))
             )
         }
     }
 }
-

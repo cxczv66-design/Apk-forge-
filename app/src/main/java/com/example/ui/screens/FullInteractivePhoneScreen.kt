@@ -48,6 +48,9 @@ import com.example.ui.components.LiveBuildTerminalDialog
 import com.example.ui.components.LiveWebViewContainer
 import com.example.ui.components.nowTimeLabel
 import com.example.ui.components.threeDPerspectiveTilt
+import com.example.ui.components.space.NeonIconButton
+import com.example.ui.components.space.NeonButton
+import com.example.ui.components.space.NeonButtonStyle
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -178,38 +181,49 @@ fun FullInteractivePhoneScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkBackground)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                SpaceColors.DeepSpace.copy(alpha = 0.96f),
+                                SpaceColors.MidnightBlue.copy(alpha = 0.86f),
+                                Color.Transparent
+                            )
+                        )
+                    )
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "رجوع",
-                            tint = TextPrimary
-                        )
-                    }
+                    NeonIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "رجوع",
+                        onClick = onBack,
+                        tint = SpaceColors.White,
+                        borderAccent = SpaceColors.NeonCyan,
+                        size = 44.dp
+                    )
 
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             text = "محاكي الهاتف 3D التفاعلي",
                             fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
-                            color = TextPrimary,
+                            color = SpaceColors.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -217,14 +231,23 @@ fun FullInteractivePhoneScreen(
                             text = "${project.name} • ${project.packageConfig.packageName}",
                             fontFamily = TajawalFontFamily,
                             fontSize = 11.sp,
-                            color = TextMuted,
+                            color = SpaceColors.NeonCyan,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        NeonIconButton(
+                            icon = Icons.Default.ViewInAr,
+                            contentDescription = "عرض 3D",
+                            tint = if (is3dView && !isLiveWebViewMode) SpaceColors.NeonCyan else SpaceColors.MutedText,
+                            borderAccent = if (is3dView && !isLiveWebViewMode) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle,
+                            size = 42.dp,
+                            testTag = "toggle_3d_phone_btn",
                             onClick = {
                                 val next3d = !is3dView
                                 is3dView = next3d
@@ -236,29 +259,24 @@ fun FullInteractivePhoneScreen(
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
-                            },
-                            modifier = Modifier.testTag("toggle_3d_phone_btn")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ViewInAr,
-                                contentDescription = "عرض 3D",
-                                tint = if (is3dView && !isLiveWebViewMode) CyanAccent else TextSecondary
-                            )
-                        }
-                        IconButton(onClick = onEdit) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "تعديل المراحل",
-                                tint = accentColor
-                            )
-                        }
-                        IconButton(onClick = onBuild) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = "مركز التشخيص",
-                                tint = TextSecondary
-                            )
-                        }
+                            }
+                        )
+                        NeonIconButton(
+                            icon = Icons.Default.Edit,
+                            contentDescription = "تعديل المراحل",
+                            onClick = onEdit,
+                            tint = accentColor,
+                            borderAccent = accentColor,
+                            size = 42.dp
+                        )
+                        NeonIconButton(
+                            icon = Icons.Default.Tune,
+                            contentDescription = "مركز التشخيص",
+                            onClick = onBuild,
+                            tint = SpaceColors.NeonPurple,
+                            borderAccent = SpaceColors.NeonPurple,
+                            size = 42.dp
+                        )
                     }
                 }
 
@@ -266,17 +284,17 @@ fun FullInteractivePhoneScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
+                        .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Toggle Simulated UI vs Real Embedded WebView
                     Surface(
-                        color = if (isLiveWebViewMode) accentColor.copy(alpha = 0.22f) else DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
+                        color = if (isLiveWebViewMode) SpaceColors.NeonCyan.copy(alpha = 0.2f) else SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isLiveWebViewMode) accentColor else GlassBorderSubtle
+                            1.1.dp,
+                            if (isLiveWebViewMode) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle
                         ),
                         modifier = Modifier
                             .weight(1.2f)
@@ -290,29 +308,29 @@ fun FullInteractivePhoneScreen(
                             .testTag("toggle_live_webview_btn")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.Language, contentDescription = null, tint = if (isLiveWebViewMode) accentColor else TextSecondary, modifier = Modifier.size(15.dp))
+                            Icon(Icons.Default.Language, contentDescription = null, tint = if (isLiveWebViewMode) SpaceColors.NeonCyan else SpaceColors.MutedText, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = if (isLiveWebViewMode) "WebView حي ✓" else "WebView حقيقي",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = if (isLiveWebViewMode) accentColor else TextPrimary
+                                color = if (isLiveWebViewMode) SpaceColors.NeonCyan else SpaceColors.White
                             )
                         }
                     }
 
                     // Offline simulation toggle
                     Surface(
-                        color = if (isOfflineSimulated) Color(0xFF3A1A1A) else DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
+                        color = if (isOfflineSimulated) SpaceColors.ErrorRed.copy(alpha = 0.18f) else SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isOfflineSimulated) ErrorRed else GlassBorderSubtle
+                            1.1.dp,
+                            if (isOfflineSimulated) SpaceColors.ErrorRed else SpaceColors.GlassBorderSubtle
                         ),
                         modifier = Modifier
                             .weight(0.9f)
@@ -327,14 +345,14 @@ fun FullInteractivePhoneScreen(
                             .testTag("toggle_offline_sim_btn")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = if (isOfflineSimulated) Icons.Default.WifiOff else Icons.Default.Wifi,
                                 contentDescription = null,
-                                tint = if (isOfflineSimulated) ErrorRed else StatusGreen,
+                                tint = if (isOfflineSimulated) SpaceColors.ErrorRed else SpaceColors.Emerald,
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -342,18 +360,18 @@ fun FullInteractivePhoneScreen(
                                 text = if (isOfflineSimulated) "أوفلاين" else "متصل",
                                 fontFamily = CairoFontFamily,
                                 fontSize = 11.sp,
-                                color = if (isOfflineSimulated) ErrorRed else TextPrimary
+                                color = if (isOfflineSimulated) SpaceColors.ErrorRed else SpaceColors.White
                             )
                         }
                     }
 
                     // DevTools Console Drawer toggle
                     Surface(
-                        color = if (showDevToolsDrawer) OrangePrimary.copy(alpha = 0.2f) else DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
+                        color = if (showDevToolsDrawer) SpaceColors.NeonPurple.copy(alpha = 0.22f) else SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (showDevToolsDrawer) OrangePrimary else GlassBorderSubtle
+                            1.1.dp,
+                            if (showDevToolsDrawer) SpaceColors.NeonPurple else SpaceColors.GlassBorderSubtle
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -364,13 +382,13 @@ fun FullInteractivePhoneScreen(
                             .testTag("toggle_devtools_btn")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.BugReport, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(15.dp))
+                            Icon(Icons.Default.BugReport, contentDescription = null, tint = SpaceColors.NeonPurple, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("DevTools", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextPrimary)
+                            Text("DevTools", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = SpaceColors.White)
                         }
                     }
                 }
@@ -384,9 +402,9 @@ fun FullInteractivePhoneScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        color = DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
+                        color = SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.GlassBorderSubtle),
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
@@ -400,22 +418,22 @@ fun FullInteractivePhoneScreen(
                             }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = accentColor, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("إعادة Splash", fontFamily = CairoFontFamily, fontSize = 10.sp, color = TextPrimary)
+                            Text("إعادة Splash", fontFamily = CairoFontFamily, fontSize = 10.sp, color = SpaceColors.White)
                         }
                     }
 
                     Surface(
-                        color = if (isHomeScreenMode) accentColor.copy(alpha = 0.2f) else DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
+                        color = if (isHomeScreenMode) SpaceColors.NeonCyan.copy(alpha = 0.2f) else SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (isHomeScreenMode) accentColor else GlassBorderSubtle
+                            if (isHomeScreenMode) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -425,14 +443,14 @@ fun FullInteractivePhoneScreen(
                             }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 if (isHomeScreenMode) Icons.Default.PhoneAndroid else Icons.Default.Home,
                                 contentDescription = null,
-                                tint = if (isHomeScreenMode) accentColor else TextSecondary,
+                                tint = if (isHomeScreenMode) SpaceColors.NeonCyan else SpaceColors.MutedText,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -440,15 +458,15 @@ fun FullInteractivePhoneScreen(
                                 if (isHomeScreenMode) "عرض التطبيق" else "شاشة المشغل",
                                 fontFamily = CairoFontFamily,
                                 fontSize = 10.sp,
-                                color = if (isHomeScreenMode) accentColor else TextPrimary
+                                color = if (isHomeScreenMode) SpaceColors.NeonCyan else SpaceColors.White
                             )
                         }
                     }
 
                     Surface(
-                        color = DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f)),
+                        color = SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f)),
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
@@ -458,21 +476,21 @@ fun FullInteractivePhoneScreen(
                             .testTag("test_smart_permissions_btn")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("اختبار الأذونات", fontFamily = CairoFontFamily, fontSize = 10.sp, color = TextPrimary)
+                            Text("اختبار الأذونات", fontFamily = CairoFontFamily, fontSize = 10.sp, color = SpaceColors.White)
                         }
                     }
 
                     if (project.pushConfig.enabled) {
                         Surface(
-                            color = DarkSurfaceElevated,
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
+                            color = SpaceColors.SurfaceElevated.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.Emerald.copy(alpha = 0.45f)),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable {
@@ -484,13 +502,13 @@ fun FullInteractivePhoneScreen(
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("إشعار تجريبي", fontFamily = CairoFontFamily, fontSize = 10.sp, color = TextPrimary)
+                                Text("إشعار تجريبي", fontFamily = CairoFontFamily, fontSize = 10.sp, color = SpaceColors.White)
                             }
                         }
                     }
@@ -499,13 +517,34 @@ fun FullInteractivePhoneScreen(
         },
         bottomBar = {
             val isBuildingNow = engineState is QuantumBuildEngine.EngineStatus.Running
-            Surface(
-                color = DarkSurface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                SpaceColors.MidnightBlue.copy(alpha = 0.92f),
+                                SpaceColors.DeepSpace.copy(alpha = 0.98f)
+                            )
+                        )
+                    )
                     .navigationBarsPadding()
             ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.2.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    SpaceColors.NeonCyan.copy(alpha = 0.65f),
+                                    SpaceColors.NeonPurple.copy(alpha = 0.55f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -522,7 +561,7 @@ fun FullInteractivePhoneScreen(
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = TextSecondary
+                            color = SpaceColors.MutedText
                         )
                         if (isBuildingNow) {
                             Text(
@@ -530,7 +569,7 @@ fun FullInteractivePhoneScreen(
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = OrangePrimary
+                                color = SpaceColors.Gold
                             )
                         }
                     }
@@ -543,7 +582,7 @@ fun FullInteractivePhoneScreen(
                             label = "APK",
                             sub = "تثبيت",
                             icon = Icons.Filled.Android,
-                            accent = OrangePrimary,
+                            accent = SpaceColors.Gold,
                             enabled = !isBuildingNow,
                             tag = "sandbox_build_apk_btn",
                             modifier = Modifier.weight(1f),
@@ -553,7 +592,7 @@ fun FullInteractivePhoneScreen(
                             label = "AAB",
                             sub = "Google Play",
                             icon = Icons.Filled.CloudUpload,
-                            accent = StatusGreen,
+                            accent = SpaceColors.Emerald,
                             enabled = !isBuildingNow,
                             tag = "sandbox_build_aab_btn",
                             modifier = Modifier.weight(1f),
@@ -563,7 +602,7 @@ fun FullInteractivePhoneScreen(
                             label = "APKS",
                             sub = "شامل Split",
                             icon = Icons.Filled.Layers,
-                            accent = CyanAccent,
+                            accent = SpaceColors.NeonCyan,
                             enabled = !isBuildingNow,
                             tag = "sandbox_build_apks_btn",
                             modifier = Modifier.weight(1f),
@@ -582,7 +621,7 @@ fun FullInteractivePhoneScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Realistic 3D Smartphone Chassis
+            // Realistic 3D Space Glass Smartphone Chassis
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -591,18 +630,22 @@ fun FullInteractivePhoneScreen(
                     .shadow(
                         elevation = if (is3dView) 28.dp else 20.dp,
                         shape = RoundedCornerShape(36.dp),
-                        spotColor = accentColor.copy(alpha = 0.55f),
-                        ambientColor = Color.Black
+                        spotColor = SpaceColors.NeonCyan.copy(alpha = 0.55f),
+                        ambientColor = SpaceColors.NeonPurple.copy(alpha = 0.4f)
                     )
                     .clip(RoundedCornerShape(36.dp))
-                    .background(Color(0xFF141620))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(SpaceColors.SurfaceElevated, SpaceColors.DeepSpace)
+                        )
+                    )
                     .border(
-                        width = 3.dp,
-                        brush = Brush.verticalGradient(
+                        width = 2.6.dp,
+                        brush = Brush.linearGradient(
                             listOf(
-                                accentColor,
-                                Color(0xFF2E3246),
-                                accentColor.copy(alpha = 0.5f)
+                                SpaceColors.NeonCyan.copy(alpha = 0.88f),
+                                SpaceColors.ElectricBlue.copy(alpha = 0.45f),
+                                SpaceColors.NeonPurple.copy(alpha = 0.85f)
                             )
                         ),
                         shape = RoundedCornerShape(36.dp)

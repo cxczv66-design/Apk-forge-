@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -69,32 +70,32 @@ fun TerminalLogView(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(TerminalBackground)
-            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
+            .shadow(14.dp, RoundedCornerShape(18.dp), spotColor = SpaceColors.NeonCyan.copy(alpha = 0.35f))
+            .clip(RoundedCornerShape(18.dp))
+            .background(SpaceColors.TerminalBg)
+            .border(1.2.dp, SpaceColors.GlassBorderCyan, RoundedCornerShape(18.dp))
             .testTag("terminal_log_view")
     ) {
-        // Terminal Window Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF10121A))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .background(SpaceColors.MidnightBlue)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF5F56)))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SpaceColors.ErrorRed))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFFBD2E)))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SpaceColors.Gold))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF27C93F)))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SpaceColors.Emerald))
                     Spacer(modifier = Modifier.width(10.dp))
                     Icon(
                         imageVector = Icons.Default.Terminal,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = SpaceColors.NeonCyan,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -102,7 +103,7 @@ fun TerminalLogView(
                         text = "quantum@apkforge (${logs.size})",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = TextSecondary,
+                        color = SpaceColors.White,
                         style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                     )
                 }
@@ -112,8 +113,8 @@ fun TerminalLogView(
                 listOf("الكل", "المراحل", "النتائج").forEach { filter ->
                     val active = selectedFilter == filter
                     Surface(
-                        color = if (active) OrangePrimary.copy(alpha = 0.2f) else Color(0xFF1A1E2B),
-                        shape = RoundedCornerShape(6.dp),
+                        color = if (active) SpaceColors.NeonCyan.copy(alpha = 0.22f) else SpaceColors.SurfaceDeep,
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.clickable { selectedFilter = filter }
                     ) {
                         Text(
@@ -121,14 +122,14 @@ fun TerminalLogView(
                             fontFamily = CairoFontFamily,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                             fontSize = 10.sp,
-                            color = if (active) OrangePrimary else TextSecondary,
+                            color = if (active) SpaceColors.NeonCyan else SpaceColors.MutedText,
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         )
                     }
                 }
 
                 IconButton(
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(28.dp),
                     onClick = {
                         val fullLog = logs.joinToString("\n")
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -139,14 +140,13 @@ fun TerminalLogView(
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = "نسخ السجلات",
-                        tint = AmberPrimary,
+                        tint = SpaceColors.NeonCyan,
                         modifier = Modifier.size(14.dp)
                     )
                 }
             }
         }
 
-        // Terminal Content with separated LTR timestamp column to eliminate RTL scrambling
         if (filteredLogs.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -158,7 +158,7 @@ fun TerminalLogView(
                     text = if (logs.isEmpty()) "جاهز للبناء... اضغط 'بناء' لبدء خط التجميع الفعلي" else "لا توجد سجلات مطابقة لهذا الفلتر",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
-                    color = TextMuted
+                    color = SpaceColors.MutedText
                 )
             }
         } else {
@@ -177,11 +177,11 @@ fun TerminalLogView(
                         val body = tsMatch?.groupValues?.getOrNull(2) ?: rawLine
 
                         val color = when {
-                            rawLine.contains("✅") || rawLine.contains("اكتمل") || rawLine.contains("🎉") -> TerminalGreen
-                            rawLine.contains("❌") || rawLine.contains("خطأ") -> ErrorRed
-                            rawLine.contains("⚠️") || rawLine.contains("تنبيه") -> WarningYellow
-                            rawLine.contains("🚀") || rawLine.contains("⚙️") || rawLine.contains("🔐") -> AmberPrimary
-                            else -> TerminalText
+                            rawLine.contains("✅") || rawLine.contains("اكتمل") || rawLine.contains("🎉") -> SpaceColors.Emerald
+                            rawLine.contains("❌") || rawLine.contains("خطأ") -> SpaceColors.ErrorRed
+                            rawLine.contains("⚠️") || rawLine.contains("تنبيه") -> SpaceColors.Gold
+                            rawLine.contains("🚀") || rawLine.contains("⚙️") || rawLine.contains("🔐") -> SpaceColors.NeonCyan
+                            else -> Color(0xFF7DD3FC)
                         }
 
                         Row(
@@ -193,7 +193,7 @@ fun TerminalLogView(
                                     text = "[$timestamp] ",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.sp,
-                                    color = TextMuted,
+                                    color = SpaceColors.SubtleText,
                                     style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                                     lineHeight = 16.sp
                                 )

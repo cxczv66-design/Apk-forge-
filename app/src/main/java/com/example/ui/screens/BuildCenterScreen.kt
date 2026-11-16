@@ -13,18 +13,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -36,34 +33,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.domain.model.AppProject
 import com.example.engine.BuildAuditItem
 import com.example.engine.BuildOptimizationOptions
 import com.example.engine.GitHubCloudBuildEngine
+import com.example.engine.HybridBuildCoordinator
+import com.example.engine.HybridBuildMode
+import com.example.engine.HybridBuildState
+import com.example.engine.HybridStageStatus
 import com.example.engine.ProjectExporter
 import com.example.engine.QuantumBuildEngine
 import com.example.engine.QuantumDiagnosticReport
+import com.example.engine.SelectedBuildEngine
+import com.example.engine.SmartBuildDecision
+import com.example.engine.SmartBuildRouter
 import com.example.engine.ToolchainManager
 import com.example.ui.components.AdaptiveBuildPipelineBoard
 import com.example.ui.components.AdaptiveIconAndUiStudioDialog
 import com.example.ui.components.BridgeAndCloudConfigDialog
+import com.example.ui.components.BuildCompleteBottomSheet
 import com.example.ui.components.BuildHistoryCard
 import com.example.ui.components.CloudAndBridgeFactoryCard
 import com.example.ui.components.GitHubCloudBuildDialog
 import com.example.ui.components.InAppToolchainTerminalCard
+import com.example.ui.components.LiveBuildTerminalDialog
 import com.example.ui.components.PlayStorePrepDialog
 import com.example.ui.components.ProStudioHubCard
 import com.example.ui.components.SecurityAndBridgeV2Dialog
 import com.example.ui.components.TerminalLogView
 import com.example.ui.components.WebCustomizerDialog
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
-
-import com.example.ui.components.BuildCompleteBottomSheet
-import com.example.ui.components.LiveBuildTerminalDialog
-import com.example.ui.components.OmniBuildTargetSuiteCard
 
 @Composable
 fun BuildCenterScreen(
@@ -79,6 +80,12 @@ fun BuildCenterScreen(
     onStartAutomatedBuild: ((AppProject, String, BuildOptimizationOptions, Boolean) -> Unit)? = null,
     onGenerateKeystore: ((AppProject, String, String, String, (Boolean, AppProject?) -> Unit) -> Unit)? = null,
     onInspectPackage: ((String) -> Unit)? = null,
+    hybridCoordinator: HybridBuildCoordinator? = null,
+    smartBuildRouter: SmartBuildRouter? = null,
+    selectedBuildMode: HybridBuildMode? = null,
+    onSelectBuildMode: ((HybridBuildMode) -> Unit)? = null,
+    onStartHybridBuild: ((AppProject, String, BuildOptimizationOptions, Boolean) -> Unit)? = null,
+    onCancelCloudBuild: (() -> Unit)? = null,
     onBuildCompleted: (updatedProject: AppProject, fileName: String, outputPath: String, sizeText: String) -> Unit = { _, _, _, _ -> },
     onBack: () -> Unit
 ) {
@@ -86,6 +93,11 @@ fun BuildCenterScreen(
     val effectiveToolchain = toolchainManager ?: remember(context) { ToolchainManager(context) }
     val projectExporter = remember(context) { ProjectExporter(context) }
     val githubCloudEngine = remember(context) { GitHubCloudBuildEngine(context) }
+    val effectiveRouter = smartBuildRouter ?: remember(context) { SmartBuildRouter(context) }
+    val effectiveCoordinator = hybridCoordinator ?: remember(context) { HybridBuildCoordinator.getInstance(context) }
+    var internalBuildMode by remember { mutableStateOf(HybridBuildMode.AUTO_SMART) }
+    val currentBuildMode = selectedBuildMode ?: internalBuildMode
+    val hybridState by effectiveCoordinator.state.collectAsState()
     val engineState by quantumEngine.engineState.collectAsState()
     val logs by quantumEngine.logStream.collectAsState()
     val buildStages by quantumEngine.buildStages.collectAsState()
@@ -150,7 +162,37 @@ fun BuildCenterScreen(
     }
     val passedAuditCount = auditItems.count { it.passed }
 
-    val isBuilding = engineState is QuantumBuildEngine.EngineStatus.Running
+    val isLocalBuilding = engineState is QuantumBuildEngine.EngineStatus.Running
+    val isCloudBuilding = hybridState.isRunning
+    val isBuilding = isLocalBuilding || isCloudBuilding
+
+    var previewTargetForRouter by remember { mutableStateOf("release") }
+    var cloudTokenConfigured by remember(showGitHubCloudDialog) {
+        mutableStateOf(githubCloudEngine.hasSavedToken())
+    }
+    val derivedRepoSlug = remember(activeProject.name) {
+        activeProject.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").trim('-')
+            .ifBlank { githubCloudEngine.getSavedRepoName() }
+    }
+    val signingSecretsSyncedForCard = remember(derivedRepoSlug, showGitHubCloudDialog, hybridState.signingSecretsSynced) {
+        hybridState.signingSecretsSynced || githubCloudEngine.isSigningSecretsSynced(derivedRepoSlug)
+    }
+    val smartDecision = remember(
+        activeProject,
+        previewTargetForRouter,
+        currentBuildMode,
+        cloudTokenConfigured,
+        abiSplit,
+        quantumReport.checkTimestamp
+    ) {
+        effectiveRouter.decide(
+            project = activeProject,
+            targetType = previewTargetForRouter,
+            requestedMode = currentBuildMode,
+            cloudTokenConfigured = cloudTokenConfigured,
+            abiSplitRequested = abiSplit
+        )
+    }
 
     fun launchAutomatedBuild(targetType: String) {
         buildSessionStarted = true
@@ -158,7 +200,6 @@ fun BuildCenterScreen(
         if (onStartAutomatedBuild != null) {
             onStartAutomatedBuild.invoke(activeProject, targetType, buildOptions, autoBumpVersion)
         } else {
-            // Safe background fallback when invoked without ViewModel
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate).launch {
                 val projToBuild = if (autoBumpVersion) {
                     activeProject.copy(
@@ -186,6 +227,40 @@ fun BuildCenterScreen(
                     Toast.makeText(context, "⚠️ تعذر إكمال البناء — راجع سجل أوامر البناء أدناه", Toast.LENGTH_LONG).show()
                 }
             }
+        }
+    }
+
+    fun launchHybridBuild(targetType: String) {
+        previewTargetForRouter = targetType
+        val decisionNow = effectiveRouter.decide(
+            project = activeProject,
+            targetType = targetType,
+            requestedMode = currentBuildMode,
+            cloudTokenConfigured = githubCloudEngine.hasSavedToken(),
+            abiSplitRequested = abiSplit
+        )
+        if (decisionNow.selectedEngine == SelectedBuildEngine.CLOUD_GRADLE_SDK) {
+            if (!decisionNow.cloudCredentialsReady) {
+                Toast.makeText(context, "☁️ أدخل رمز GitHub Token المشفّر لإطلاق البناء السحابي", Toast.LENGTH_LONG).show()
+                showGitHubCloudDialog = true
+                return
+            }
+            if (onStartHybridBuild != null) {
+                onStartHybridBuild.invoke(activeProject, targetType, buildOptions, autoBumpVersion)
+            } else {
+                effectiveCoordinator.startCloudBuild(
+                    project = activeProject,
+                    targetType = targetType,
+                    options = buildOptions,
+                    cloudEngineOverride = githubCloudEngine,
+                    onCompleted = { fileName, path, sizeText ->
+                        onBuildCompleted(activeProject, fileName, path, sizeText)
+                    }
+                )
+            }
+        } else {
+            effectiveCoordinator.notifySelectedLocal(activeProject, targetType, decisionNow)
+            launchAutomatedBuild(targetType)
         }
     }
 
@@ -227,53 +302,31 @@ fun BuildCenterScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DarkBackground)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack, enabled = !isBuilding) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "رجوع",
-                        tint = if (isBuilding) TextMuted else TextPrimary
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable(enabled = !isBuilding) { onEditProject() }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
+            PremiumTopBar(
+                title = activeProject.name,
+                subtitle = "مركز التحكم الفضائي لبناء APK و AAB",
+                onBack = { if (!isBuilding) onBack() },
+                accentColor = SpaceColors.Gold,
+                trailingContent = {
+                    NeonIconButton(
+                        icon = Icons.Default.Edit,
                         contentDescription = "تعديل",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
+                        enabled = !isBuilding,
+                        onClick = onEditProject,
+                        tint = SpaceColors.NeonCyan,
+                        size = 44.dp
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = activeProject.name,
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = TextPrimary
-                    )
-                }
-
-                IconButton(onClick = onOpenDownloads) {
-                    Icon(
-                        imageVector = Icons.Default.Download,
+                    NeonIconButton(
+                        icon = Icons.Default.Download,
                         contentDescription = "التنزيلات",
-                        tint = TextPrimary
+                        onClick = onOpenDownloads,
+                        tint = SpaceColors.Gold,
+                        size = 44.dp
                     )
                 }
-            }
+            )
         }
     ) { paddingValues ->
         BoxWithConstraints(
@@ -285,7 +338,6 @@ fun BuildCenterScreen(
             val isWideWorkbench = maxWidth >= 720.dp
 
             if (isWideWorkbench) {
-                // Adaptive 2-Pane Workbench for tablets/foldables: Controls on right, Live Pipeline + Console on left
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     Row(
                         modifier = Modifier
@@ -296,8 +348,37 @@ fun BuildCenterScreen(
                         LazyColumn(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp)
+                            contentPadding = PaddingValues(top = 10.dp, bottom = 48.dp)
                         ) {
+                            item {
+                                SmartHybridRouterCard(
+                                    project = activeProject,
+                                    selectedMode = currentBuildMode,
+                                    decision = smartDecision,
+                                    hybridState = hybridState,
+                                    isBuilding = isBuilding,
+                                    signingSecretsSynced = signingSecretsSyncedForCard,
+                                    onSelectMode = { mode ->
+                                        internalBuildMode = mode
+                                        onSelectBuildMode?.invoke(mode)
+                                    },
+                                    onLaunchApk = { launchHybridBuild("release") },
+                                    onLaunchAab = { launchHybridBuild("aab") },
+                                    onCancelCloud = {
+                                        if (onCancelCloudBuild != null) onCancelCloudBuild.invoke()
+                                        else effectiveCoordinator.cancelCloudBuild()
+                                    },
+                                    onOpenCloudCredentials = { showGitHubCloudDialog = true },
+                                    onOpenDiagnostic = onOpenDiagnostic,
+                                    onInstallCloudArtifact = { path ->
+                                        val res = projectExporter.installApkDirectly(path, "cloud_release", activeProject.name)
+                                        Toast.makeText(context, res.messageAr, Toast.LENGTH_LONG).show()
+                                    },
+                                    onOpenActions = { url ->
+                                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                                    }
+                                )
+                            }
                             item {
                                 InteractivePhonePreviewCard(activeProject, onOpenInteractivePhone)
                             }
@@ -368,7 +449,7 @@ fun BuildCenterScreen(
                         LazyColumn(
                             modifier = Modifier.weight(1.15f),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp)
+                            contentPadding = PaddingValues(top = 10.dp, bottom = 48.dp)
                         ) {
                             item {
                                 AdaptiveBuildPipelineBoard(
@@ -425,19 +506,47 @@ fun BuildCenterScreen(
                     }
                 }
             } else {
-                // Adaptive Handheld Flow: Live Pipeline right below controls so user watches live progress
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp)
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 48.dp)
                 ) {
+                    item {
+                        SmartHybridRouterCard(
+                            project = activeProject,
+                            selectedMode = currentBuildMode,
+                            decision = smartDecision,
+                            hybridState = hybridState,
+                            isBuilding = isBuilding,
+                            signingSecretsSynced = signingSecretsSyncedForCard,
+                            onSelectMode = { mode ->
+                                internalBuildMode = mode
+                                onSelectBuildMode?.invoke(mode)
+                            },
+                            onLaunchApk = { launchHybridBuild("release") },
+                            onLaunchAab = { launchHybridBuild("aab") },
+                            onCancelCloud = {
+                                if (onCancelCloudBuild != null) onCancelCloudBuild.invoke()
+                                else effectiveCoordinator.cancelCloudBuild()
+                            },
+                            onOpenCloudCredentials = { showGitHubCloudDialog = true },
+                            onOpenDiagnostic = onOpenDiagnostic,
+                            onInstallCloudArtifact = { path ->
+                                val res = projectExporter.installApkDirectly(path, "cloud_release", activeProject.name)
+                                Toast.makeText(context, res.messageAr, Toast.LENGTH_LONG).show()
+                            },
+                            onOpenActions = { url ->
+                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                            }
+                        )
+                    }
+
                     item {
                         InteractivePhonePreviewCard(activeProject, onOpenInteractivePhone)
                     }
 
-                    // Live Adaptive Pipeline Board (Always visible so user sees live build stages & assembly)
                     item {
                         AdaptiveBuildPipelineBoard(
                             project = activeProject,
@@ -453,7 +562,6 @@ fun BuildCenterScreen(
                         item { BuildProgressCard(running) }
                     }
 
-                    // Powerful Automated Build Suite + Gateway to Live 3D Sandbox
                     item {
                         AutoBuildSuiteCard(
                             activeProject = activeProject,
@@ -473,7 +581,6 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Pre-Build Automated Doctor & 1-Tap Fix
                     item {
                         PreBuildDoctorCard(
                             auditItems = auditItems,
@@ -490,22 +597,22 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Warning Banner (Shown until keystore generated)
                     if (!keystoreGenerated) {
                         item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF231C13))
-                                    .border(1.dp, Color(0x66FF7A2F), RoundedCornerShape(16.dp))
-                                    .padding(14.dp)
+                            NeonGlassCard(
+                                accentColor = SpaceColors.Gold,
+                                secondaryAccent = SpaceColors.ErrorRed,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(verticalAlignment = Alignment.Top) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.Warning,
                                         contentDescription = null,
-                                        tint = OrangePrimary,
+                                        tint = SpaceColors.Gold,
                                         modifier = Modifier
                                             .size(22.dp)
                                             .padding(top = 2.dp)
@@ -515,15 +622,14 @@ fun BuildCenterScreen(
                                         text = "لا يوجد مفتاح توقيع في التنزيلات بعد، أنشئ واحداً أدناه وسيوثق به كل APK و AAB تبنيه - احتفظ به بأمان، فقدانه يوقف تحديثات كل التطبيقات المبنية به.",
                                         fontFamily = TajawalFontFamily,
                                         fontSize = 12.sp,
-                                        color = TextSecondary,
-                                        lineHeight = 18.sp
+                                        color = SpaceColors.MutedText,
+                                        lineHeight = 19.sp
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Card 3: مفتاح التوقيع
                     item {
                         BuildCenterCard(
                             title = "مفتاح التوقيع المشفّر",
@@ -536,7 +642,6 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Cloud CI + JS Bridge + Google Play Prep Factory Card
                     item {
                         CloudAndBridgeFactoryCard(
                             project = activeProject,
@@ -547,7 +652,6 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Unified Organized 4-Tile Pro Studio Hub
                     item {
                         ProStudioHubCard(
                             project = activeProject,
@@ -558,14 +662,12 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Build Version History (per-project)
                     if (activeProject.buildHistory.isNotEmpty()) {
                         item {
                             BuildHistoryCard(history = activeProject.buildHistory)
                         }
                     }
 
-                    // In-App Build & Signing Toolchain Installer + Organized Linear Terminal
                     item {
                         InAppToolchainTerminalCard(
                             toolchainManager = effectiveToolchain,
@@ -590,7 +692,6 @@ fun BuildCenterScreen(
                         }
                     }
 
-                    // Quantum On-Device Pipeline & Security Matrix Card
                     item {
                         QuantumEngineDirectCard(
                             quantumReport = quantumReport,
@@ -600,14 +701,11 @@ fun BuildCenterScreen(
                         )
                     }
 
-                    // Terminal Logs Window
                     item {
-                        Text(
-                            text = "سجل أوامر البناء (Build Engine Log):",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextPrimary
+                        PremiumSectionHeader(
+                            title = "سجل أوامر البناء (Build Engine Log)",
+                            icon = Icons.Default.Terminal,
+                            accentColor = SpaceColors.NeonCyan
                         )
                     }
 
@@ -623,74 +721,49 @@ fun BuildCenterScreen(
             val fullScript = remember(activeProject, buildOptions) {
                 quantumEngine.generateQuantumBuildSpecText(activeProject, "release", buildOptions)
             }
-            Dialog(
+            SpaceDialog(
                 onDismissRequest = { showScriptDialog = false },
-                properties = DialogProperties(usePlatformDefaultWidth = false)
+                title = "مواصفات أوامر Quantum المدمجة",
+                subtitle = "aapt2 + d8 + zipalign + apksig",
+                icon = Icons.Default.Code,
+                accentColor = SpaceColors.NeonCyan,
+                secondaryAccent = SpaceColors.NeonPurple,
+                widthFraction = 0.94f
             ) {
-                Surface(
-                    color = Color(0xFF141925),
-                    shape = RoundedCornerShape(20.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                    modifier = Modifier
-                        .fillMaxWidth(0.92f)
-                        .fillMaxHeight(0.8f)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "مواصفات أوامر Quantum المدمجة (aapt2 + d8 + zipalign + apksig)",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = TextPrimary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { showScriptDialog = false }) {
-                                Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary)
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(TerminalBackground)
-                                .border(1.dp, Color(0xFF232C3E), RoundedCornerShape(12.dp))
-                                .verticalScroll(rememberScrollState())
-                                .horizontalScroll(rememberScrollState())
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = fullScript,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                color = TerminalText,
-                                lineHeight = 16.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Button(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("ApkForge Build Script", fullScript))
-                                Toast.makeText(context, "تم نسخ السكربت الكامل للحافظة ✓", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("نسخ السكربت الكامل", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 240.dp, max = 390.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(SpaceColors.TerminalBg)
+                            .border(1.dp, SpaceColors.GlassBorderCyan, RoundedCornerShape(14.dp))
+                            .verticalScroll(rememberScrollState())
+                            .horizontalScroll(rememberScrollState())
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = fullScript,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = TerminalText,
+                            lineHeight = 16.sp
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    NeonButton(
+                        text = "نسخ السكربت الكامل",
+                        icon = Icons.Default.ContentCopy,
+                        style = NeonButtonStyle.PRIMARY_GLOW,
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("ApkForge Build Script", fullScript))
+                            Toast.makeText(context, "تم نسخ السكربت الكامل للحافظة ✓", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -701,151 +774,100 @@ fun BuildCenterScreen(
                 val safeAlias = keyAlias.trim().ifBlank { "apkforge_release" }
                 "quantum-keyvault seal --alias=$safeAlias --cipher=AndroidKeyStore-AES256-GCM --cert=BouncyCastle-X509-RSA2048 --org=\"$keyOrg\" --validity=${keyValidityYears}y"
             }
-            Dialog(
+            SpaceDialog(
                 onDismissRequest = { showKeystoreDialog = false },
-                properties = DialogProperties(usePlatformDefaultWidth = false)
+                title = "خزنة التوقيع المشفّرة (KeyVault)",
+                subtitle = "توقيع APK و AAB للنشر الرسمي",
+                icon = Icons.Default.VpnKey,
+                accentColor = SpaceColors.Gold,
+                secondaryAccent = SpaceColors.NeonCyan,
+                widthFraction = 0.94f
             ) {
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .clickable { showKeystoreDialog = false },
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Surface(
-                        color = Color(0xFF1B1D2C),
-                        shape = RoundedCornerShape(22.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
+                    NeonTextField(
+                        value = keyAlias,
+                        onValueChange = { keyAlias = it },
+                        label = "اسم المفتاح (Key Alias)",
+                        leadingIcon = Icons.Default.Badge,
+                        accentColor = SpaceColors.Gold
+                    )
+                    NeonTextField(
+                        value = keyPassword,
+                        onValueChange = { keyPassword = it },
+                        label = "كلمة المرور (Key Password)",
+                        leadingIcon = Icons.Default.Password,
+                        accentColor = SpaceColors.Gold
+                    )
+                    NeonTextField(
+                        value = keyOrg,
+                        onValueChange = { keyOrg = it },
+                        label = "اسم المطور / المؤسسة (Organization)",
+                        leadingIcon = Icons.Default.Business,
+                        accentColor = SpaceColors.NeonCyan
+                    )
+                    NeonTextField(
+                        value = keyValidityYears,
+                        onValueChange = { keyValidityYears = it },
+                        label = "مدة الصلاحية بالسنوات (Validity)",
+                        leadingIcon = Icons.Default.Schedule,
+                        accentColor = SpaceColors.NeonCyan
+                    )
+
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .clickable(enabled = false) {}
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SpaceColors.TerminalBg)
+                            .border(1.dp, SpaceColors.Emerald.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(10.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(20.dp)
-                                .verticalScroll(rememberScrollState())
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(CircleShape)
-                                    .background(OrangePrimary.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.VpnKey, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(26.dp))
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "خزنة التوقيع المشفّرة (Quantum KeyVault)",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "يستخدم لتوقيع تطبيقات APK و AAB للنشر في Google Play",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
+                        Text(
+                            text = keytoolCmd,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            color = SpaceColors.Emerald
+                        )
+                    }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                            OutlinedTextField(
-                                value = keyAlias,
-                                onValueChange = { keyAlias = it },
-                                label = { Text("اسم المفتاح (Key Alias)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = keyPassword,
-                                onValueChange = { keyPassword = it },
-                                label = { Text("كلمة المرور (Key Password)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = keyOrg,
-                                onValueChange = { keyOrg = it },
-                                label = { Text("اسم المطور / المؤسسة (Organization)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = keyValidityYears,
-                                onValueChange = { keyValidityYears = it },
-                                label = { Text("مدة الصلاحية بالسنوات (Validity)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        NeonButton(
+                            text = "إلغاء",
+                            style = NeonButtonStyle.CYBER_OUTLINE,
+                            onClick = { showKeystoreDialog = false },
+                            modifier = Modifier.weight(1f)
+                        )
 
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Surface(
-                                color = TerminalBackground,
-                                shape = RoundedCornerShape(10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF232C3E)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = keytoolCmd,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = TerminalGreen,
-                                    modifier = Modifier.padding(10.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showKeystoreDialog = false },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("إلغاء", fontFamily = CairoFontFamily, color = TextMuted)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        val cleanAlias = keyAlias.trim().ifBlank { "release" }
-                                        if (onGenerateKeystore != null) {
-                                            onGenerateKeystore.invoke(activeProject, cleanAlias, keyPassword, keyOrg) { ok, updated ->
-                                                if (ok && updated != null) {
-                                                    activeProject = updated
-                                                    keystoreGenerated = true
-                                                    showKeystoreDialog = false
-                                                }
-                                            }
-                                        } else {
-                                            effectiveToolchain.launchInteractiveCommand("gen-key", activeProject)
+                        NeonButton(
+                            text = "توليد وحفظ ✓",
+                            style = NeonButtonStyle.GOLD_ENGINE,
+                            onClick = {
+                                val cleanAlias = keyAlias.trim().ifBlank { "release" }
+                                if (onGenerateKeystore != null) {
+                                    onGenerateKeystore.invoke(activeProject, cleanAlias, keyPassword, keyOrg) { ok, updated ->
+                                        if (ok && updated != null) {
+                                            activeProject = updated
                                             keystoreGenerated = true
                                             showKeystoreDialog = false
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                    modifier = Modifier.weight(1.5f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("توليد وحفظ ✓", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                } else {
+                                    effectiveToolchain.launchInteractiveCommand("gen-key", activeProject)
+                                    keystoreGenerated = true
+                                    showKeystoreDialog = false
                                 }
-                            }
-                        }
+                            },
+                            modifier = Modifier.weight(1.4f)
+                        )
                     }
                 }
             }
@@ -921,7 +943,14 @@ fun BuildCenterScreen(
                 exporter = projectExporter,
                 cloudEngine = githubCloudEngine,
                 options = buildOptions,
-                onDismiss = { showGitHubCloudDialog = false }
+                hybridCoordinator = effectiveCoordinator,
+                onArtifactDownloaded = { fileName, path, sizeText ->
+                    onBuildCompleted(activeProject, fileName, path, sizeText)
+                },
+                onDismiss = {
+                    cloudTokenConfigured = githubCloudEngine.hasSavedToken()
+                    showGitHubCloudDialog = false
+                }
             )
         }
 
@@ -971,67 +1000,54 @@ private fun InteractivePhonePreviewCard(
     project: AppProject,
     onOpenInteractivePhone: () -> Unit
 ) {
-    val accent = parseColorSafe(project.accentColorHex, OrangePrimary)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF1E172E), Color(0xFF151928))))
-            .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-            .clickable { onOpenInteractivePhone() }
-            .padding(16.dp)
+    val accent = parseColorSafe(project.accentColorHex, SpaceColors.NeonCyan)
+    NeonGlassCard(
+        accentColor = accent,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(20.dp),
+        onClick = onOpenInteractivePhone,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PhoneAndroid,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(14.dp))
+                Space3DFeatureBadge(
+                    icon = Icons.Default.PhoneAndroid,
+                    accentColor = accent,
+                    secondaryColor = SpaceColors.NeonPurple,
+                    size = 48.dp
+                )
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = "محاكي الهاتف التفاعلي المتطور",
                         fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
-                        color = TextPrimary
+                        color = SpaceColors.White
                     )
                     Text(
                         text = "المس وجرب التطبيق والتنقل حياً قبل البناء",
                         fontFamily = TajawalFontFamily,
                         fontSize = 12.sp,
-                        color = TextSecondary
+                        color = SpaceColors.MutedText
                     )
                 }
             }
 
-            Button(
-                onClick = onOpenInteractivePhone,
-                colors = ButtonDefaults.buttonColors(containerColor = accent),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "معاينة 📱",
-                    fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Color.White
-                )
-            }
+            Spacer(Modifier.width(8.dp))
+
+            NeonButton(
+                text = "معاينة 📱",
+                style = NeonButtonStyle.PURPLE_AI,
+                height = 44.dp,
+                onClick = onOpenInteractivePhone
+            )
         }
     }
 }
@@ -1054,10 +1070,10 @@ private fun AutoBuildSuiteCard(
     onShowScript: () -> Unit
 ) {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF131924),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.35f)),
+        NeonGlassCard(
+            accentColor = SpaceColors.Gold,
+            secondaryAccent = SpaceColors.NeonCyan,
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -1069,33 +1085,38 @@ private fun AutoBuildSuiteCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Space3DFeatureBadge(
+                            icon = Icons.Default.AutoAwesome,
+                            accentColor = SpaceColors.Gold,
+                            secondaryColor = SpaceColors.NeonPurple,
+                            size = 40.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "أدوات البناء التلقائية المتقدمة",
                                 fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 fontSize = 14.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = "تحسين الحجم، تقسيم المعالجات، ورفع الإصدار v${activeProject.packageConfig.versionCode}",
                                 fontFamily = TajawalFontFamily,
                                 fontSize = 11.sp,
-                                color = TextSecondary
+                                color = SpaceColors.MutedText
                             )
                         }
                     }
 
-                    IconButton(onClick = onShowScript) {
-                        Icon(
-                            imageVector = Icons.Default.Code,
-                            contentDescription = "عرض السكربت",
-                            tint = OrangePrimary
-                        )
-                    }
+                    NeonIconButton(
+                        icon = Icons.Default.Code,
+                        contentDescription = "عرض السكربت",
+                        onClick = onShowScript,
+                        tint = SpaceColors.NeonCyan,
+                        size = 44.dp
+                    )
                 }
 
                 // Optimization Pills
@@ -1112,26 +1133,15 @@ private fun AutoBuildSuiteCard(
                     OptChip("Auto Version+", autoBumpVersion) { onAutoBumpChange(!autoBumpVersion) }
                 }
 
-                Button(
-                    onClick = onDualBuild,
+                NeonButton(
+                    text = "بناء تلقائي شامل (APK + AAB معاً) ⚡",
+                    icon = Icons.Default.RocketLaunch,
+                    style = NeonButtonStyle.GOLD_ENGINE,
                     enabled = !isBuilding,
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("build_dual_auto_btn")
-                ) {
-                    Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "بناء تلقائي شامل (APK + AAB معاً) ⚡",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = Color.White
-                    )
-                }
+                    onClick = onDualBuild,
+                    testTag = "build_dual_auto_btn",
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -1139,31 +1149,36 @@ private fun AutoBuildSuiteCard(
 
 @Composable
 private fun OptChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        color = if (selected) OrangePrimary.copy(alpha = 0.18f) else Color(0xFF0E1218),
-        shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) OrangePrimary else Color(0xFF232C3E)),
-        modifier = Modifier.clickable { onClick() }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) SpaceColors.NeonCyan.copy(alpha = 0.18f)
+                else SpaceColors.SurfaceDeep.copy(alpha = 0.8f)
+            )
+            .border(
+                1.dp,
+                if (selected) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle,
+                RoundedCornerShape(10.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                contentDescription = null,
-                tint = if (selected) OrangePrimary else TextMuted,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = label,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                fontSize = 11.sp,
-                color = if (selected) TextPrimary else TextSecondary
-            )
-        }
+        Icon(
+            imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (selected) SpaceColors.NeonCyan else SpaceColors.SubtleText,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = label,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            fontSize = 11.sp,
+            color = if (selected) SpaceColors.White else SpaceColors.MutedText
+        )
     }
 }
 
@@ -1177,13 +1192,10 @@ private fun PreBuildDoctorCard(
 ) {
     val allPassed = passedCount == auditItems.size
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF131924),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (allPassed) StatusGreen.copy(alpha = 0.45f) else Color(0xFF283245)
-            ),
+        NeonGlassCard(
+            accentColor = if (allPassed) SpaceColors.Emerald else SpaceColors.Gold,
+            secondaryAccent = SpaceColors.NeonCyan,
+            shape = RoundedCornerShape(18.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -1198,43 +1210,34 @@ private fun PreBuildDoctorCard(
                         Icon(
                             imageVector = if (allPassed) Icons.Default.Verified else Icons.Default.HealthAndSafety,
                             contentDescription = null,
-                            tint = if (allPassed) StatusGreen else WarningYellow,
-                            modifier = Modifier.size(20.dp)
+                            tint = if (allPassed) SpaceColors.Emerald else SpaceColors.Gold,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "فاحص الجاهزية التلقائي ($passedCount/${auditItems.size})",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = if (allPassed) "المشروع جاهز 100% للنشر والبناء" else "توجد تحسينات مقترحة يمكن إصلاحها بضغطة",
                                 fontFamily = TajawalFontFamily,
                                 fontSize = 11.sp,
-                                color = TextSecondary
+                                color = SpaceColors.MutedText
                             )
                         }
                     }
 
                     if (!allPassed) {
-                        Button(
-                            onClick = onAutoFixAll,
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text(
-                                text = "إصلاح تلقائي ⚡",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = Color.White
-                            )
-                        }
+                        NeonButton(
+                            text = "إصلاح ⚡",
+                            style = NeonButtonStyle.PRIMARY_GLOW,
+                            height = 38.dp,
+                            onClick = onAutoFixAll
+                        )
                     }
                 }
 
@@ -1248,14 +1251,19 @@ private fun PreBuildDoctorCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF0E131C))
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    .background(SpaceColors.SurfaceDeep.copy(alpha = 0.78f))
+                                    .border(
+                                        0.8.dp,
+                                        if (item.passed) SpaceColors.Emerald.copy(alpha = 0.3f) else SpaceColors.Gold.copy(alpha = 0.3f),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = if (item.passed) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint = if (item.passed) StatusGreen else OrangePrimary,
+                                    tint = if (item.passed) SpaceColors.Emerald else SpaceColors.Gold,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1265,13 +1273,13 @@ private fun PreBuildDoctorCard(
                                         fontFamily = CairoFontFamily,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 11.sp,
-                                        color = TextPrimary
+                                        color = SpaceColors.White
                                     )
                                     Text(
                                         text = item.descriptionAr,
                                         fontFamily = TajawalFontFamily,
                                         fontSize = 10.sp,
-                                        color = TextSecondary
+                                        color = SpaceColors.MutedText
                                     )
                                 }
                             }
@@ -1285,41 +1293,40 @@ private fun PreBuildDoctorCard(
 
 @Composable
 private fun BuildProgressCard(running: QuantumBuildEngine.EngineStatus.Running) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(DarkSurfaceElevated)
-            .padding(16.dp)
+    NeonGlassCard(
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.Gold,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = running.currentTask,
-                fontFamily = CairoFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = GoldAccent
-            )
-            Text(
-                text = "${(running.progress * 100).toInt()}%",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                color = OrangePrimary
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = running.currentTask,
+                    fontFamily = CairoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = SpaceColors.Gold
+                )
+                Text(
+                    text = "${(running.progress * 100).toInt()}%",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = SpaceColors.NeonCyan
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            NeonProgressIndicator(
+                progress = running.progress,
+                height = 8.dp,
+                startColor = SpaceColors.NeonCyan,
+                endColor = SpaceColors.Gold
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        LinearProgressIndicator(
-            progress = { running.progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
-            color = OrangePrimary,
-            trackColor = DarkSurface
-        )
     }
 }
 
@@ -1331,57 +1338,43 @@ private fun QuantumEngineDirectCard(
     onOpenDiagnostic: () -> Unit
 ) {
     val ready = quantumReport.isFullyOperational
-    val statusColor = if (ready) StatusGreen else WarningYellow
+    val statusColor = if (ready) SpaceColors.Emerald else SpaceColors.Gold
     val statusText = if (ready) {
         "جاهز للبناء الذاتي داخل التطبيق (v1-v4 • ${quantumReport.vaultProtectionMode})"
     } else {
         quantumReport.diagnosticSummaryAr
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(DarkSurfaceElevated)
-            .border(
-                1.dp,
-                if (ready) StatusGreen.copy(alpha = 0.4f) else GlassBorderSubtle,
-                RoundedCornerShape(16.dp)
-            )
-            .padding(14.dp)
+    NeonGlassCard(
+        accentColor = statusColor,
+        secondaryAccent = SpaceColors.NeonCyan,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        tint = statusColor
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SpaceQuantumAtomIcon(size = 28.dp, tint = statusColor)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "نظام البناء والأمان المدمج (Quantum Engine)",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        color = SpaceColors.White
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "نظام البناء والأمان المدمج (Quantum Engine)",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = statusText,
-                            fontFamily = TajawalFontFamily,
-                            fontSize = 11.sp,
-                            color = statusColor
-                        )
-                    }
+                    Text(
+                        text = statusText,
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 11.sp,
+                        color = statusColor
+                    )
                 }
             }
 
-            // Quantum Capabilities Badges
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1394,21 +1387,26 @@ private fun QuantumEngineDirectCard(
                     "AndroidKeyStore AES-256-GCM" to quantumReport.isBouncyCastleLoaded,
                     "WorkManager Background" to quantumReport.isWorkManagerReady
                 ).forEach { (label, active) ->
-                    Surface(
-                        color = if (active) StatusGreen.copy(alpha = 0.14f) else Color(0xFF141B27),
-                        shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (active) StatusGreen.copy(alpha = 0.45f) else Color(0xFF253042)
-                        )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (active) SpaceColors.Emerald.copy(alpha = 0.14f)
+                                else SpaceColors.SurfaceDeep
+                            )
+                            .border(
+                                1.dp,
+                                if (active) SpaceColors.Emerald.copy(alpha = 0.45f) else SpaceColors.GlassBorderSubtle,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = if (active) "✓ $label" else label,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (active) StatusGreen else TextSecondary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            color = if (active) SpaceColors.Emerald else SpaceColors.MutedText
                         )
                     }
                 }
@@ -1418,34 +1416,23 @@ private fun QuantumEngineDirectCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
+                NeonButton(
+                    text = "فحص المحرك ✓",
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 46.dp,
                     onClick = onOpenDiagnostic,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
-                ) {
-                    Text(
-                        text = "تشغيل فحص المحرك ✓",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 11.sp,
-                        color = TextPrimary
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
 
-                Button(
-                    onClick = onRunQuantumBuild,
+                NeonButton(
+                    text = if (isBuilding) "جارٍ البناء..." else "بناء وتوقيع Release",
+                    style = NeonButtonStyle.EMERALD_SUCCESS,
                     enabled = !isBuilding,
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
-                ) {
-                    Text(
-                        text = if (isBuilding) "جارٍ البناء..." else "بناء وتوقيع Release",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = Color.White
-                    )
-                }
+                    isLoading = isBuilding,
+                    height = 46.dp,
+                    onClick = onRunQuantumBuild,
+                    modifier = Modifier.weight(1.25f)
+                )
             }
         }
     }
@@ -1461,16 +1448,16 @@ private fun BuildCenterCard(
     testTag: String,
     onBuildClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(DarkSurfaceElevated)
-            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(18.dp))
-            .padding(16.dp)
+    NeonGlassCard(
+        accentColor = SpaceColors.Gold,
+        secondaryAccent = SpaceColors.NeonCyan,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1478,55 +1465,41 @@ private fun BuildCenterCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = OrangePrimary,
-                    modifier = Modifier.size(28.dp)
+                Space3DFeatureBadge(
+                    icon = icon,
+                    accentColor = SpaceColors.Gold,
+                    secondaryColor = SpaceColors.NeonCyan,
+                    size = 46.dp
                 )
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = title,
                         fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
+                        color = SpaceColors.White
                     )
                     Text(
                         text = subtitle,
                         fontFamily = TajawalFontFamily,
                         fontSize = 12.sp,
-                        color = TextSecondary
+                        color = SpaceColors.MutedText
                     )
                 }
             }
 
-            Button(
-                onClick = onBuildClick,
+            Spacer(Modifier.width(8.dp))
+
+            NeonButton(
+                text = buttonText,
+                style = NeonButtonStyle.GOLD_ENGINE,
+                isLoading = isLoading,
                 enabled = !isLoading,
-                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 78.dp, minHeight = 42.dp)
-                    .testTag(testTag)
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text(
-                        text = buttonText,
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = Color.White
-                    )
-                }
-            }
+                height = 44.dp,
+                testTag = testTag,
+                onClick = onBuildClick
+            )
         }
     }
 }
@@ -1536,10 +1509,10 @@ private fun InspectOutputPackageCard(
     fileName: String,
     onInspect: () -> Unit
 ) {
-    Surface(
-        color = Color(0xFF0E1826),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f)),
+    NeonGlassCard(
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.ElectricBlue,
+        shape = RoundedCornerShape(18.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -1548,7 +1521,12 @@ private fun InspectOutputPackageCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Default.ManageSearch, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(22.dp))
+                Space3DFeatureBadge(
+                    icon = Icons.Default.ManageSearch,
+                    accentColor = SpaceColors.NeonCyan,
+                    secondaryColor = SpaceColors.ElectricBlue,
+                    size = 42.dp
+                )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
@@ -1556,25 +1534,422 @@ private fun InspectOutputPackageCard(
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = TextPrimary
+                        color = SpaceColors.White
                     )
                     Text(
                         text = "تحليل classes.dex و AndroidManifest لـ $fileName",
                         fontFamily = TajawalFontFamily,
                         fontSize = 11.sp,
-                        color = TextSecondary
+                        color = SpaceColors.MutedText
                     )
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = onInspect,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
-                shape = RoundedCornerShape(10.dp)
+            NeonButton(
+                text = "فحص ✓",
+                style = NeonButtonStyle.PRIMARY_GLOW,
+                height = 42.dp,
+                onClick = onInspect
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmartHybridRouterCard(
+    project: AppProject,
+    selectedMode: HybridBuildMode,
+    decision: SmartBuildDecision,
+    hybridState: HybridBuildState,
+    isBuilding: Boolean,
+    signingSecretsSynced: Boolean = false,
+    onSelectMode: (HybridBuildMode) -> Unit,
+    onLaunchApk: () -> Unit,
+    onLaunchAab: () -> Unit,
+    onCancelCloud: () -> Unit,
+    onOpenCloudCredentials: () -> Unit,
+    onOpenDiagnostic: () -> Unit,
+    onInstallCloudArtifact: (String) -> Unit,
+    onOpenActions: (String) -> Unit
+) {
+    val isCloudChosen = decision.selectedEngine == SelectedBuildEngine.CLOUD_GRADLE_SDK
+    val cardAccent = if (isCloudChosen) SpaceColors.Gold else SpaceColors.NeonCyan
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        NeonGlassCard(
+            accentColor = cardAccent,
+            secondaryAccent = SpaceColors.NeonPurple,
+            shape = RoundedCornerShape(20.dp),
+            elevation = 16.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("smart_hybrid_router_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("فحص ✓", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Space3DFeatureBadge(
+                            icon = if (isCloudChosen) Icons.Default.CloudDone else Icons.Default.Memory,
+                            accentColor = cardAccent,
+                            secondaryColor = SpaceColors.NeonPurple,
+                            size = 42.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "الموجّه الهجين الذكي (محلي + سحابي SDK)",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = SpaceColors.White
+                            )
+                            Text(
+                                text = decision.selectedEngine.labelAr,
+                                fontFamily = TajawalFontFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = cardAccent
+                            )
+                        }
+                    }
+
+                    NeonIconButton(
+                        icon = Icons.Default.VerifiedUser,
+                        contentDescription = "قدرات المحرك",
+                        onClick = onOpenDiagnostic,
+                        tint = SpaceColors.Emerald,
+                        size = 40.dp
+                    )
+                }
+
+                // أزرار اختيار وضع التوجيه
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HybridBuildMode.entries.forEach { mode ->
+                        val active = mode == selectedMode
+                        Surface(
+                            color = if (active) cardAccent.copy(alpha = 0.22f) else SpaceColors.SurfaceDeep.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (active) cardAccent else SpaceColors.GlassBorderSubtle
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = !isBuilding) { onSelectMode(mode) }
+                                .testTag("hybrid_mode_${mode.name.lowercase()}")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 7.dp, horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = mode.labelAr,
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp,
+                                    color = if (active) SpaceColors.White else SpaceColors.MutedText,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // شارات حالة الجهاز والشبكة والاعتماد السحابي
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HybridTelemetryChip(
+                        label = decision.networkSnapshot.labelAr,
+                        color = if (decision.networkSnapshot.isConnected) SpaceColors.Emerald else SpaceColors.ErrorRed
+                    )
+                    HybridTelemetryChip(
+                        label = "${decision.deviceSnapshot.abi} • ${decision.deviceSnapshot.freeStorageMb}MB",
+                        color = if (decision.deviceSnapshot.hasMinimumBuildStorage) SpaceColors.NeonCyan else SpaceColors.Gold
+                    )
+                    HybridTelemetryChip(
+                        label = if (decision.cloudCredentialsReady) "GitHub Token مشفّر ✓" else "ربط GitHub ☁️",
+                        color = if (decision.cloudCredentialsReady) SpaceColors.Emerald else SpaceColors.Gold,
+                        onClick = onOpenCloudCredentials
+                    )
+                    HybridTelemetryChip(
+                        label = if (signingSecretsSynced) "توقيع سحابي: Secrets مشفّرة ✓" else "مزامنة التوقيع السحابي 🔐",
+                        color = if (signingSecretsSynced) SpaceColors.Emerald else SpaceColors.NeonPurple,
+                        onClick = onOpenCloudCredentials
+                    )
+                }
+
+                // شرح قرار الموجّه بكل شفافية
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SpaceColors.SurfaceDeep.copy(alpha = 0.82f))
+                        .border(0.8.dp, cardAccent.copy(alpha = 0.38f), RoundedCornerShape(12.dp))
+                        .padding(10.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = decision.reasonAr,
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = SpaceColors.White,
+                            lineHeight = 16.sp
+                        )
+                        decision.warnings.take(2).forEach { warn ->
+                            Text(
+                                text = "• $warn",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 10.sp,
+                                color = SpaceColors.Gold,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+                }
+
+                // أزرار إطلاق البناء الهجين (APK أو Play AAB)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NeonButton(
+                        text = if (isBuilding) "جارٍ البناء..." else "بناء APK هجين ⚡",
+                        style = if (isCloudChosen) NeonButtonStyle.GOLD_ENGINE else NeonButtonStyle.PRIMARY_GLOW,
+                        enabled = !isBuilding,
+                        isLoading = isBuilding && hybridState.targetType != "aab",
+                        height = 44.dp,
+                        testTag = "hybrid_build_apk_btn",
+                        onClick = onLaunchApk,
+                        modifier = Modifier.weight(1.1f)
+                    )
+                    NeonButton(
+                        text = "Play AAB ☁️",
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        enabled = !isBuilding,
+                        isLoading = isBuilding && hybridState.targetType == "aab",
+                        height = 44.dp,
+                        testTag = "hybrid_build_aab_btn",
+                        onClick = onLaunchAab,
+                        modifier = Modifier.weight(0.9f)
+                    )
+                }
+
+                // متابعة السحابة الحية (Progress + Stages + Logs + Errors + Artifact)
+                if (hybridState.activeEngine == SelectedBuildEngine.CLOUD_GRADLE_SDK &&
+                    (hybridState.isRunning || hybridState.progress > 0f || hybridState.errorMessage != null)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SpaceColors.TerminalBg.copy(alpha = 0.9f))
+                            .border(1.dp, SpaceColors.GlassBorderCyan, RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = hybridState.statusMessage,
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = if (hybridState.errorMessage != null) SpaceColors.ErrorRed else SpaceColors.NeonCyan,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${(hybridState.progress * 100).toInt()}%",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = SpaceColors.Gold
+                            )
+                        }
+                        NeonProgressIndicator(
+                            progress = hybridState.progress,
+                            height = 6.dp,
+                            startColor = SpaceColors.NeonCyan,
+                            endColor = SpaceColors.Gold
+                        )
+
+                        if (hybridState.stages.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                hybridState.stages.forEach { st ->
+                                    val stColor = when (st.status) {
+                                        HybridStageStatus.DONE -> SpaceColors.Emerald
+                                        HybridStageStatus.RUNNING -> SpaceColors.Gold
+                                        HybridStageStatus.ERROR -> SpaceColors.ErrorRed
+                                        HybridStageStatus.PENDING -> SpaceColors.SubtleText
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(7.dp))
+                                            .background(stColor.copy(alpha = 0.14f))
+                                            .border(0.8.dp, stColor.copy(alpha = 0.5f), RoundedCornerShape(7.dp))
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = st.techLabel,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.sp,
+                                            color = stColor
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        hybridState.errorMessage?.let { err ->
+                            Text(
+                                text = "❌ $err",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.ErrorRed
+                            )
+                        }
+
+                        hybridState.failureLogExcerpt?.takeIf { it.isNotBlank() }?.let { excerpt ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(SpaceColors.SurfaceDeep.copy(alpha = 0.92f))
+                                    .border(0.8.dp, SpaceColors.ErrorRed.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = excerpt,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.White,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                        }
+
+                        hybridState.logs.takeLast(4).forEach { logLine ->
+                            Text(
+                                text = logLine,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                color = SpaceColors.Emerald,
+                                maxLines = 2
+                            )
+                        }
+
+                        hybridState.artifactSigningLabelAr?.takeIf { it.isNotBlank() }?.let { sigLabel ->
+                            val sigColor = when (hybridState.artifactMatchesVaultKey) {
+                                true -> SpaceColors.Emerald
+                                false -> SpaceColors.Gold
+                                null -> SpaceColors.NeonCyan
+                            }
+                            val fpShort = hybridState.artifactSignerSha256
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { com.example.engine.QuantumKeyVault.formatFingerprintColon(it).take(23) + "…" }
+                                ?: ""
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(sigColor.copy(alpha = 0.12f))
+                                    .border(0.8.dp, sigColor.copy(alpha = 0.48f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (fpShort.isNotBlank()) "🔏 $sigLabel ($fpShort)" else "🔏 $sigLabel",
+                                    fontFamily = TajawalFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp,
+                                    color = sigColor
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (hybridState.isRunning) {
+                                NeonButton(
+                                    text = "إلغاء",
+                                    style = NeonButtonStyle.DANGER_RED,
+                                    height = 38.dp,
+                                    onClick = onCancelCloud,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            hybridState.actionsUrl?.let { url ->
+                                NeonButton(
+                                    text = "Actions ↗",
+                                    style = NeonButtonStyle.CYBER_OUTLINE,
+                                    height = 38.dp,
+                                    onClick = { onOpenActions(url) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            val readyPath = hybridState.artifactFilePath
+                            val readyName = hybridState.artifactFileName
+                            if (!readyPath.isNullOrBlank() && !readyName.isNullOrBlank() && readyName.endsWith(".apk", true)) {
+                                NeonButton(
+                                    text = "تثبيت 📲",
+                                    style = NeonButtonStyle.EMERALD_SUCCESS,
+                                    height = 38.dp,
+                                    onClick = { onInstallCloudArtifact(readyPath) },
+                                    modifier = Modifier.weight(1.2f)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+@Composable
+private fun HybridTelemetryChip(
+    label: String,
+    color: Color,
+    onClick: (() -> Unit)? = null
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = 0.14f))
+            .border(0.8.dp, color.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = label,
+            fontFamily = TajawalFontFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 10.sp,
+            color = color,
+            maxLines = 1
+        )
+    }
+}

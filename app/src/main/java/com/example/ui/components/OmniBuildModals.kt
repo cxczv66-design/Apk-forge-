@@ -1,8 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,13 +32,13 @@ import com.example.engine.BuildStageInfo
 import com.example.engine.BuildStageStatus
 import com.example.engine.BuildTelemetry
 import com.example.engine.QuantumBuildEngine
+import com.example.ui.components.space.NeonButton
+import com.example.ui.components.space.NeonButtonStyle
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.NeonProgressIndicator
 import com.example.ui.theme.*
 import com.example.ui.util.strings
 
-/**
- * شريط أزرار البناء النهائي الثلاثية الواضحة (APK / AAB / APKS) مع أيقونات Material حقيقية
- * + زر فتح الأدوات الاحترافية (24 أداة) قبل البناء.
- */
 @Composable
 fun OmniBuildTargetSuiteCard(
     isBuilding: Boolean,
@@ -48,10 +49,10 @@ fun OmniBuildTargetSuiteCard(
     onOpenLiveSandbox: () -> Unit
 ) {
     val s = strings()
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = DarkSurfaceCard,
-        border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.45f)),
+    NeonGlassCard(
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -61,9 +62,15 @@ fun OmniBuildTargetSuiteCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.RocketLaunch, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.RocketLaunch, contentDescription = null, tint = SpaceColors.Gold, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("مخرجات البناء النهائية (APK / AAB / APKS)", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                    Text(
+                        "مخرجات البناء النهائية (APK / AAB / APKS)",
+                        fontFamily = CairoFontFamily,
+                        color = SpaceColors.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp
+                    )
                 }
             }
 
@@ -75,7 +82,7 @@ fun OmniBuildTargetSuiteCard(
                     title = "APK",
                     subtitle = "تثبيت مباشر",
                     icon = Icons.Filled.Android,
-                    accent = OrangePrimary,
+                    accent = SpaceColors.Gold,
                     enabled = !isBuilding,
                     tag = "omni_build_apk_btn",
                     modifier = Modifier.weight(1f),
@@ -85,7 +92,7 @@ fun OmniBuildTargetSuiteCard(
                     title = "AAB",
                     subtitle = "متجر Play",
                     icon = Icons.Filled.CloudUpload,
-                    accent = StatusGreen,
+                    accent = SpaceColors.Emerald,
                     enabled = !isBuilding,
                     tag = "omni_build_aab_btn",
                     modifier = Modifier.weight(1f),
@@ -95,7 +102,7 @@ fun OmniBuildTargetSuiteCard(
                     title = "APKS",
                     subtitle = "حزمة متعددة",
                     icon = Icons.Filled.Layers,
-                    accent = CyanAccent,
+                    accent = SpaceColors.NeonCyan,
                     enabled = !isBuilding,
                     tag = "omni_build_apks_btn",
                     modifier = Modifier.weight(1f),
@@ -107,24 +114,23 @@ fun OmniBuildTargetSuiteCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
+                NeonButton(
+                    text = s.livePreviewSandbox,
+                    icon = Icons.Filled.Smartphone,
+                    style = NeonButtonStyle.CYBER_OUTLINE,
                     onClick = onOpenLiveSandbox,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Filled.Smartphone, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(s.livePreviewSandbox, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyanAccent, maxLines = 1)
-                }
-                OutlinedButton(
+                    height = 48.dp,
+                    modifier = Modifier.weight(1f)
+                )
+                NeonButton(
+                    text = "مراحل الإعداد",
+                    icon = Icons.Filled.Tune,
+                    style = NeonButtonStyle.PURPLE_AI,
                     onClick = onEditAppStages,
-                    modifier = Modifier.weight(1f).testTag("edit_app_stages_btn"),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("مراحل الإعداد", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OrangePrimary, maxLines = 1)
-                }
+                    height = 48.dp,
+                    testTag = "edit_app_stages_btn",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -141,39 +147,39 @@ private fun OmniTargetTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Surface(
+    NeonGlassCard(
+        accentColor = accent,
+        secondaryAccent = SpaceColors.ElectricBlue,
         shape = RoundedCornerShape(16.dp),
-        color = DarkSurfaceElevated,
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = if (enabled) 0.65f else 0.2f)),
+        elevation = 8.dp,
+        enabled = enabled,
+        onClick = onClick,
+        testTag = tag,
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .testTag(tag)
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.18f)),
+                    .background(accent.copy(alpha = 0.2f))
+                    .border(1.dp, accent.copy(alpha = 0.55f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(icon, contentDescription = title, tint = accent, modifier = Modifier.size(22.dp))
             }
-            Text(title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-            Text(subtitle, color = TextSecondary, fontSize = 10.sp)
+            Text(title, fontFamily = CairoFontFamily, color = SpaceColors.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+            Text(subtitle, fontFamily = TajawalFontFamily, color = SpaceColors.MutedText, fontSize = 10.sp)
         }
     }
 }
 
-/**
- * نافذة الترمينال الحية (Live Streaming Terminal Modal):
- * تفتح فور بدء البناء وتعرض تدفق سجلات [AAPT2], [D8], [ZipAlign], [apksig] بالوقت الفعلي.
- */
 @Composable
 fun LiveBuildTerminalDialog(
     project: AppProject,
@@ -208,11 +214,12 @@ fun LiveBuildTerminalDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .heightIn(min = 380.dp, max = 560.dp)
+                .heightIn(min = 380.dp, max = 580.dp)
+                .shadow(22.dp, RoundedCornerShape(24.dp), spotColor = SpaceColors.NeonCyan)
                 .testTag("live_terminal_modal"),
-            shape = RoundedCornerShape(22.dp),
-            color = TerminalBackground,
-            border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.5f))
+            shape = RoundedCornerShape(24.dp),
+            color = SpaceColors.TerminalBg,
+            border = BorderStroke(1.3.dp, SpaceColors.NeonBorderGradient)
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(
@@ -220,26 +227,31 @@ fun LiveBuildTerminalDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Terminal, contentDescription = null, tint = TerminalGreen)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.Terminal, contentDescription = null, tint = SpaceColors.Emerald)
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Quantum Live Terminal • ${project.name}", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text(statusText, color = TerminalYellow, fontSize = 11.sp)
+                            Text(
+                                "Quantum Live Terminal • ${project.name}",
+                                fontFamily = CairoFontFamily,
+                                color = SpaceColors.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(statusText, fontFamily = TajawalFontFamily, color = SpaceColors.Gold, fontSize = 11.sp)
                         }
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, contentDescription = "إخفاء", tint = TextSecondary)
+                        Icon(Icons.Filled.Close, contentDescription = "إخفاء", tint = SpaceColors.MutedText)
                     }
                 }
 
                 Spacer(Modifier.height(8.dp))
 
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                    color = if (engineState is QuantumBuildEngine.EngineStatus.Failure) ErrorRed else TerminalGreen,
-                    trackColor = DarkSurfaceElevated
+                NeonProgressIndicator(
+                    progress = progress,
+                    startColor = if (engineState is QuantumBuildEngine.EngineStatus.Failure) SpaceColors.ErrorRed else SpaceColors.NeonCyan,
+                    endColor = if (engineState is QuantumBuildEngine.EngineStatus.Failure) SpaceColors.ErrorRed else SpaceColors.Emerald
                 )
 
                 Spacer(Modifier.height(10.dp))
@@ -247,16 +259,16 @@ fun LiveBuildTerminalDialog(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     stages.forEach { st ->
                         val bg = when (st.status) {
-                            BuildStageStatus.DONE -> StatusGreen.copy(alpha = 0.22f)
-                            BuildStageStatus.RUNNING -> OrangePrimary.copy(alpha = 0.28f)
-                            BuildStageStatus.ERROR -> ErrorRed.copy(alpha = 0.22f)
-                            BuildStageStatus.PENDING -> DarkSurfaceElevated
+                            BuildStageStatus.DONE -> SpaceColors.Emerald.copy(alpha = 0.2f)
+                            BuildStageStatus.RUNNING -> SpaceColors.NeonCyan.copy(alpha = 0.25f)
+                            BuildStageStatus.ERROR -> SpaceColors.ErrorRed.copy(alpha = 0.22f)
+                            BuildStageStatus.PENDING -> SpaceColors.SurfaceElevated
                         }
                         val fg = when (st.status) {
-                            BuildStageStatus.DONE -> StatusGreen
-                            BuildStageStatus.RUNNING -> OrangePrimary
-                            BuildStageStatus.ERROR -> ErrorRed
-                            BuildStageStatus.PENDING -> TextMuted
+                            BuildStageStatus.DONE -> SpaceColors.Emerald
+                            BuildStageStatus.RUNNING -> SpaceColors.NeonCyan
+                            BuildStageStatus.ERROR -> SpaceColors.ErrorRed
+                            BuildStageStatus.PENDING -> SpaceColors.SubtleText
                         }
                         Surface(color = bg, shape = RoundedCornerShape(6.dp), modifier = Modifier.weight(1f)) {
                             Text(
@@ -279,17 +291,18 @@ fun LiveBuildTerminalDialog(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF05070B))
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SpaceColors.DeepSpace)
+                        .border(1.dp, SpaceColors.GlassBorderSubtle, RoundedCornerShape(14.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(logs) { line ->
                         val color = when {
-                            line.contains("✓") || line.contains("🎉") -> TerminalGreen
-                            line.contains("❌") -> ErrorRed
-                            line.contains("[AAPT2]") || line.contains("[D8]") || line.contains("[ZipAlign]") || line.contains("[apksig]") || line.contains("[APKS]") -> TerminalYellow
-                            else -> TerminalText
+                            line.contains("✓") || line.contains("🎉") -> SpaceColors.Emerald
+                            line.contains("❌") -> SpaceColors.ErrorRed
+                            line.contains("[AAPT2]") || line.contains("[D8]") || line.contains("[ZipAlign]") || line.contains("[apksig]") || line.contains("[APKS]") -> SpaceColors.Gold
+                            else -> Color(0xFF7DD3FC)
                         }
                         Text(line, color = color, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp)
                     }
@@ -299,10 +312,6 @@ fun LiveBuildTerminalDialog(
     }
 }
 
-/**
- * واجهة إتمام البناء السفلية (Completion Bottom Sheet):
- * تعرض معاينة مصغرة للتطبيق مع أيقونته الحقيقية وخيارين: "تثبيت مباشر" و"حفظ في التنزيلات".
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuildCompleteBottomSheet(
@@ -318,8 +327,8 @@ fun BuildCompleteBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
-        contentColor = TextPrimary,
+        containerColor = SpaceColors.MidnightBlue,
+        contentColor = SpaceColors.White,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
@@ -338,31 +347,30 @@ fun BuildCompleteBottomSheet(
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Verified, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Verified, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("اكتمل بناء وتوقيع الحزمة بنجاح!", color = StatusGreen, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                        Text("اكتمل بناء وتوقيع الحزمة بنجاح!", fontFamily = CairoFontFamily, color = SpaceColors.Emerald, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                     }
-                    Text(project.name, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(project.name, fontFamily = CairoFontFamily, color = SpaceColors.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Text(
                         "${project.packageConfig.packageName} • v${project.packageConfig.versionName} • ${telemetry.estimatedSizeMb}",
-                        color = TextSecondary,
+                        color = SpaceColors.MutedText,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp
                     )
                 }
             }
 
-            Surface(
-                color = DarkSurfaceElevated,
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, StatusGreen.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
+            NeonGlassCard(
+                accentColor = SpaceColors.Emerald,
+                secondaryAccent = SpaceColors.NeonCyan,
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("الملف الناتج: $fileName", color = TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    Text("الملف الناتج: $fileName", color = SpaceColors.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                     Text(
                         "التوقيع التشفيري: v1=${telemetry.v1Verified} | v2=${telemetry.v2Verified} | v3=${telemetry.v3Verified} | v4=${telemetry.v4Verified}",
-                        color = CyanAccent,
+                        color = SpaceColors.NeonCyan,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp
                     )
@@ -373,26 +381,23 @@ fun BuildCompleteBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedButton(
+                NeonButton(
+                    text = s.saveToDownloads,
+                    icon = Icons.Filled.Download,
+                    style = NeonButtonStyle.CYBER_OUTLINE,
                     onClick = onSaveToDownloads,
-                    modifier = Modifier.weight(1f).height(52.dp).testTag("sheet_save_downloads_btn"),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(Icons.Filled.Download, contentDescription = null, tint = TextPrimary)
-                    Spacer(Modifier.width(6.dp))
-                    Text(s.saveToDownloads, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+                    testTag = "sheet_save_downloads_btn",
+                    modifier = Modifier.weight(1f)
+                )
 
-                Button(
+                NeonButton(
+                    text = s.installNow,
+                    icon = Icons.Filled.InstallMobile,
+                    style = NeonButtonStyle.EMERALD_SUCCESS,
                     onClick = onInstallNow,
-                    modifier = Modifier.weight(1f).height(52.dp).testTag("sheet_install_now_btn"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
-                ) {
-                    Icon(Icons.Filled.InstallMobile, contentDescription = null, tint = Color.White)
-                    Spacer(Modifier.width(6.dp))
-                    Text(s.installNow, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                }
+                    testTag = "sheet_install_now_btn",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }

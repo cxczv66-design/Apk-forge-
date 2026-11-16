@@ -8,14 +8,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -38,17 +34,15 @@ import com.example.data.repository.DownloadedApk
 import com.example.domain.model.ApkInspectCandidate
 import com.example.domain.model.AppProject
 import com.example.engine.AdaptiveSourceAnalyzer
-import com.example.ui.components.HolographicAiOrb
-import com.example.ui.components.ThreeDIconBadge
-import com.example.ui.components.ThreeDSurfaceCard
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
 /**
- * مسار APK الذكي (Omni-Adaptive APK Choice):
- * يخيّر المستخدم بين:
- * 1) استيراد حزمة APK موجودة (من التنزيلات أو التطبيقات المثبتة أو اختيار ملف .apk) لتعديل الصلاحيات والأيقونة والاسم.
- * 2) البناء من الصفر عبر مساعد الذكاء الاصطناعي (AI Wizard).
+ * مسار APK الذكي (Space / Sci-Fi APK Choice):
+ * - بطاقات استيراد APK ثلاثية الأبعاد + تحذير أمان وتوقيع واضح قبل العمليات الحساسة
+ * - قائمة الحزم المكتشفة أو استيراد ملف .apk خارجي
+ * - خيار البناء من الصفر بالذكاء الاصطناعي (AI Wizard)
  */
 @Composable
 fun ApkImportOrScratchScreen(
@@ -97,250 +91,273 @@ fun ApkImportOrScratchScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DarkBackground)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { if (showScannerList) showScannerList = false else onBack() },
-                    modifier = Modifier.testTag("apk_choice_back_btn")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = TextPrimary)
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (showScannerList) "اختيار APK للاستيراد والتعديل" else "مسار APK الذكي",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "استيراد وتعديل حزمة موجودة أو البناء بالذكاء الاصطناعي",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 11.sp,
-                        color = TextSecondary
-                    )
-                }
-                Spacer(modifier = Modifier.size(48.dp))
-            }
+            PremiumTopBar(
+                title = if (showScannerList) "اختيار APK للاستيراد والتعديل" else "مسار APK الذكي",
+                subtitle = "استيراد وتعديل حزمة موجودة أو البناء بالذكاء الاصطناعي",
+                onBack = { if (showScannerList) showScannerList = false else onBack() },
+                backTestTag = "apk_choice_back_btn",
+                accentColor = SpaceColors.Emerald
+            )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
-                .testTag("apk_import_or_scratch_screen"),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 36.dp)
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.TopCenter
         ) {
-            if (!showScannerList) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = SpaceDimensions.MaxContentWidth)
+                    .padding(horizontal = 16.dp)
+                    .testTag("apk_import_or_scratch_screen"),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 40.dp)
+            ) {
+                // تنبيه أمني واضح قبل العمليات الحساسة (تعديل حزم APK وإعادة التوقيع)
                 item {
-                    ThreeDSurfaceCard(
-                        accentColor = StatusGreen,
-                        onClick = { showScannerList = true },
-                        testTag = "apk_option_import_existing"
+                    NeonGlassCard(
+                        accentColor = SpaceColors.Gold,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        elevation = 8.dp
                     ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ThreeDIconBadge(
-                                    icon = Icons.Filled.Android,
-                                    accentColor = StatusGreen,
-                                    secondaryColor = CyanAccent,
-                                    size = 56.dp
-                                )
-                                Surface(
-                                    color = StatusGreen.copy(alpha = 0.16f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, StatusGreen.copy(alpha = 0.45f))
-                                ) {
-                                    Text(
-                                        text = "4 مراحل تعديل",
-                                        color = StatusGreen,
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "استيراد APK موجود للتعديل",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "اختر ملف APK من التنزيلات أو التطبيقات المثبتة أو وحدة التخزين، لتعديل الاسم والأيقونة ومعرف الحزمة والصلاحيات والتحصين الأمني.",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 13.sp,
-                                color = TextSecondary,
-                                lineHeight = 20.sp
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "استعراض الحزم والملفات",
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = StatusGreen
-                                )
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    ThreeDSurfaceCard(
-                        accentColor = Color(0xFFA855F7),
-                        onClick = onBuildFromScratchAi,
-                        testTag = "apk_option_build_from_scratch_ai"
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                HolographicAiOrb(
-                                    icon = Icons.Filled.AutoAwesome,
-                                    accentColor = Color(0xFFA855F7),
-                                    secondaryColor = Color(0xFF38BDF8),
-                                    size = 56.dp
-                                )
-                                Surface(
-                                    color = Color(0xFFA855F7).copy(alpha = 0.18f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = "AI Wizard • +12 مرحلة",
-                                        color = Color(0xFFD8B4FE),
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "البناء من الصفر بالذكاء الاصطناعي ✨",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "اكتب فكرة تطبيقك وسيتولى مساعد الذكاء الاصطناعي تصميم خارطة طريق من 12+ مرحلة وطرح أسئلة ذكية لتوليد تطبيقك الكامل تلقائياً.",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 13.sp,
-                                color = TextSecondary,
-                                lineHeight = 20.sp
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "تشغيل مساعد AI Wizard",
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFFD8B4FE)
-                                )
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFFD8B4FE), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-            } else {
-                item {
-                    Button(
-                        onClick = {
-                            apkFilePicker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
-                        },
-                        enabled = !isPickingFile,
-                        colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("pick_external_apk_file_btn")
-                    ) {
-                        if (isPickingFile) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("جارٍ تحليل حزمة APK...", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        } else {
-                            Icon(Icons.Filled.UploadFile, contentDescription = null, tint = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text("اختيار ملف .apk من الجهاز / التنزيلات", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
-                }
-
-                if (isScanning) {
-                    item {
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                CircularProgressIndicator(color = StatusGreen)
-                                Text("جارٍ فحص التنزيلات والتطبيقات المتاحة...", fontFamily = TajawalFontFamily, color = TextSecondary, fontSize = 13.sp)
+                            Space3DFeatureBadge(
+                                icon = Icons.Default.Security,
+                                accentColor = SpaceColors.Gold,
+                                secondaryColor = Color(0xFFFF8C00),
+                                size = 40.dp
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "تنبيه التعديل والتوقيع الرقمي",
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = SpaceColors.Gold
+                                )
+                                Text(
+                                    text = "تعديل حزمة APK أو تغيير اسم الحزمة والصلاحيات يتطلب إعادة التوقيع بمفتاح Keystore جديد عند التصدير.",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 11.sp,
+                                    color = SpaceColors.MutedText,
+                                    lineHeight = 16.sp
+                                )
                             }
                         }
                     }
-                } else if (candidates.isEmpty()) {
+                }
+
+                if (!showScannerList) {
                     item {
-                        ThreeDSurfaceCard(accentColor = GlassBorderSubtle) {
+                        NeonGlassCard(
+                            accentColor = SpaceColors.Emerald,
+                            secondaryAccent = SpaceColors.NeonCyan,
+                            elevation = 16.dp,
+                            onClick = { showScannerList = true },
+                            testTag = "apk_option_import_existing"
+                        ) {
                             Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(Icons.Filled.Android, contentDescription = null, tint = TextMuted, modifier = Modifier.size(36.dp))
-                                Text("لم يُعثر على ملفات APK محلية بعد", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("استخدم الزر أعلاه لاختيار أي ملف .apk من جهازك وتعديله فوراً.", fontFamily = TajawalFontFamily, fontSize = 12.sp, color = TextSecondary)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Space3DFeatureBadge(
+                                        icon = Icons.Filled.Android,
+                                        accentColor = SpaceColors.Emerald,
+                                        secondaryColor = SpaceColors.NeonCyan,
+                                        size = 58.dp
+                                    )
+                                    Surface(
+                                        color = SpaceColors.Emerald.copy(alpha = 0.16f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, SpaceColors.Emerald.copy(alpha = 0.55f))
+                                    ) {
+                                        Text(
+                                            text = "4 مراحل تعديل",
+                                            color = SpaceColors.Emerald,
+                                            fontFamily = CairoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "استيراد APK موجود للتعديل",
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = SpaceColors.White
+                                )
+                                Text(
+                                    text = "اختر ملف APK من التنزيلات أو التطبيقات المثبتة أو وحدة التخزين، لتعديل الاسم والأيقونة ومعرف الحزمة والصلاحيات والتحصين الأمني.",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 13.sp,
+                                    color = SpaceColors.MutedText,
+                                    lineHeight = 20.sp
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "استعراض الحزم والملفات",
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = SpaceColors.Emerald
+                                    )
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        NeonGlassCard(
+                            accentColor = SpaceColors.NeonPurple,
+                            secondaryAccent = SpaceColors.NeonCyan,
+                            elevation = 16.dp,
+                            onClick = onBuildFromScratchAi,
+                            testTag = "apk_option_build_from_scratch_ai"
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    SpaceFloatingRobotAvatar(
+                                        size = 58.dp,
+                                        accentColor = SpaceColors.NeonPurple,
+                                        showOnlineDot = true
+                                    )
+                                    Surface(
+                                        color = SpaceColors.NeonPurple.copy(alpha = 0.20f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, SpaceColors.NeonPurple.copy(alpha = 0.6f))
+                                    ) {
+                                        Text(
+                                            text = "AI Wizard • +12 مرحلة",
+                                            color = Color(0xFFE9D5FF),
+                                            fontFamily = CairoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "البناء من الصفر بالذكاء الاصطناعي ✨",
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = SpaceColors.White
+                                )
+                                Text(
+                                    text = "اكتب فكرة تطبيقك وسيتولى مساعد الذكاء الاصطناعي تصميم خارطة طريق من 12+ مرحلة وطرح أسئلة ذكية لتوليد تطبيقك الكامل تلقائياً.",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 13.sp,
+                                    color = SpaceColors.MutedText,
+                                    lineHeight = 20.sp
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "تشغيل مساعد AI Wizard",
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = SpaceColors.NeonCyan
+                                    )
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
                 } else {
-                    items(candidates, key = { it.id }) { cand ->
-                        ApkCandidateCard(
-                            candidate = cand,
+                    item {
+                        NeonButton(
+                            text = if (isPickingFile) "جارٍ تحليل حزمة APK..." else "اختيار ملف .apk من الجهاز / التنزيلات",
+                            icon = Icons.Filled.UploadFile,
+                            style = NeonButtonStyle.EMERALD_SUCCESS,
+                            isLoading = isPickingFile,
+                            testTag = "pick_external_apk_file_btn",
                             onClick = {
-                                val project = AdaptiveSourceAnalyzer.convertCandidateToProject(cand)
-                                onSelectImportedApkProject(project)
-                            }
+                                apkFilePicker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         )
+                    }
+
+                    if (isScanning) {
+                        item {
+                            FuturisticLoading(
+                                title = "جارٍ فحص التنزيلات والتطبيقات المتاحة...",
+                                subtitle = "استخراج الأذونات وبيانات الحزم",
+                                accentColor = SpaceColors.Emerald
+                            )
+                        }
+                    } else if (candidates.isEmpty()) {
+                        item {
+                            NeonGlassCard(accentColor = SpaceColors.ElectricBlue) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Space3DFeatureBadge(
+                                        icon = Icons.Filled.Android,
+                                        accentColor = SpaceColors.Emerald,
+                                        size = 52.dp
+                                    )
+                                    Text(
+                                        text = "لم يُعثر على ملفات APK محلية بعد",
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        color = SpaceColors.White
+                                    )
+                                    Text(
+                                        text = "استخدم الزر أعلاه لاختيار أي ملف .apk من جهازك وتحليله فوراً.",
+                                        fontFamily = TajawalFontFamily,
+                                        fontSize = 12.sp,
+                                        color = SpaceColors.MutedText
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(candidates, key = { it.id }) { cand ->
+                            ApkCandidateCard(
+                                candidate = cand,
+                                onClick = {
+                                    val project = AdaptiveSourceAnalyzer.convertCandidateToProject(cand)
+                                    onSelectImportedApkProject(project)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -353,10 +370,11 @@ private fun ApkCandidateCard(
     candidate: ApkInspectCandidate,
     onClick: () -> Unit
 ) {
-    ThreeDSurfaceCard(
-        accentColor = StatusGreen,
-        elevation = 8.dp,
-        cornerRadius = 16.dp,
+    NeonGlassCard(
+        accentColor = SpaceColors.Emerald,
+        secondaryAccent = SpaceColors.NeonCyan,
+        elevation = 10.dp,
+        shape = RoundedCornerShape(18.dp),
         onClick = onClick,
         testTag = "apk_candidate_${candidate.id}"
     ) {
@@ -369,10 +387,10 @@ private fun ApkCandidateCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(50.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(StatusGreen.copy(alpha = 0.15f))
-                    .border(1.dp, StatusGreen.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
+                    .background(SpaceColors.Emerald.copy(alpha = 0.14f))
+                    .border(1.2.dp, SpaceColors.Emerald.copy(alpha = 0.55f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (!candidate.iconImageUri.isNullOrBlank()) {
@@ -383,17 +401,17 @@ private fun ApkCandidateCard(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Icon(Icons.Filled.Android, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Filled.Android, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(28.dp))
                 }
             }
 
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
                     text = candidate.appName,
                     fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
-                    color = TextPrimary,
+                    color = SpaceColors.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -401,17 +419,21 @@ private fun ApkCandidateCard(
                     text = "${candidate.packageName} • v${candidate.versionName}",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = TextSecondary,
+                    color = SpaceColors.MutedText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CyanAccent.copy(alpha = 0.14f), shape = RoundedCornerShape(6.dp)) {
+                    Surface(
+                        color = SpaceColors.NeonCyan.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(0.8.dp, SpaceColors.NeonCyan.copy(alpha = 0.4f))
+                    ) {
                         Text(
                             text = candidate.sourceOriginLabel,
                             fontFamily = TajawalFontFamily,
                             fontSize = 10.sp,
-                            color = CyanAccent,
+                            color = SpaceColors.NeonCyan,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -419,12 +441,12 @@ private fun ApkCandidateCard(
                         text = "${candidate.permissions.size} صلاحية",
                         fontFamily = TajawalFontFamily,
                         fontSize = 10.sp,
-                        color = OrangePrimary
+                        color = SpaceColors.Gold
                     )
                 }
             }
 
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "تعديل APK", tint = StatusGreen, modifier = Modifier.size(18.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "تعديل APK", tint = SpaceColors.Emerald, modifier = Modifier.size(18.dp))
         }
     }
 }

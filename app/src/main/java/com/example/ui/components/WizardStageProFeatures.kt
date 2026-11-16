@@ -23,6 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.*
+import com.example.ui.components.space.NeonButton
+import com.example.ui.components.space.NeonButtonStyle
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.Space3DFeatureBadge
 import com.example.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -47,21 +51,16 @@ fun Step1PwaLocalEditorCard(
             "تعديل النصوص، الزر الرئيسي، صورة البانر، وإخفاء العناصر غير المرغوبة"
         },
         icon = Icons.Filled.WebAsset,
-        accent = StatusGreen
+        accent = SpaceColors.Emerald
     ) {
-        Button(
+        NeonButton(
+            text = "فتح محرر وتخصيص الموقع المحلي",
+            icon = Icons.Filled.Edit,
+            style = NeonButtonStyle.EMERALD_SUCCESS,
             onClick = onOpenPwaCustomizer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .testTag("step1_pwa_editor_btn"),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
-        ) {
-            Icon(Icons.Filled.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("فتح محرر وتخصيص الموقع المحلي", color = Color.White, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        }
+            modifier = Modifier.fillMaxWidth(),
+            testTag = "step1_pwa_editor_btn"
+        )
     }
 }
 
@@ -422,18 +421,14 @@ fun Step7AuthAndSecurityCard(
             accent = StatusGreen
         ) {
             if (onGenerateKeystore != null) {
-                OutlinedButton(
+                NeonButton(
+                    text = "توليد / تحديث شهادة التوقيع المشفّرة",
+                    icon = Icons.Filled.EnhancedEncryption,
+                    style = NeonButtonStyle.CYBER_OUTLINE,
                     onClick = onGenerateKeystore,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .testTag("step7_generate_keystore_btn"),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Filled.EnhancedEncryption, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("توليد / تحديث شهادة التوقيع المشفّرة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+                    modifier = Modifier.fillMaxWidth(),
+                    testTag = "step7_generate_keystore_btn"
+                )
             }
         }
     }
@@ -451,7 +446,7 @@ fun Step8SmartRationaleCard(
         title = "واجهة توضيح الأذونات الذكية (Smart Rationale UI)",
         subtitle = "تشرح للمستخدم سبب كل إذن بوضوح قبل نظام أندرويد وتحقن المانيفست باللازم فقط",
         icon = Icons.Filled.AdminPanelSettings,
-        accent = CyanAccent,
+        accent = SpaceColors.NeonCyan,
         checked = smartRationaleEnabled,
         testTag = "step8_smart_rationale_switch",
         onCheckedChange = onToggle
@@ -469,10 +464,11 @@ private fun StageToggleFeatureCard(
     onCheckedChange: (Boolean) -> Unit,
     extraContent: @Composable (() -> Unit)? = null
 ) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF131622),
-        border = BorderStroke(1.dp, if (checked) accent.copy(alpha = 0.5f) else GlassBorderSubtle),
+    NeonGlassCard(
+        accentColor = if (checked) accent else SpaceColors.GlassBorderSubtle,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(18.dp),
+        elevation = 10.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -480,26 +476,26 @@ private fun StageToggleFeatureCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accent.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
-                }
+                Space3DFeatureBadge(
+                    icon = icon,
+                    accentColor = accent,
+                    secondaryColor = SpaceColors.NeonPurple,
+                    size = 40.dp
+                )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
-                    Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary)
+                    Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = SpaceColors.White)
+                    Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
                 }
                 Spacer(Modifier.width(8.dp))
                 Switch(
                     checked = checked,
                     onCheckedChange = onCheckedChange,
                     modifier = Modifier.testTag(testTag),
-                    colors = SwitchDefaults.colors(checkedThumbColor = OrangePrimary)
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SpaceColors.White,
+                        checkedTrackColor = accent
+                    )
                 )
             }
             AnimatedVisibility(visible = checked && extraContent != null) {
@@ -517,27 +513,25 @@ private fun StageFeatureContainerCard(
     accent: Color,
     content: @Composable () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF131622),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+    NeonGlassCard(
+        accentColor = accent,
+        secondaryAccent = SpaceColors.NeonCyan,
+        shape = RoundedCornerShape(18.dp),
+        elevation = 10.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accent.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
-                }
+                Space3DFeatureBadge(
+                    icon = icon,
+                    accentColor = accent,
+                    secondaryColor = SpaceColors.ElectricBlue,
+                    size = 40.dp
+                )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
-                    Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary)
+                    Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = SpaceColors.White)
+                    Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
                 }
             }
             content()

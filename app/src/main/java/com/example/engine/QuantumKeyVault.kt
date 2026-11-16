@@ -41,7 +41,8 @@ data class QuantumSigningMaterial(
     val certificate: X509Certificate,
     val sha256Fingerprint: String,
     val protectionMode: String,
-    val vaultFile: File
+    val vaultFile: File,
+    val sha1Fingerprint: String = ""
 )
 
 data class QuantumVaultStatus(
@@ -50,7 +51,17 @@ data class QuantumVaultStatus(
     val vaultSizeBytes: Long,
     val sha256Fingerprint: String,
     val protectionMode: String,
-    val noPlaintextPrivateKeyOnDisk: Boolean
+    val noPlaintextPrivateKeyOnDisk: Boolean,
+    val sha1Fingerprint: String = ""
+)
+
+data class ExportedPkcs12Bundle(
+    val pkcs12Base64: String,
+    val keyAlias: String,
+    val storePassword: String,
+    val keyPassword: String,
+    val certSha256: String,
+    val certSha1: String = ""
 )
 
 /**
@@ -115,6 +126,7 @@ class QuantumKeyVault(private val context: Context) {
         val certBytes = certificate.encoded
         val privBytes = keyPair.private.encoded
         val sha256 = sha256Hex(certBytes)
+        val sha1 = sha1Hex(certBytes)
 
         // 3. تغليف المفتاح الخاص + الشهادة داخل PKCS#8 / Vault Payload وتشفيرهما بـ AES-256-GCM
         val payloadBytes = packRawMaterial(privBytes, certBytes)
@@ -141,6 +153,7 @@ class QuantumKeyVault(private val context: Context) {
             put("algorithm", "RSA-2048 / SHA256withRSA")
             put("protectionMode", modeUsed)
             put("certSha256", sha256)
+            put("certSha1", sha1)
             put("saltB64", Base64.getEncoder().encodeToString(salt))
             put("ivB64", Base64.getEncoder().encodeToString(ivBytes))
             put("cipherB64", Base64.getEncoder().encodeToString(cipherBytes))
@@ -155,7 +168,8 @@ class QuantumKeyVault(private val context: Context) {
             certificate = certificate,
             sha256Fingerprint = sha256,
             protectionMode = modeUsed,
-            vaultFile = vaultFile
+            vaultFile = vaultFile,
+            sha1Fingerprint = sha1
         )
     }
 
@@ -203,12 +217,58 @@ class QuantumKeyVault(private val context: Context) {
                 certificate = cert,
                 sha256Fingerprint = sha256Hex(cert.encoded),
                 protectionMode = mode,
-                vaultFile = vaultFile
+                vaultFile = vaultFile,
+                sha1Fingerprint = sha1Hex(cert.encoded)
             )
         } catch (_: Exception) {
             // إعادة توليد خزنة محمية صالحة إذا تغيّر مفتاح الجهاز أو تلف الملف
             generateEncryptedVault(safeAlias, password, organization)
         }
+    }
+
+    /**
+     * يحوّل شهادة ومفتاح الخزنة المشفّرة في الذاكرة فقط إلى أرشيف PKCS#12 بترميز Base64
+     * متوافق مع Android Gradle Plugin و GitHub Actions (SIGNING_KEYSTORE_BASE64) دون كتابة ملف غير مشفر على القرص.
+     */
+    fun exportPkcs12Base64(
+        alias: String,
+        vaultPassword: String = "quantum_apkforge_2026",
+        exportPassword: String = vaultPassword,
+        organization: String = "ApkForge Studio"
+    ): ExportedPkcs12Bundle {
+        val safeAlias = sanitizeAlias(alias)
+        val passForVault = vaultPassword.ifBlank { "quantum_apkforge_2026" }
+        val passForExport = exportPassword.ifBlank { passForVault }
+        val material = ensureAndUnlockKeyMaterial(
+            alias = safeAlias,
+            password = passForVault,
+            organization = organization
+        )
+        val ks = KeyStore.getInstance("PKCS12")
+        ks.load(null, null)
+        val passChars = passForExport.toCharArray()
+        ks.setKeyEntry(
+            safeAlias,
+            material.privateKey,
+            passChars,
+            arrayOf(material.certificate)
+        )
+        val baos = ByteArrayOutputStream()
+        ks.store(baos, passChars)
+        passChars.fill('\u0000')
+
+        val rawBytes = baos.toByteArray()
+        val b64 = Base64.getEncoder().encodeToString(rawBytes)
+        rawBytes.fill(0)
+
+        return ExportedPkcs12Bundle(
+            pkcs12Base64 = b64,
+            keyAlias = safeAlias,
+            storePassword = passForExport,
+            keyPassword = passForExport,
+            certSha256 = material.sha256Fingerprint,
+            certSha1 = material.sha1Fingerprint
+        )
     }
 
     fun getVaultStatus(alias: String): QuantumVaultStatus {
@@ -222,19 +282,27 @@ class QuantumKeyVault(private val context: Context) {
                 vaultSizeBytes = 0L,
                 sha256Fingerprint = "",
                 protectionMode = "UNINITIALIZED",
-                noPlaintextPrivateKeyOnDisk = !legacyPem.exists()
+                noPlaintextPrivateKeyOnDisk = !legacyPem.exists(),
+                sha1Fingerprint = ""
             )
         }
         return try {
-            val json = JSONObject(file.readText(Charsets.UTF_8))
             val text = file.readText(Charsets.UTF_8)
+            val json = JSONObject(text)
+            val sha1 = json.optString("certSha1", "").ifBlank {
+                runCatching {
+                    val certBytes = Base64.getDecoder().decode(json.optString("certB64", ""))
+                    if (certBytes.isNotEmpty()) sha1Hex(certBytes) else ""
+                }.getOrDefault("")
+            }
             QuantumVaultStatus(
                 alias = safeAlias,
                 vaultExists = true,
                 vaultSizeBytes = file.length(),
                 sha256Fingerprint = json.optString("certSha256", ""),
                 protectionMode = json.optString("protectionMode", "AES-256-GCM"),
-                noPlaintextPrivateKeyOnDisk = !text.contains("BEGIN PRIVATE KEY") && !legacyPem.exists()
+                noPlaintextPrivateKeyOnDisk = !text.contains("BEGIN PRIVATE KEY") && !legacyPem.exists(),
+                sha1Fingerprint = sha1
             )
         } catch (_: Exception) {
             QuantumVaultStatus(
@@ -243,7 +311,8 @@ class QuantumKeyVault(private val context: Context) {
                 vaultSizeBytes = file.length(),
                 sha256Fingerprint = "",
                 protectionMode = "ENCRYPTED",
-                noPlaintextPrivateKeyOnDisk = !legacyPem.exists()
+                noPlaintextPrivateKeyOnDisk = !legacyPem.exists(),
+                sha1Fingerprint = ""
             )
         }
     }
@@ -358,11 +427,21 @@ class QuantumKeyVault(private val context: Context) {
         return MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     }
 
+    private fun sha1Hex(bytes: ByteArray): String {
+        return MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+
     companion object {
         fun ensureBouncyCastleRegistered() {
             if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
                 Security.addProvider(BouncyCastleProvider())
             }
+        }
+
+        fun formatFingerprintColon(hex: String): String {
+            val clean = hex.trim().uppercase().filter { it in '0'..'9' || it in 'A'..'F' }
+            if (clean.isEmpty()) return ""
+            return clean.chunked(2).joinToString(":")
         }
     }
 }

@@ -4,33 +4,41 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.engine.ImportedWorkspaceResult
 import com.example.engine.LocalWorkspaceEngine
-import com.example.ui.components.GlassmorphismCard
-import com.example.ui.components.GlowingButton
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 import com.example.ui.util.AppStrings
 import com.example.ui.util.LocalAppLanguage
 import kotlinx.coroutines.launch
 
+/**
+ * شاشة استيراد أرشيف ZIP الفضائية:
+ * - ترويسة PremiumTopBar زجاجية
+ * - بطاقة رفع ZIP ثلاثية الأبعاد
+ * - شريط تقدم مضيء + قائمة محتويات المشروع المستخرج
+ * - أزرار المعاينة والإنشاء مع الحفاظ على testTags (select_zip_button, preview_button, create_app_button)
+ */
 @Composable
 fun ZipPickerScreen(
     hasPreviewed: Boolean,
@@ -70,304 +78,313 @@ fun ZipPickerScreen(
         }
     }
 
-    Scaffold(
-        containerColor = DarkBackground,
-        topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DarkBackground)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = AppStrings.back(lang),
-                        tint = TextPrimary
-                    )
-                }
-
-                Text(
-                    text = AppStrings.zipWebsite(lang),
-                    fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = TextPrimary
-                )
-
-                Spacer(modifier = Modifier.width(48.dp))
+    val openZipPicker: () -> Unit = {
+        if (!isExtracting) {
+            try {
+                zipPickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
+            } catch (e: Exception) {
+                Toast.makeText(context, "الرجاء اختيار ملف ZIP", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            PremiumTopBar(
+                title = AppStrings.zipWebsite(lang),
+                subtitle = "ZIP Project Extractor",
+                onBack = onBack,
+                accentColor = SpaceColors.NeonCyan,
+                backTestTag = "zip_picker_back_btn"
+            )
+        }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 20.dp)
-                .testTag("zip_picker_screen"),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.TopCenter
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Top Hero Card
-            GlassmorphismCard(
-                modifier = Modifier.fillMaxWidth(),
-                backgroundColor = DarkSurfaceElevated,
-                borderColor = GlassBorderSubtle,
-                shape = RoundedCornerShape(20.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = SpaceDimensions.MaxContentWidth)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                    .testTag("zip_picker_screen"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // بطاقة الرفع الكبيرة لأرشيف ZIP
+                NeonGlassCard(
+                    accentColor = SpaceColors.NeonCyan,
+                    secondaryAccent = SpaceColors.NeonPurple,
+                    elevation = 16.dp,
+                    onClick = openZipPicker
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Space3DFeatureBadge(
+                            icon = Icons.Default.FolderZip,
+                            accentColor = SpaceColors.NeonCyan,
+                            secondaryColor = SpaceColors.ElectricBlue,
+                            size = 66.dp
+                        )
                         Text(
                             text = AppStrings.zipWebsite(lang),
                             fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = TextPrimary
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp,
+                            color = SpaceColors.White
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = AppStrings.zipWebsiteDesc(lang),
                             fontFamily = TajawalFontFamily,
                             fontSize = 12.sp,
-                            color = TextSecondary
+                            color = SpaceColors.MutedText,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
                         )
-                    }
 
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(OrangePrimary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Archive,
-                            contentDescription = null,
-                            tint = OrangePrimary,
-                            modifier = Modifier.size(26.dp)
+                        NeonButton(
+                            text = when {
+                                isExtracting -> "جارٍ فك الضغط واستخراج الأصول..."
+                                importedWorkspace == null -> "اختر ملف ZIP من ذاكرة الهاتف"
+                                else -> "استيراد ملف ZIP آخر"
+                            },
+                            icon = Icons.Default.FileUpload,
+                            style = NeonButtonStyle.PRIMARY_GLOW,
+                            isLoading = isExtracting,
+                            onClick = openZipPicker,
+                            testTag = "select_zip_button",
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(20.dp))
+                if (isExtracting) {
+                    FuturisticLoading(
+                        title = "جارٍ فك ضغط الأرشيف...",
+                        subtitle = "استخراج صفحات HTML وCSS والصور والسكربتات",
+                        accentColor = SpaceColors.NeonCyan
+                    )
+                }
 
-            // Big Upload Button
-            GlowingButton(
-                text = when {
-                    isExtracting -> "جارٍ فك الضغط واستخراج الأصول..."
-                    importedWorkspace == null -> "اختر ملف ZIP من ذاكرة الهاتف"
-                    else -> "استيراد ملف ZIP آخر"
-                },
-                icon = Icons.Default.FileUpload,
-                onClick = {
-                    if (!isExtracting) {
-                        try {
-                            zipPickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "الرجاء اختيار ملف ZIP", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                testTag = "select_zip_button"
-            )
+                val ws = importedWorkspace
+                if (ws != null) {
+                    val fileItems = remember(ws) { ws.assets.filter { !it.isDirectory } }
+                    val kbText = (ws.totalSizeBytes / 1024.0).let { "%.1f KB".format(it) }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val ws = importedWorkspace
-            if (ws != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(DarkSurfaceElevated)
-                        .border(1.dp, StatusGreen.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                        .padding(16.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    NeonGlassCard(
+                        accentColor = SpaceColors.Emerald,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        elevation = 14.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = Icons.Default.Archive,
-                                    contentDescription = null,
-                                    tint = OrangePrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = ws.displayFileName,
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = TextPrimary
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { importedWorkspace = null },
-                                modifier = Modifier.size(24.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "حذف",
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Space3DFeatureBadge(
+                                        icon = Icons.Default.Archive,
+                                        accentColor = SpaceColors.NeonCyan,
+                                        secondaryColor = SpaceColors.Emerald,
+                                        size = 42.dp
+                                    )
+                                    Column {
+                                        Text(
+                                            text = ws.displayFileName,
+                                            fontFamily = CairoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = SpaceColors.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${fileItems.size} ملف مستخرج • $kbText • ${ws.detectedTitle}",
+                                            fontFamily = TajawalFontFamily,
+                                            fontSize = 11.sp,
+                                            color = SpaceColors.MutedText
+                                        )
+                                    }
+                                }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val fileCount = ws.assets.count { !it.isDirectory }
-                            val kbText = (ws.totalSizeBytes / 1024.0).let { "%.1f KB".format(it) }
-                            Text(
-                                text = "$fileCount ملف مستخرج • $kbText • ${ws.detectedTitle}",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 11.sp,
-                                color = TextSecondary
+                                IconButton(
+                                    onClick = { importedWorkspace = null },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "إزالة الملف",
+                                        tint = SpaceColors.MutedText
+                                    )
+                                }
+                            }
+
+                            NeonProgressIndicator(
+                                progress = 1f,
+                                startColor = SpaceColors.NeonCyan,
+                                endColor = SpaceColors.Emerald
                             )
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = StatusGreen,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(16.dp))
                                 Text(
-                                    text = "مستخرج وجاهز",
+                                    text = "مستخرج وجاهز للمعاينة وبناء التطبيق",
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 11.sp,
-                                    color = StatusGreen
+                                    color = SpaceColors.Emerald
                                 )
+                            }
+
+                            if (fileItems.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "محتويات المشروع (${fileItems.size}):",
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = SpaceColors.White
+                                    )
+                                    fileItems.take(5).forEach { asset ->
+                                        Surface(
+                                            color = SpaceColors.SurfaceDeep.copy(alpha = 0.72f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(0.8.dp, SpaceColors.NeonCyan.copy(alpha = 0.25f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = asset.relativePath,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = SpaceColors.White,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    text = "${(asset.sizeBytes / 1024).coerceAtLeast(1)} KB",
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 10.sp,
+                                                    color = SpaceColors.NeonCyan
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (fileItems.size > 5) {
+                                        Text(
+                                            text = "+ ${fileItems.size - 5} ملفات أخرى داخل المساحة",
+                                            fontFamily = TajawalFontFamily,
+                                            fontSize = 11.sp,
+                                            color = SpaceColors.MutedText
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(DarkSurfaceElevated)
-                        .border(1.dp, GlassBorderSubtle, RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "لم يتم اختيار أرشيف ZIP بعد. اضغط أعلاه لاختيار ملف مضغوط يحتوي على موقعك من ذاكرة الهاتف.",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Text(
-                text = "عاين موقعك المستخرج بجودة كاملة قبل الإنشاء، أو ابدأ المعالج مباشرة.",
-                fontFamily = TajawalFontFamily,
-                fontSize = 13.sp,
-                color = TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Action Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Preview
-                Button(
-                    onClick = {
-                        val currentWs = importedWorkspace ?: return@Button
-                        if (onPreviewWorkspace != null) {
-                            onPreviewWorkspace(currentWs)
-                        } else {
-                            onPreview()
+                } else if (!isExtracting) {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.NeonCyan.copy(alpha = 0.55f),
+                        secondaryAccent = SpaceColors.NeonPurple.copy(alpha = 0.35f),
+                        elevation = 6.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                tint = SpaceColors.MutedText,
+                                modifier = Modifier.size(30.dp)
+                            )
+                            Text(
+                                text = "لم يتم اختيار أرشيف ZIP بعد. اضغط أعلاه لاختيار ملف مضغوط يحتوي على موقعك من ذاكرة الهاتف.",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 12.sp,
+                                color = SpaceColors.MutedText,
+                                textAlign = TextAlign.Center
+                            )
                         }
-                    },
-                    enabled = ws != null && !isExtracting,
-                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .testTag("preview_button")
+                    }
+                }
+
+                Text(
+                    text = "عاين موقعك المستخرج بجودة كاملة قبل الإنشاء، أو ابدأ المعالج مباشرة.",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 13.sp,
+                    color = SpaceColors.MutedText,
+                    textAlign = TextAlign.Center
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Visibility,
-                        contentDescription = null,
-                        tint = if (ws != null) OrangePrimary else TextMuted,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
+                    NeonButton(
                         text = "معاينة حية",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = if (ws != null) TextPrimary else TextMuted
+                        icon = Icons.Default.Visibility,
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        enabled = ws != null && !isExtracting,
+                        testTag = "preview_button",
+                        onClick = {
+                            val currentWs = importedWorkspace ?: return@NeonButton
+                            if (onPreviewWorkspace != null) {
+                                onPreviewWorkspace(currentWs)
+                            } else {
+                                onPreview()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
                     )
-                }
 
-                // Create App
-                Button(
-                    onClick = {
-                        val currentWs = importedWorkspace ?: return@Button
-                        when {
-                            onCreateAppWithWorkspace != null -> onCreateAppWithWorkspace(currentWs)
-                            onCreateAppWithFile != null -> onCreateAppWithFile(currentWs.displayFileName)
-                            else -> onCreateApp()
-                        }
-                    },
-                    enabled = ws != null && !isExtracting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OrangePrimary,
-                        disabledContainerColor = DarkSurfaceElevated.copy(alpha = 0.5f)
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .testTag("create_app_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Android,
-                        contentDescription = null,
-                        tint = if (ws != null) Color.White else TextMuted,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
+                    NeonButton(
                         text = "إنشاء التطبيق",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = if (ws != null) Color.White else TextMuted
+                        icon = Icons.Default.Android,
+                        style = NeonButtonStyle.EMERALD_SUCCESS,
+                        enabled = ws != null && !isExtracting,
+                        testTag = "create_app_button",
+                        onClick = {
+                            val currentWs = importedWorkspace ?: return@NeonButton
+                            when {
+                                onCreateAppWithWorkspace != null -> onCreateAppWithWorkspace(currentWs)
+                                onCreateAppWithFile != null -> onCreateAppWithFile(currentWs.displayFileName)
+                                else -> onCreateApp()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }

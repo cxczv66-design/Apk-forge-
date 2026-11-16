@@ -17,9 +17,15 @@ import com.example.domain.model.AppProject
 import com.example.domain.usecase.*
 import com.example.engine.AiAppArchitectRepository
 import com.example.engine.BuildOptimizationOptions
+import com.example.engine.GitHubCloudBuildEngine
+import com.example.engine.HybridBuildCoordinator
+import com.example.engine.HybridBuildMode
 import com.example.engine.QuantumBuildEngine
 import com.example.engine.QuantumBuildWorker
 import com.example.engine.QuantumDiagnosticReport
+import com.example.engine.SelectedBuildEngine
+import com.example.engine.SmartBuildDecision
+import com.example.engine.SmartBuildRouter
 import com.example.engine.ToolchainManager
 import com.example.ui.util.AppLanguage
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +84,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val aiArchitectRepository = AiAppArchitectRepository()
     val quantumEngine: QuantumBuildEngine = QuantumBuildEngine.getInstance(application)
     val toolchainManager = ToolchainManager(application)
+    val smartBuildRouter = SmartBuildRouter(application)
+    val githubCloudEngine = GitHubCloudBuildEngine(application)
+    val hybridCoordinator: HybridBuildCoordinator = HybridBuildCoordinator.getInstance(application)
     private val workManager: WorkManager = WorkManager.getInstance(application)
 
     private val getProjectsUseCase = GetProjectsUseCase(repository)
@@ -138,6 +147,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeProjectId = MutableStateFlow<String?>(null)
     val activeProjectId: StateFlow<String?> = _activeProjectId.asStateFlow()
+
+    private val _selectedBuildMode = MutableStateFlow(HybridBuildMode.AUTO_SMART)
+    val selectedBuildMode: StateFlow<HybridBuildMode> = _selectedBuildMode.asStateFlow()
 
     private var workObserverJob: Job? = null
     private var aiPlanJob: Job? = null
@@ -343,6 +355,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             observeQuantumWork(request.id)
         }
+    }
+
+    fun setHybridBuildMode(mode: HybridBuildMode) {
+        _selectedBuildMode.value = mode
+    }
+
+    fun evaluateSmartBuildDecision(
+        project: AppProject,
+        targetType: String,
+        abiSplitRequested: Boolean = false
+    ): SmartBuildDecision {
+        return smartBuildRouter.decide(
+            project = project,
+            targetType = targetType,
+            requestedMode = _selectedBuildMode.value,
+            cloudTokenConfigured = githubCloudEngine.hasSavedToken(),
+            abiSplitRequested = abiSplitRequested
+        )
+    }
+
+    fun startHybridBuild(
+        project: AppProject,
+        targetType: String,
+        options: BuildOptimizationOptions,
+        autoBumpVersion: Boolean,
+        repoNameOverride: String? = null,
+        syncSigningSecrets: Boolean = true,
+        onMissingCloudToken: (() -> Unit)? = null
+    ): SmartBuildDecision {
+        val decision = evaluateSmartBuildDecision(
+            project = project,
+            targetType = targetType,
+            abiSplitRequested = options.abiSplit
+        )
+        if (decision.selectedEngine == SelectedBuildEngine.CLOUD_GRADLE_SDK) {
+            if (!decision.cloudCredentialsReady) {
+                _uiToastEvents.tryEmit("☁️ يلزم إدخال رمز GitHub Token المشفّر لتشغيل Gradle السحابي")
+                onMissingCloudToken?.invoke()
+                return decision
+            }
+            val projToBuild = if (autoBumpVersion) {
+                project.copy(
+                    packageConfig = project.packageConfig.copy(
+                        versionCode = project.packageConfig.versionCode + 1
+                    )
+                )
+            } else {
+                project
+            }
+            saveProjectUseCase(projToBuild)
+            hybridCoordinator.startCloudBuild(
+                project = projToBuild,
+                targetType = targetType,
+                options = options,
+                repoNameOverride = repoNameOverride,
+                cloudEngineOverride = githubCloudEngine,
+                syncSigningSecrets = syncSigningSecrets,
+                onCompleted = { fileName, _, _ ->
+                    repository.refreshFromPrefs()
+                    _uiToastEvents.tryEmit("☁️ اكتمل البناء السحابي وحُفظ $fileName في التنزيلات!")
+                },
+                onFailed = { err ->
+                    _uiToastEvents.tryEmit("⚠️ تعذر البناء السحابي: $err")
+                }
+            )
+        } else {
+            hybridCoordinator.notifySelectedLocal(project, targetType, decision)
+            startAutomatedBuild(
+                project = project,
+                targetType = targetType,
+                options = options,
+                autoBumpVersion = autoBumpVersion
+            )
+        }
+        return decision
+    }
+
+    suspend fun syncCloudSigningSecrets(
+        project: AppProject,
+        repoNameOverride: String? = null,
+        onProgress: (String) -> Unit = {}
+    ) = githubCloudEngine.syncProjectSigningSecrets(
+        token = githubCloudEngine.getSavedToken(),
+        repoName = repoNameOverride?.takeIf { it.isNotBlank() }
+            ?: project.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").trim('-').ifBlank { githubCloudEngine.getSavedRepoName() },
+        keyAlias = project.signingConfig.keyAlias.ifBlank { "apkforge_release" },
+        organization = project.name,
+        onProgress = onProgress
+    )
+
+    fun cancelCloudBuild() {
+        hybridCoordinator.cancelCloudBuild()
     }
 
     private fun observeQuantumWork(workId: UUID) {

@@ -8,22 +8,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.AppProject
 import com.example.ui.AppScreen
+import com.example.ui.components.space.SpaceApkForgeLogoMark
 import com.example.ui.theme.*
 import com.example.ui.util.strings
 
@@ -32,14 +34,38 @@ data class OmniNavDestination(
     val label: String,
     val icon: ImageVector,
     val badge: String? = null,
-    val accent: Color = OrangePrimary,
+    val accent: Color = SpaceColors.NeonCyan,
     val onClick: () -> Unit
 )
 
 /**
- * شريط الاستوديو الجانبي الموحّد لكل مراحل IDE:
- * يعرض NavigationRail على الشاشات العريضة و ModalNavigationDrawer على الهواتف.
+ * القائمة الجانبية الفضائية الموحّدة (SpaceNavigationDrawer + NavigationRail للأجهزة اللوحية)
  */
+@Composable
+fun SpaceNavigationDrawer(
+    drawerState: DrawerState,
+    currentScreen: AppScreen,
+    activeProject: AppProject?,
+    projectsCount: Int,
+    downloadsCount: Int,
+    onNavigate: (AppScreen) -> Unit,
+    onOpenUrlScraper: () -> Unit,
+    onOpenSupport: () -> Unit,
+    onCloseDrawer: () -> Unit,
+    content: @Composable () -> Unit
+) = OmniStudioSidebarScaffold(
+    drawerState = drawerState,
+    currentScreen = currentScreen,
+    activeProject = activeProject,
+    projectsCount = projectsCount,
+    downloadsCount = downloadsCount,
+    onNavigate = onNavigate,
+    onOpenUrlScraper = onOpenUrlScraper,
+    onOpenSupport = onOpenSupport,
+    onCloseDrawer = onCloseDrawer,
+    content = content
+)
+
 @Composable
 fun OmniStudioSidebarScaffold(
     drawerState: DrawerState,
@@ -66,34 +92,35 @@ fun OmniStudioSidebarScaffold(
             label = s.navHome,
             icon = Icons.Filled.SpaceDashboard,
             badge = if (projectsCount > 0) "$projectsCount" else null,
+            accent = SpaceColors.NeonCyan,
             onClick = { onNavigate(AppScreen.Dashboard); onCloseDrawer() }
         ),
         OmniNavDestination(
             id = "html_picker",
             label = s.htmlImport,
             icon = Icons.Filled.Code,
-            accent = CyanAccent,
+            accent = SpaceColors.ElectricBlue,
             onClick = { onNavigate(AppScreen.HtmlPicker); onCloseDrawer() }
         ),
         OmniNavDestination(
             id = "zip_picker",
             label = s.zipImport,
             icon = Icons.Filled.FolderZip,
-            accent = Color(0xFF818CF8),
+            accent = SpaceColors.NeonCyan,
             onClick = { onNavigate(AppScreen.ZipPicker); onCloseDrawer() }
         ),
         OmniNavDestination(
             id = "pwa_scraper",
             label = s.webScraperAndPwa,
             icon = Icons.Filled.Language,
-            accent = StatusGreen,
+            accent = SpaceColors.Emerald,
             onClick = { onCloseDrawer(); onOpenUrlScraper() }
         ),
         OmniNavDestination(
             id = "apk_choice",
             label = "استيراد / تعديل APK",
             icon = Icons.Filled.Android,
-            accent = StatusGreen,
+            accent = SpaceColors.Emerald,
             onClick = { onNavigate(AppScreen.ApkImportChoice); onCloseDrawer() }
         ),
         OmniNavDestination(
@@ -101,14 +128,14 @@ fun OmniStudioSidebarScaffold(
             label = "مساعد البناء AI ✨",
             icon = Icons.Filled.AutoAwesome,
             badge = "12+",
-            accent = Color(0xFFA855F7),
+            accent = SpaceColors.NeonPurple,
             onClick = { onNavigate(AppScreen.AiWizard); onCloseDrawer() }
         ),
         OmniNavDestination(
             id = "adaptive_studio",
             label = "الاستوديو التكيفي",
             icon = Icons.Filled.Tune,
-            accent = GoldAccent,
+            accent = SpaceColors.Gold,
             onClick = { onNavigate(AppScreen.AdaptiveStudio(fallbackProject, 0)); onCloseDrawer() }
         ),
         OmniNavDestination(
@@ -116,7 +143,7 @@ fun OmniStudioSidebarScaffold(
             label = s.livePreviewSandbox,
             icon = Icons.Filled.Smartphone,
             badge = "APK/AAB",
-            accent = CyanAccent,
+            accent = SpaceColors.NeonCyan,
             onClick = {
                 onNavigate(AppScreen.InteractivePhone(fallbackProject, fromScreen = AppScreen.Dashboard))
                 onCloseDrawer()
@@ -126,7 +153,7 @@ fun OmniStudioSidebarScaffold(
             id = "build_studio",
             label = "التشخيص والخزنة",
             icon = Icons.Filled.Security,
-            accent = OrangePrimary,
+            accent = SpaceColors.Gold,
             onClick = { onNavigate(AppScreen.BuildCenter(fallbackProject)); onCloseDrawer() }
         ),
         OmniNavDestination(
@@ -134,21 +161,21 @@ fun OmniStudioSidebarScaffold(
             label = s.navDownloads,
             icon = Icons.Filled.DownloadDone,
             badge = if (downloadsCount > 0) "$downloadsCount" else null,
-            accent = StatusGreen,
+            accent = SpaceColors.Emerald,
             onClick = { onNavigate(AppScreen.Downloads); onCloseDrawer() }
         ),
         OmniNavDestination(
             id = "support",
             label = s.supportAndFeatureReq,
             icon = Icons.Filled.SupportAgent,
-            accent = Color(0xFF38BDF8),
+            accent = SpaceColors.NeonCyan,
             onClick = { onCloseDrawer(); onOpenSupport() }
         ),
         OmniNavDestination(
             id = "account",
             label = s.navAccount,
             icon = Icons.Filled.ManageAccounts,
-            accent = TextSecondary,
+            accent = SpaceColors.ElectricBlue,
             onClick = { onNavigate(AppScreen.Account); onCloseDrawer() }
         )
     )
@@ -175,31 +202,35 @@ fun OmniStudioSidebarScaffold(
                 NavigationRail(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .background(DarkSurface)
-                        .border(1.dp, GlassBorderSubtle),
-                    containerColor = DarkSurface
+                        .background(
+                            Brush.verticalGradient(listOf(SpaceColors.DeepSpace, SpaceColors.MidnightBlue))
+                        )
+                        .border(1.dp, SpaceColors.GlassBorderCyan),
+                    containerColor = Color.Transparent
                 ) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "OMNI",
-                        color = OrangePrimary,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 12.sp,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    items.take(8).forEach { dest ->
+                    Spacer(Modifier.height(14.dp))
+                    SpaceApkForgeLogoMark(size = 36.dp)
+                    Spacer(Modifier.height(10.dp))
+                    items.take(9).forEach { dest ->
                         NavigationRailItem(
                             selected = selectedId == dest.id,
                             onClick = dest.onClick,
                             icon = { Icon(dest.icon, contentDescription = dest.label) },
-                            label = { Text(dest.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp) },
+                            label = {
+                                Text(
+                                    dest.label,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontFamily = CairoFontFamily,
+                                    fontSize = 10.sp
+                                )
+                            },
                             colors = NavigationRailItemDefaults.colors(
-                                selectedIconColor = Color.White,
+                                selectedIconColor = SpaceColors.White,
                                 selectedTextColor = dest.accent,
-                                indicatorColor = dest.accent.copy(alpha = 0.2f),
-                                unselectedIconColor = TextSecondary,
-                                unselectedTextColor = TextMuted
+                                indicatorColor = dest.accent.copy(alpha = 0.22f),
+                                unselectedIconColor = SpaceColors.MutedText,
+                                unselectedTextColor = SpaceColors.SubtleText
                             ),
                             modifier = Modifier.testTag("rail_${dest.id}")
                         )
@@ -214,34 +245,63 @@ fun OmniStudioSidebarScaffold(
                 drawerState = drawerState,
                 drawerContent = {
                     ModalDrawerSheet(
-                        modifier = Modifier.widthIn(max = 310.dp),
-                        drawerContainerColor = DarkSurface,
-                        drawerContentColor = TextPrimary
+                        modifier = Modifier
+                            .widthIn(max = 312.dp)
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.verticalGradient(
+                                    listOf(SpaceColors.NeonCyan.copy(alpha = 0.55f), SpaceColors.NeonPurple.copy(alpha = 0.45f))
+                                ),
+                                shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
+                            ),
+                        drawerContainerColor = SpaceColors.DeepSpace.copy(alpha = 0.96f),
+                        drawerContentColor = SpaceColors.White
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 14.dp, vertical = 18.dp)
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 14.dp, vertical = 16.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .shadow(14.dp, RoundedCornerShape(18.dp), spotColor = SpaceColors.NeonCyan.copy(alpha = 0.5f))
+                                    .clip(RoundedCornerShape(18.dp))
                                     .background(
                                         Brush.horizontalGradient(
-                                            listOf(OrangePrimary.copy(alpha = 0.22f), CyanAccent.copy(alpha = 0.14f))
+                                            listOf(
+                                                SpaceColors.SurfaceElevated,
+                                                SpaceColors.MidnightBlue,
+                                                SpaceColors.Violet.copy(alpha = 0.35f)
+                                            )
                                         )
                                     )
-                                    .border(1.dp, OrangePrimary.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                    .border(1.2.dp, SpaceColors.NeonBorderGradient, RoundedCornerShape(18.dp))
                                     .padding(14.dp)
                             ) {
-                                Icon(Icons.Filled.AutoAwesome, contentDescription = "ApkForge Omni IDE", tint = OrangePrimary, modifier = Modifier.size(28.dp))
+                                SpaceApkForgeLogoMark(size = 42.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column {
-                                    Text("ApkForge Omni IDE", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                                    Text(s.ideStudioSubtitle, color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        text = "ApkForge",
+                                        color = SpaceColors.White,
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontStyle = FontStyle.Italic,
+                                        fontSize = 18.sp
+                                    )
+                                    Text(
+                                        text = "Build • Edit • Create",
+                                        color = SpaceColors.NeonCyan,
+                                        fontFamily = TajawalFontFamily,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
 
@@ -252,11 +312,18 @@ fun OmniStudioSidebarScaffold(
                                 NavigationDrawerItem(
                                     selected = isSel,
                                     onClick = dest.onClick,
-                                    icon = { Icon(dest.icon, contentDescription = dest.label, tint = if (isSel) dest.accent else TextSecondary) },
+                                    icon = {
+                                        Icon(
+                                            dest.icon,
+                                            contentDescription = dest.label,
+                                            tint = if (isSel) dest.accent else SpaceColors.MutedText
+                                        )
+                                    },
                                     label = {
                                         Text(
                                             dest.label,
-                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                            fontFamily = CairoFontFamily,
+                                            fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.Medium,
                                             fontSize = 13.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -266,11 +333,13 @@ fun OmniStudioSidebarScaffold(
                                         {
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = dest.accent.copy(alpha = 0.18f)
+                                                color = dest.accent.copy(alpha = 0.2f),
+                                                border = androidx.compose.foundation.BorderStroke(0.8.dp, dest.accent.copy(alpha = 0.5f))
                                             ) {
                                                 Text(
                                                     b,
                                                     color = dest.accent,
+                                                    fontFamily = CairoFontFamily,
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
@@ -279,11 +348,12 @@ fun OmniStudioSidebarScaffold(
                                         }
                                     },
                                     colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = dest.accent.copy(alpha = 0.14f),
-                                        selectedTextColor = TextPrimary,
+                                        selectedContainerColor = dest.accent.copy(alpha = 0.16f),
+                                        selectedTextColor = SpaceColors.White,
                                         unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = TextSecondary
+                                        unselectedTextColor = SpaceColors.MutedText
                                     ),
+                                    shape = RoundedCornerShape(14.dp),
                                     modifier = Modifier
                                         .padding(vertical = 2.dp)
                                         .testTag("drawer_${dest.id}")

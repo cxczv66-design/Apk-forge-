@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -30,12 +32,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.domain.model.AppProject
 import com.example.domain.model.ProStudioConfig
 import com.example.engine.*
+import com.example.ui.components.space.NeonButton
+import com.example.ui.components.space.NeonButtonStyle
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.NeonProgressIndicator
+import com.example.ui.components.space.NeonTextField
+import com.example.ui.components.space.Space3DFeatureBadge
+import com.example.ui.components.space.SpaceDialog
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -56,268 +63,245 @@ fun SmartUrlScraperDialog(
     var scanError by remember { mutableStateOf<String?>(null) }
     var scraped by remember { mutableStateOf<ScrapedSiteIdentity?>(null) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.94f)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        SpaceDialog(
+            onDismissRequest = onDismiss,
+            title = "تحليل واستخراج هوية الموقع الحقيقية 🌐",
+            subtitle = "يجلب الاسم الفعلي، الشعار، الألوان، الأزرار، وأذونات الأجهزة مباشرة من خادم الموقع.",
+            icon = Icons.Default.AutoFixHigh,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.94f
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .padding(18.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = OrangePrimary)
-                        Spacer(modifier = Modifier.width(8.dp))
+                NeonTextField(
+                    value = urlInput,
+                    onValueChange = {
+                        urlInput = it
+                        scanError = null
+                    },
+                    label = "رابط الموقع (URL)",
+                    placeholder = "https://example.com",
+                    leadingIcon = Icons.Default.Language,
+                    accentColor = SpaceColors.NeonCyan,
+                    singleLine = true,
+                    testTag = "smart_url_input"
+                )
+
+                NeonButton(
+                    text = if (isScanning) "جارٍ الجلب الفعلي للبيانات والأيقونة..." else "تحليل واستخراج حقيقي للموقع ⚡",
+                    onClick = {
+                        scope.launch {
+                            isScanning = true
+                            scanError = null
+                            val res = scraper.scrapeSiteIdentity(urlInput, context)
+                            isScanning = false
+                            res.onSuccess { scraped = it }
+                                .onFailure { err ->
+                                    scraped = null
+                                    scanError = err.message ?: "تعذر الاتصال بالموقع أو تحليله"
+                                    Toast.makeText(context, "فشل التحليل: $scanError", Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    },
+                    enabled = !isScanning && urlInput.trim().length > 4,
+                    isLoading = isScanning,
+                    icon = Icons.Default.TravelExplore,
+                    style = NeonButtonStyle.PRIMARY_GLOW,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (scanError != null) {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.ErrorRed,
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(14.dp),
+                        elevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
-                            text = "تحليل واستخراج هوية الموقع الحقيقية 🌐",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = TextPrimary
+                            text = "✗ تعذر استخراج بيانات الموقع: $scanError\nتأكد من صحة الرابط وتوفر الاتصال بالإنترنت.",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = SpaceColors.ErrorRed,
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
+                }
 
-                    Text(
-                        text = "يجلب الاسم الفعلي، الشعار، الألوان، الأزرار، الروابط، وأذونات الأجهزة المكتشفة مباشرة من خادم الموقع.",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    OutlinedTextField(
-                        value = urlInput,
-                        onValueChange = {
-                            urlInput = it
-                            scanError = null
-                        },
-                        label = { Text("رابط الموقع (URL)") },
-                        placeholder = { Text("https://example.com") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("smart_url_input"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                isScanning = true
-                                scanError = null
-                                val res = scraper.scrapeSiteIdentity(urlInput, context)
-                                isScanning = false
-                                res.onSuccess { scraped = it }
-                                    .onFailure { err ->
-                                        scraped = null
-                                        scanError = err.message ?: "تعذر الاتصال بالموقع أو تحليله"
-                                        Toast.makeText(context, "فشل التحليل: $scanError", Toast.LENGTH_LONG).show()
-                                    }
-                            }
-                        },
-                        enabled = !isScanning && urlInput.trim().length > 4,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                scraped?.let { id ->
+                    val themeColor = parseColorSafe(id.themeColorHex, SpaceColors.NeonCyan)
+                    val effectiveIcon = id.localCachedIconUri ?: id.iconUrl
+                    NeonGlassCard(
+                        accentColor = themeColor,
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = 10.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        if (isScanning) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("جارٍ الجلب الفعلي للبيانات والأيقونة...", fontFamily = CairoFontFamily, color = Color.White)
-                        } else {
-                            Icon(Icons.Default.TravelExplore, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("تحليل واستخراج حقيقي للموقع ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
-
-                    if (scanError != null) {
-                        Surface(
-                            color = ErrorRed.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, ErrorRed.copy(alpha = 0.45f)),
-                            modifier = Modifier.fillMaxWidth()
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(
-                                text = "✗ تعذر استخراج بيانات الموقع: $scanError\nتأكد من صحة الرابط وتوفر الاتصال بالإنترنت.",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 11.sp,
-                                color = ErrorRed,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
-                    }
-
-                    scraped?.let { id ->
-                        val themeColor = parseColorSafe(id.themeColorHex, OrangePrimary)
-                        val effectiveIcon = id.localCachedIconUri ?: id.iconUrl
-                        Surface(
-                            color = Color(0xFF0E131D),
-                            shape = RoundedCornerShape(14.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, themeColor.copy(alpha = 0.6f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(52.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(themeColor),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (!effectiveIcon.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = effectiveIcon,
-                                                contentDescription = id.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        } else {
-                                            Text(id.title.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(id.title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
-                                        Text(id.suggestedPackageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = themeColor)
-                                        Text(
-                                            text = "HTTP ${id.httpStatusCode} • ${if (id.hasPwaManifest) "PWA Manifest ✓" else "HTML Meta ✓"} • ${id.themeColorHex}",
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 10.sp,
-                                            color = StatusGreen
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(themeColor.copy(alpha = 0.25f))
+                                        .border(1.2.dp, themeColor.copy(alpha = 0.7f), RoundedCornerShape(15.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!effectiveIcon.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = effectiveIcon,
+                                            contentDescription = id.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
                                         )
+                                    } else {
+                                        Text(id.title.take(2).uppercase(), color = SpaceColors.White, fontWeight = FontWeight.Bold)
                                     }
                                 }
-
-                                Text(
-                                    text = id.description,
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary,
-                                    maxLines = 2
-                                )
-
-                                // Extracted Structure Telemetry Row
-                                Text(
-                                    text = "العناصر المستخرجة: ${id.detectedLinks.size} روابط تنقل • ${id.detectedButtons.size} أزرار • ${id.formsCount} نماذج • ${id.scriptsCount} سكربت",
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 11.sp,
-                                    color = GoldAccent
-                                )
-
-                                if (id.detectedLinks.isNotEmpty()) {
-                                    Text("روابط القوائم المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        id.detectedLinks.forEach { link ->
-                                            Surface(
-                                                color = Color(0xFF172033),
-                                                shape = RoundedCornerShape(8.dp),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, themeColor.copy(alpha = 0.4f))
-                                            ) {
-                                                Text(
-                                                    text = "${link.title} (${link.relativePath})",
-                                                    fontFamily = TajawalFontFamily,
-                                                    fontSize = 10.sp,
-                                                    color = TextPrimary,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (id.detectedButtons.isNotEmpty()) {
-                                    Text("الأزرار التفاعلية المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        id.detectedButtons.forEach { btnLabel ->
-                                            Surface(
-                                                color = themeColor.copy(alpha = 0.16f),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = btnLabel,
-                                                    fontFamily = CairoFontFamily,
-                                                    fontSize = 10.sp,
-                                                    color = themeColor,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (id.detectedPermissions.isNotEmpty() || id.detectedExternalSchemes.isNotEmpty()) {
-                                    val permsSummary = (id.detectedPermissions + id.detectedExternalSchemes).joinToString(" • ")
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(id.title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = SpaceColors.White)
+                                    Text(id.suggestedPackageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = themeColor)
                                     Text(
-                                        text = "الأذونات والروابط الخارجية المطلوبة: $permsSummary",
+                                        text = "HTTP ${id.httpStatusCode} • ${if (id.hasPwaManifest) "PWA Manifest ✓" else "HTML Meta ✓"} • ${id.themeColorHex}",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 10.sp,
-                                        color = StatusGreen
+                                        color = SpaceColors.Emerald
                                     )
                                 }
                             }
-                        }
 
-                        var showPwaEditor by remember { mutableStateOf(false) }
-
-                        Button(
-                            onClick = {
-                                val proj = scraper.toPreConfiguredProject(id, context)
-                                onCreateFromUrl(proj)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("تعبئة جميع البيانات الحقيقية والبدء ⚡", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-
-                        OutlinedButton(
-                            onClick = { showPwaEditor = true },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(46.dp)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("تحويل لمشروع محلي وتعديل العناصر (PWA) ✏️", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = StatusGreen)
-                        }
-
-                        if (showPwaEditor) {
-                            val preProj = remember(id.normalizedUrl) { scraper.toPreConfiguredProject(id, context) }
-                            PwaSiteCustomizerDialog(
-                                initialProject = preProj,
-                                scrapedIdentity = id,
-                                onDismiss = { showPwaEditor = false },
-                                onApplyAndSave = { edited ->
-                                    showPwaEditor = false
-                                    onCreateFromUrl(edited)
-                                },
-                                onApplyAndPreview = { edited ->
-                                    showPwaEditor = false
-                                    onCreateFromUrl(edited)
-                                }
+                            Text(
+                                text = id.description,
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.MutedText,
+                                maxLines = 2
                             )
+
+                            Text(
+                                text = "العناصر المستخرجة: ${id.detectedLinks.size} روابط تنقل • ${id.detectedButtons.size} أزرار • ${id.formsCount} نماذج • ${id.scriptsCount} سكربت",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.Gold
+                            )
+
+                            if (id.detectedLinks.isNotEmpty()) {
+                                Text("روابط القوائم المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    id.detectedLinks.forEach { link ->
+                                        Surface(
+                                            color = SpaceColors.SurfaceDeep.copy(alpha = 0.85f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, themeColor.copy(alpha = 0.45f))
+                                        ) {
+                                            Text(
+                                                text = "${link.title} (${link.relativePath})",
+                                                fontFamily = TajawalFontFamily,
+                                                fontSize = 10.sp,
+                                                color = SpaceColors.White,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (id.detectedButtons.isNotEmpty()) {
+                                Text("الأزرار التفاعلية المكتشفة:", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    id.detectedButtons.forEach { btnLabel ->
+                                        Surface(
+                                            color = themeColor.copy(alpha = 0.16f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, themeColor.copy(alpha = 0.35f))
+                                        ) {
+                                            Text(
+                                                text = btnLabel,
+                                                fontFamily = CairoFontFamily,
+                                                fontSize = 10.sp,
+                                                color = themeColor,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (id.detectedPermissions.isNotEmpty() || id.detectedExternalSchemes.isNotEmpty()) {
+                                val permsSummary = (id.detectedPermissions + id.detectedExternalSchemes).joinToString(" • ")
+                                Text(
+                                    text = "الأذونات والروابط الخارجية المطلوبة: $permsSummary",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = SpaceColors.Emerald
+                                )
+                            }
                         }
                     }
 
-                    TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("إغلاق", fontFamily = CairoFontFamily, color = TextSecondary)
+                    var showPwaEditor by remember { mutableStateOf(false) }
+
+                    NeonButton(
+                        text = "تعبئة جميع البيانات الحقيقية والبدء ⚡",
+                        onClick = {
+                            val proj = scraper.toPreConfiguredProject(id, context)
+                            onCreateFromUrl(proj)
+                        },
+                        icon = Icons.Default.Bolt,
+                        style = NeonButtonStyle.GOLD_ENGINE,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    NeonButton(
+                        text = "تحويل لمشروع محلي وتعديل العناصر (PWA) ✏️",
+                        onClick = { showPwaEditor = true },
+                        icon = Icons.Default.Edit,
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (showPwaEditor) {
+                        val preProj = remember(id.normalizedUrl) { scraper.toPreConfiguredProject(id, context) }
+                        PwaSiteCustomizerDialog(
+                            initialProject = preProj,
+                            scrapedIdentity = id,
+                            onDismiss = { showPwaEditor = false },
+                            onApplyAndSave = { edited ->
+                                showPwaEditor = false
+                                onCreateFromUrl(edited)
+                            },
+                            onApplyAndPreview = { edited ->
+                                showPwaEditor = false
+                                onCreateFromUrl(edited)
+                            }
+                        )
                     }
                 }
+
+                NeonButton(
+                    text = "إغلاق",
+                    onClick = onDismiss,
+                    style = NeonButtonStyle.CYBER_OUTLINE,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -336,15 +320,16 @@ fun ProStudioHubCard(
 ) {
     val pro = project.proConfig
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF121824),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.35f)),
+        NeonGlassCard(
+            accentColor = SpaceColors.Gold,
+            secondaryAccent = SpaceColors.NeonPurple,
+            shape = RoundedCornerShape(20.dp),
+            elevation = 14.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -352,21 +337,26 @@ fun ProStudioHubCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Diamond, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Space3DFeatureBadge(
+                            icon = Icons.Default.Diamond,
+                            accentColor = SpaceColors.Gold,
+                            secondaryColor = SpaceColors.NeonPurple,
+                            size = 40.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "الاستوديو الاحترافي (Pro Studio Suite)",
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = "حاقن CSS • مانع إعلانات • الأمان • البصمة/QR • الأيقونات • GitHub Cloud",
                                 fontFamily = TajawalFontFamily,
                                 fontSize = 10.sp,
-                                color = TextSecondary
+                                color = SpaceColors.MutedText
                             )
                         }
                     }
@@ -385,7 +375,7 @@ fun ProStudioHubCard(
                             append(if (pro.adAndPopupBlocker) "AdBlock ✓" else "Ads On")
                         },
                         icon = Icons.Default.Style,
-                        accent = Color(0xFF38BDF8),
+                        accent = SpaceColors.NeonCyan,
                         modifier = Modifier.weight(1f),
                         testTag = "pro_web_customizer_tile",
                         onClick = onOpenWebCustomizer
@@ -394,7 +384,7 @@ fun ProStudioHubCard(
                         title = "الأمان والجسر v2",
                         subtitle = "بصمة=${pro.biometricAuthBridge} • SSL=${pro.sslPinningEnabled}",
                         icon = Icons.Default.Security,
-                        accent = StatusGreen,
+                        accent = SpaceColors.Emerald,
                         modifier = Modifier.weight(1f),
                         testTag = "pro_security_tile",
                         onClick = onOpenSecurityAndBridgeV2
@@ -409,7 +399,7 @@ fun ProStudioHubCard(
                         title = "الأيقونة وDrawer/FAB",
                         subtitle = "${pro.iconShape} • Drawer=${pro.drawerEnabled} • FAB=${pro.fabMenuEnabled}",
                         icon = Icons.Default.Palette,
-                        accent = Color(0xFFA855F7),
+                        accent = SpaceColors.NeonPurple,
                         modifier = Modifier.weight(1f),
                         testTag = "pro_icon_ui_tile",
                         onClick = onOpenIconAndUiStudio
@@ -418,7 +408,7 @@ fun ProStudioHubCard(
                         title = "بناء GitHub فوري",
                         subtitle = "رفع + تشغيل Actions تلقائياً ☁️",
                         icon = Icons.Default.CloudSync,
-                        accent = OrangePrimary,
+                        accent = SpaceColors.Gold,
                         modifier = Modifier.weight(1f),
                         testTag = "pro_github_cloud_tile",
                         onClick = onOpenGitHubCloudTrigger
@@ -439,32 +429,30 @@ private fun ProTile(
     testTag: String,
     onClick: () -> Unit
 ) {
-    Surface(
-        color = Color(0xFF0E131D),
+    NeonGlassCard(
+        accentColor = accent,
+        secondaryAccent = SpaceColors.ElectricBlue,
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.3f)),
+        elevation = 8.dp,
+        glassAlpha = 0.78f,
+        onClick = onClick,
+        testTag = testTag,
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .testTag(testTag)
     ) {
         Row(
             modifier = Modifier.padding(11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(accent.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-            }
+            Space3DFeatureBadge(
+                icon = icon,
+                accentColor = accent,
+                secondaryColor = SpaceColors.MidnightBlue,
+                size = 34.dp
+            )
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = TextPrimary, maxLines = 1)
-                Text(subtitle, fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = TextSecondary, maxLines = 1)
+                Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = SpaceColors.White, maxLines = 1)
+                Text(subtitle, fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = SpaceColors.MutedText, maxLines = 1)
             }
         }
     }
@@ -482,78 +470,79 @@ fun WebCustomizerDialog(
     var customCss by remember { mutableStateOf(initial.customCss) }
     var customJs by remember { mutableStateOf(initial.customJs) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.92f)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        SpaceDialog(
+            onDismissRequest = onDismiss,
+            title = "مخصص الويب وحاقن CSS/JS",
+            subtitle = "الوضع الليلي + مانع الإعلانات وحقن الأكواد",
+            icon = Icons.Default.Style,
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            widthFraction = 0.92f
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                StudioSwitchTile("الوضع الليلي الإجباري (Force Dark CSS)", "يحول أي موقع فاتح إلى تصميم داكن مريح للعين", forceDark) { forceDark = it }
+                StudioSwitchTile("حاجب الإعلانات والنوافذ المنبثقة (Ad Blocker)", "يمنع النطاقات الإعلانية أثناء تحميل WebView", adBlocker) { adBlocker = it }
+
+                if (adBlocker) {
+                    NeonTextField(
+                        value = blockedHosts,
+                        onValueChange = { blockedHosts = it },
+                        label = "النطاقات المحجوبة (مفصولة بفاصلة)",
+                        leadingIcon = Icons.Default.Block,
+                        accentColor = SpaceColors.NeonCyan,
+                        singleLine = true
+                    )
+                }
+
+                // Quick CSS Presets
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("مخصص الويب وحاقن CSS/JS + مانع الإعلانات", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
+                    PresetCssChip("إخفاء Header/Footer") {
+                        customCss = "header, footer, .navbar, .cookie-banner { display: none !important; }"
+                    }
+                    PresetCssChip("خط عربي مريح") {
+                        customCss = "body { line-height: 1.8 !important; font-family: sans-serif !important; }"
+                    }
+                }
 
-                    StudioSwitchTile("الوضع الليلي الإجباري (Force Dark CSS)", "يحول أي موقع فاتح إلى تصميم داكن مريح للعين", forceDark) { forceDark = it }
-                    StudioSwitchTile("حاجب الإعلانات والنوافذ المنبثقة (Ad Blocker)", "يمنع النطاقات الإعلانية أثناء تحميل WebView", adBlocker) { adBlocker = it }
+                NeonTextField(
+                    value = customCss,
+                    onValueChange = { customCss = it },
+                    label = "CSS مخصص يُحقن داخل الصفحة",
+                    accentColor = SpaceColors.NeonPurple,
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4
+                )
 
-                    if (adBlocker) {
-                        OutlinedTextField(
-                            value = blockedHosts,
-                            onValueChange = { blockedHosts = it },
-                            label = { Text("النطاقات المحجوبة (مفصولة بفاصلة)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
+                NeonTextField(
+                    value = customJs,
+                    onValueChange = { customJs = it },
+                    label = "JavaScript مخصص عند اكتمال التحميل",
+                    accentColor = SpaceColors.NeonCyan,
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 3
+                )
+
+                DialogFooterButtons(onDismiss = onDismiss) {
+                    onSave(
+                        initial.copy(
+                            forceDarkCss = forceDark,
+                            adAndPopupBlocker = adBlocker,
+                            blockedHostsCsv = blockedHosts.trim(),
+                            customCss = customCss.trim(),
+                            customJs = customJs.trim()
                         )
-                    }
-
-                    // Quick CSS Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        PresetCssChip("إخفاء Header/Footer") {
-                            customCss = "header, footer, .navbar, .cookie-banner { display: none !important; }"
-                        }
-                        PresetCssChip("خط عربي مريح") {
-                            customCss = "body { line-height: 1.8 !important; font-family: sans-serif !important; }"
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = customCss,
-                        onValueChange = { customCss = it },
-                        label = { Text("CSS مخصص يُحقن داخل الصفحة") },
-                        minLines = 2,
-                        maxLines = 4,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
                     )
-
-                    OutlinedTextField(
-                        value = customJs,
-                        onValueChange = { customJs = it },
-                        label = { Text("JavaScript مخصص عند اكتمال التحميل") },
-                        minLines = 2,
-                        maxLines = 3,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    DialogFooterButtons(onDismiss = onDismiss) {
-                        onSave(
-                            initial.copy(
-                                forceDarkCss = forceDark,
-                                adAndPopupBlocker = adBlocker,
-                                blockedHostsCsv = blockedHosts.trim(),
-                                customCss = customCss.trim(),
-                                customJs = customJs.trim()
-                            )
-                        )
-                    }
                 }
             }
         }
@@ -573,42 +562,52 @@ fun SecurityAndBridgeV2Dialog(
     var sslPinning by remember { mutableStateOf(initial.sslPinningEnabled) }
     var preloader by remember { mutableStateOf(initial.assetPreloaderEnabled) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.92f)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        SpaceDialog(
+            onDismissRequest = onDismiss,
+            title = "حارس الأمان والجسر البرمجي (Bridge v2)",
+            subtitle = "توثيق البصمة، ماسح QR، وتشديد الحماية",
+            icon = Icons.Default.Security,
+            accentColor = SpaceColors.Emerald,
+            secondaryAccent = SpaceColors.NeonCyan,
+            widthFraction = 0.92f
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("حارس الأمان والجسر البرمجي المتقدم (Bridge v2)", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
+                StudioSwitchTile("توثيق البصمة والوجه (authenticateBiometric)", "تمكين تسجيل الدخول وتأكيد الدفع بالبصمة من JS", biometric) { biometric = it }
+                StudioSwitchTile("ماسح QR/Barcode المدمج (scanQrCode)", "فتح الماسح الضوئي وإرجاع القيمة لصفحة الويب", qrBridge) { qrBridge = it }
+                StudioSwitchTile("نافذة تقييم المتجر (requestStoreRating)", "استدعاء Google Play In-App Review من داخل التطبيق", reviewBridge) { reviewBridge = it }
 
-                    StudioSwitchTile("توثيق البصمة والوجه (authenticateBiometric)", "تمكين تسجيل الدخول وتأكيد الدفع بالبصمة من JS", biometric) { biometric = it }
-                    StudioSwitchTile("ماسح QR/Barcode المدمج (scanQrCode)", "فتح الماسح الضوئي وإرجاع القيمة لصفحة الويب", qrBridge) { qrBridge = it }
-                    StudioSwitchTile("نافذة تقييم المتجر (requestStoreRating)", "استدعاء Google Play In-App Review من داخل التطبيق", reviewBridge) { reviewBridge = it }
-
-                    HorizontalDivider(color = GlassBorderSubtle)
-
-                    StudioSwitchTile("منع تصوير الشاشة (FLAG_SECURE)", "يحظر لقطات الشاشة والتسجيل للصفحات الحساسة", flagSecure) { flagSecure = it }
-                    StudioSwitchTile("تشديد فحص SSL (SSL Pinning Strict)", "يرفض أي شهادة غير موثوقة لحماية الاتصال", sslPinning) { sslPinning = it }
-                    StudioSwitchTile("التخزين المسبق الذكي (Asset Pre-Loader)", "تحميل الأصول من الذاكرة المؤقتة لتسريع الفتح 3×", preloader) { preloader = it }
-
-                    DialogFooterButtons(onDismiss = onDismiss) {
-                        onSave(
-                            initial.copy(
-                                biometricAuthBridge = biometric,
-                                qrScannerBridge = qrBridge,
-                                inAppReviewBridge = reviewBridge,
-                                flagSecureEnabled = flagSecure,
-                                sslPinningEnabled = sslPinning,
-                                assetPreloaderEnabled = preloader
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(SpaceColors.Emerald.copy(alpha = 0.5f), SpaceColors.NeonCyan.copy(alpha = 0.3f), Color.Transparent)
                             )
                         )
-                    }
+                )
+
+                StudioSwitchTile("منع تصوير الشاشة (FLAG_SECURE)", "يحظر لقطات الشاشة والتسجيل للصفحات الحساسة", flagSecure) { flagSecure = it }
+                StudioSwitchTile("تشديد فحص SSL (SSL Pinning Strict)", "يرفض أي شهادة غير موثوقة لحماية الاتصال", sslPinning) { sslPinning = it }
+                StudioSwitchTile("التخزين المسبق الذكي (Asset Pre-Loader)", "تحميل الأصول من الذاكرة المؤقتة لتسريع الفتح 3×", preloader) { preloader = it }
+
+                DialogFooterButtons(onDismiss = onDismiss) {
+                    onSave(
+                        initial.copy(
+                            biometricAuthBridge = biometric,
+                            qrScannerBridge = qrBridge,
+                            inAppReviewBridge = reviewBridge,
+                            flagSecureEnabled = flagSecure,
+                            sslPinningEnabled = sslPinning,
+                            assetPreloaderEnabled = preloader
+                        )
+                    )
                 }
             }
         }
@@ -630,136 +629,135 @@ fun AdaptiveIconAndUiStudioDialog(
     var fabWhatsapp by remember { mutableStateOf(initial.fabWhatsappNumber) }
 
     val shapeOptions = listOf("squircle" to "Squircle", "circle" to "دائرة", "rounded" to "مربع منحني", "teardrop" to "قطرة")
-    val bgPalette = listOf("#1A1E29", "#FF7A2F", "#0EA5E9", "#10B981", "#7C3AED", "#E11D48")
+    val bgPalette = listOf("#1A1E29", "#00E5FF", "#1677FF", "#00E6A0", "#A020F0", "#FFB52E")
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.92f)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        SpaceDialog(
+            onDismissRequest = onDismiss,
+            title = "استوديو الأيقونة المتكيّفة + UI",
+            subtitle = "شكل الأيقونة، القائمة الجانبية، والزر العائم",
+            icon = Icons.Default.Palette,
+            accentColor = SpaceColors.NeonPurple,
+            secondaryAccent = SpaceColors.NeonCyan,
+            widthFraction = 0.92f
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 530.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                val previewRadius = when (iconShape) {
+                    "circle" -> 50
+                    "rounded" -> 18
+                    "teardrop" -> 32
+                    else -> 26
+                }
+                NeonGlassCard(
+                    accentColor = SpaceColors.NeonPurple,
+                    secondaryAccent = SpaceColors.NeonCyan,
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("استوديو الأيقونة المتكيّفة والقائمة الجانبية + FAB", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
-
-                    // Live Adaptive Icon & Play Store Listing Preview
-                    val previewBg = parseColorSafe(iconBgHex, Color(0xFF1A1E29))
-                    val previewRadius = when (iconShape) {
-                        "circle" -> 50
-                        "rounded" -> 18
-                        "teardrop" -> 32
-                        else -> 26
-                    }
-                    Surface(
-                        color = Color(0xFF0E131D),
-                        shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RealAppIconAvatar(
-                                project = project,
-                                size = 62.dp,
-                                cornerRadius = previewRadius.dp
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(project.name, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                                Text("معاينة حية لبطاقة Google Play وmipmap-xxxhdpi", fontFamily = TajawalFontFamily, fontSize = 10.sp, color = StatusGreen)
-                                Text("★★★★★ 4.9 • مجاني • أندرويد ${project.packageConfig.minSdk}+", fontFamily = TajawalFontFamily, fontSize = 10.sp, color = GoldAccent)
-                            }
-                        }
-                    }
-
-                    // Shape Picker Row
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        shapeOptions.forEach { (key, label) ->
-                            val selected = iconShape == key
-                            Surface(
-                                color = if (selected) OrangePrimary.copy(alpha = 0.2f) else Color(0xFF0E131D),
-                                shape = RoundedCornerShape(10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) OrangePrimary else GlassBorderSubtle),
-                                modifier = Modifier.clickable { iconShape = key }
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontFamily = CairoFontFamily,
-                                    fontSize = 11.sp,
-                                    color = if (selected) OrangePrimary else TextSecondary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Background Palette Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("خلفية الأيقونة:", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary)
-                        bgPalette.forEach { hex ->
-                            val selected = iconBgHex.equals(hex, ignoreCase = true)
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(parseColorSafe(hex, OrangePrimary))
-                                    .border(if (selected) 2.5.dp else 1.dp, if (selected) Color.White else GlassBorderSubtle, CircleShape)
-                                    .clickable { iconBgHex = hex }
+                        RealAppIconAvatar(
+                            project = project,
+                            size = 62.dp,
+                            cornerRadius = previewRadius.dp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(project.name, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = SpaceColors.White)
+                            Text("معاينة حية لبطاقة Google Play وmipmap-xxxhdpi", fontFamily = TajawalFontFamily, fontSize = 10.sp, color = SpaceColors.Emerald)
+                            Text("★★★★★ 4.9 • مجاني • أندرويد ${project.packageConfig.minSdk}+", fontFamily = TajawalFontFamily, fontSize = 10.sp, color = SpaceColors.Gold)
+                        }
+                    }
+                }
+
+                // Shape Picker Row
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    shapeOptions.forEach { (key, label) ->
+                        val selected = iconShape == key
+                        Surface(
+                            color = if (selected) SpaceColors.NeonPurple.copy(alpha = 0.22f) else SpaceColors.SurfaceDeep.copy(alpha = 0.8f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (selected) SpaceColors.NeonPurple else SpaceColors.GlassBorderSubtle),
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { iconShape = key }
+                        ) {
+                            Text(
+                                text = label,
+                                fontFamily = CairoFontFamily,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                color = if (selected) SpaceColors.NeonCyan else SpaceColors.MutedText,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
+                }
 
-                    HorizontalDivider(color = GlassBorderSubtle)
-
-                    StudioSwitchTile("تفعيل القائمة الجانبية (Navigation Drawer)", "تضيف زر همبرجر مع قائمة أقسام منسدلة", drawerEnabled) { drawerEnabled = it }
-                    if (drawerEnabled) {
-                        OutlinedTextField(
-                            value = drawerSubtitle,
-                            onValueChange = { drawerSubtitle = it },
-                            label = { Text("وصف رأس القائمة الجانبية") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
+                // Background Palette Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("خلفية الأيقونة:", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
+                    bgPalette.forEach { hex ->
+                        val selected = iconBgHex.equals(hex, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(parseColorSafe(hex, SpaceColors.NeonCyan))
+                                .border(if (selected) 2.5.dp else 1.dp, if (selected) SpaceColors.White else SpaceColors.GlassBorderSubtle, CircleShape)
+                                .clickable { iconBgHex = hex }
                         )
                     }
+                }
 
-                    StudioSwitchTile("الزر العائم السريع (Floating Action Menu)", "زر عائم فوق WebView للتحديث السريع أو مراسلة البريد المحدد", fabEnabled) { fabEnabled = it }
-                    if (fabEnabled) {
-                        OutlinedTextField(
-                            value = fabWhatsapp,
-                            onValueChange = { fabWhatsapp = it },
-                            label = { Text("بريد الدعم أو رابط تواصل اختياري (مثال: ziorio950@gmail.com)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    }
+                HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
 
-                    DialogFooterButtons(onDismiss = onDismiss) {
-                        onSave(
-                            initial.copy(
-                                iconShape = iconShape,
-                                iconBgColorHex = iconBgHex,
-                                drawerEnabled = drawerEnabled,
-                                drawerHeaderSubtitle = drawerSubtitle.trim().ifBlank { "القائمة السريعة" },
-                                fabMenuEnabled = fabEnabled,
-                                fabWhatsappNumber = fabWhatsapp.trim()
-                            )
+                StudioSwitchTile("تفعيل القائمة الجانبية (Navigation Drawer)", "تضيف زر همبرجر مع قائمة أقسام منسدلة", drawerEnabled) { drawerEnabled = it }
+                if (drawerEnabled) {
+                    NeonTextField(
+                        value = drawerSubtitle,
+                        onValueChange = { drawerSubtitle = it },
+                        label = "وصف رأس القائمة الجانبية",
+                        accentColor = SpaceColors.NeonPurple,
+                        singleLine = true
+                    )
+                }
+
+                StudioSwitchTile("الزر العائم السريع (Floating Action Menu)", "زر عائم فوق WebView للتحديث السريع أو مراسلة البريد المحدد", fabEnabled) { fabEnabled = it }
+                if (fabEnabled) {
+                    NeonTextField(
+                        value = fabWhatsapp,
+                        onValueChange = { fabWhatsapp = it },
+                        label = "بريد الدعم أو رابط تواصل اختياري (مثال: ziorio950@gmail.com)",
+                        accentColor = SpaceColors.NeonCyan,
+                        singleLine = true
+                    )
+                }
+
+                DialogFooterButtons(onDismiss = onDismiss) {
+                    onSave(
+                        initial.copy(
+                            iconShape = iconShape,
+                            iconBgColorHex = iconBgHex,
+                            drawerEnabled = drawerEnabled,
+                            drawerHeaderSubtitle = drawerSubtitle.trim().ifBlank { "القائمة السريعة" },
+                            fabMenuEnabled = fabEnabled,
+                            fabWhatsappNumber = fabWhatsapp.trim()
                         )
-                    }
+                    )
                 }
             }
         }
@@ -772,80 +770,365 @@ fun GitHubCloudBuildDialog(
     exporter: ProjectExporter,
     cloudEngine: GitHubCloudBuildEngine,
     options: BuildOptimizationOptions,
+    hybridCoordinator: HybridBuildCoordinator? = null,
+    onArtifactDownloaded: ((fileName: String, path: String, sizeText: String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var token by remember { mutableStateOf(cloudEngine.getSavedToken()) }
+    var hasStoredToken by remember { mutableStateOf(cloudEngine.hasSavedToken()) }
     var repoName by remember {
         mutableStateOf(
-            project.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").ifBlank { cloudEngine.getSavedRepoName() }
+            project.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").trim('-').ifBlank { cloudEngine.getSavedRepoName() }
         )
     }
+    var selectedTarget by remember { mutableStateOf("apk") } // "apk", "aab", "both"
+    var autoSyncSecrets by remember { mutableStateOf(true) }
+    var isSyncingSecrets by remember { mutableStateOf(false) }
+    var isCheckingPreflight by remember { mutableStateOf(false) }
+    var preflightReport by remember { mutableStateOf<GitHubCloudPreflightReport?>(null) }
+    var secretsSynced by remember(repoName) { mutableStateOf(cloudEngine.isSigningSecretsSynced(repoName)) }
+    var syncedCertFingerprint by remember(repoName) { mutableStateOf(cloudEngine.getSyncedCertFingerprint(repoName)) }
     var isRunning by remember { mutableStateOf(false) }
     var progressLogs by remember { mutableStateOf<List<String>>(emptyList()) }
     var triggerResult by remember { mutableStateOf<GitHubBuildTriggerResult?>(null) }
     var runInfo by remember { mutableStateOf<GitHubWorkflowRunInfo?>(null) }
+    var downloadedArtifact by remember { mutableStateOf<DownloadedCloudArtifact?>(null) }
+    var cloudError by remember { mutableStateOf<String?>(null) }
+    var localFailureExcerpt by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.92f)
+    val coordinatorState by (hybridCoordinator?.state ?: remember {
+        kotlinx.coroutines.flow.MutableStateFlow(HybridBuildState())
+    }).collectAsState()
+
+    val effectiveIsRunning = isRunning || isSyncingSecrets || isCheckingPreflight || (hybridCoordinator != null && coordinatorState.isRunning)
+    val protectionMode = remember(hasStoredToken) { cloudEngine.getTokenProtectionMode() }
+    val effectiveSynced = secretsSynced || (hybridCoordinator != null && coordinatorState.signingSecretsSynced)
+    val effectiveFingerprint = coordinatorState.signingCertSha256?.takeIf { it.isNotBlank() } ?: syncedCertFingerprint
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        SpaceDialog(
+            onDismissRequest = onDismiss,
+            title = "البناء السحابي الكامل (Gradle + Android SDK)",
+            subtitle = "تجميع Kotlin/Compose وإنتاج APK/AAB عبر GitHub Actions مع جلب الناتج وتشفير المفاتيح.",
+            icon = Icons.Default.CloudUpload,
+            accentColor = SpaceColors.Gold,
+            secondaryAccent = SpaceColors.NeonCyan,
+            widthFraction = 0.94f
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                // شارة تشفير الرمز ومفاتيح التوقيع
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SpaceColors.Emerald.copy(alpha = 0.1f))
+                        .border(1.dp, SpaceColors.Emerald.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = OrangePrimary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("البناء السحابي عبر GitHub API", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
-                        }
-                        IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary) }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "حماية الرمز: $protectionMode • مفاتيح Keystore لا تُرفع داخل Git",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 10.sp,
+                            color = SpaceColors.White
+                        )
                     }
+                    if (hasStoredToken) {
+                        Text(
+                            text = "مسح الرمز",
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            color = SpaceColors.ErrorRed,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    cloudEngine.clearCredentials()
+                                    token = ""
+                                    hasStoredToken = false
+                                    Toast.makeText(context, "تم مسح رمز GitHub المشفّر من الجهاز", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                }
 
-                    Text(
-                        text = "اربط رمز GitHub Token ليقوم ApkForge برفع كود المشروع وتشغيل GitHub Actions لبناء APK و AAB في السحابة تلقائياً.",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+                NeonTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    label = "GitHub Personal Access Token (repo + workflow)",
+                    placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx",
+                    leadingIcon = Icons.Default.Key,
+                    accentColor = SpaceColors.Gold,
+                    singleLine = true,
+                    testTag = "github_token_input"
+                )
 
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it },
-                        label = { Text("GitHub Personal Access Token (repo + workflow)") },
-                        placeholder = { Text("ghp_xxxxxxxxxxxxxxxxxxxx") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                NeonTextField(
+                    value = repoName,
+                    onValueChange = { repoName = it },
+                    label = "اسم مستودع GitHub المستهدف",
+                    leadingIcon = Icons.Default.Folder,
+                    accentColor = SpaceColors.NeonCyan,
+                    singleLine = true,
+                    testTag = "github_repo_input"
+                )
 
-                    OutlinedTextField(
-                        value = repoName,
-                        onValueChange = { repoName = it },
-                        label = { Text("اسم مستودع GitHub المستهدف") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                // اختيار هدف البناء السحابي
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "apk" to "APK موقّع",
+                        "aab" to "Play AAB",
+                        "both" to "APK + AAB"
+                    ).forEach { (key, label) ->
+                        val active = selectedTarget == key
+                        Surface(
+                            color = if (active) SpaceColors.Gold.copy(alpha = 0.22f) else SpaceColors.SurfaceDeep.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (active) SpaceColors.Gold else SpaceColors.GlassBorderSubtle),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = !effectiveIsRunning) { selectedTarget = key }
+                        ) {
+                            Text(
+                                text = label,
+                                fontFamily = CairoFontFamily,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                color = if (active) SpaceColors.Gold else SpaceColors.MutedText,
+                                modifier = Modifier.padding(vertical = 8.dp).fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
 
-                    Button(
+                // خيار تشفير ومزامنة مفتاح التوقيع عبر Libsodium
+                StudioSwitchTile(
+                    title = "مزامنة أسرار التوقيع مشفرة تلقائياً (Libsodium)",
+                    subtitle = if (effectiveSynced && effectiveFingerprint.isNotBlank()) {
+                        "Secrets مشفّرة متزامنة ✓ • SHA-256: ${effectiveFingerprint.take(12)}…"
+                    } else {
+                        "تشفّر مفتاح KeyVault (PKCS#12) وترفع SIGNING_KEYSTORE_BASE64 لـ GitHub Secrets"
+                    },
+                    checked = autoSyncSecrets,
+                    onCheckedChange = { if (!effectiveIsRunning) autoSyncSecrets = it }
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NeonButton(
+                        text = if (isSyncingSecrets) "جارٍ المزامنة..." else "مزامنة الأسرار 🔐",
                         onClick = {
+                            cloudError = null
+                            cloudEngine.saveCredentials(token, repoName)
+                            hasStoredToken = cloudEngine.hasSavedToken()
+                            scope.launch {
+                                isSyncingSecrets = true
+                                val res = cloudEngine.syncProjectSigningSecrets(
+                                    token = token,
+                                    repoName = repoName,
+                                    keyAlias = project.signingConfig.keyAlias.ifBlank { "apkforge_release" },
+                                    organization = project.name
+                                ) { msg ->
+                                    progressLogs = (progressLogs + BuildLogSanitizer.redactSensitive(msg)).takeLast(20)
+                                }
+                                isSyncingSecrets = false
+                                res.onSuccess { syncRes ->
+                                    secretsSynced = true
+                                    syncedCertFingerprint = syncRes.certSha256
+                                    Toast.makeText(
+                                        context,
+                                        "✓ تمت مزامنة ${syncRes.syncedSecrets.size} أسرار توقيع مشفّرة إلى ${syncRes.owner}/${syncRes.repoName}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }.onFailure { err ->
+                                    cloudError = BuildLogSanitizer.redactSensitive(err.message ?: "تعذر مزامنة أسرار التوقيع")
+                                }
+                            }
+                        },
+                        enabled = !effectiveIsRunning && token.isNotBlank() && repoName.isNotBlank(),
+                        isLoading = isSyncingSecrets,
+                        icon = Icons.Default.EnhancedEncryption,
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        height = 44.dp,
+                        modifier = Modifier.weight(1.1f),
+                        testTag = "github_sync_secrets_btn"
+                    )
+
+                    NeonButton(
+                        text = if (isCheckingPreflight) "فحص..." else "فحص الجاهزية 🔍",
+                        onClick = {
+                            cloudError = null
+                            cloudEngine.saveCredentials(token, repoName)
+                            hasStoredToken = cloudEngine.hasSavedToken()
+                            scope.launch {
+                                isCheckingPreflight = true
+                                val res = cloudEngine.verifyCloudBuildSetup(
+                                    token = token,
+                                    repoName = repoName,
+                                    keyAlias = project.signingConfig.keyAlias.ifBlank { "apkforge_release" },
+                                    organization = project.name
+                                )
+                                isCheckingPreflight = false
+                                res.onSuccess { rep ->
+                                    preflightReport = rep
+                                    if (rep.allSigningSecretsReadyOnGitHub) {
+                                        secretsSynced = true
+                                        syncedCertFingerprint = rep.localVaultSha256
+                                    }
+                                }.onFailure { err ->
+                                    cloudError = BuildLogSanitizer.redactSensitive(err.message ?: "تعذر فحص الحساب السحابي")
+                                }
+                            }
+                        },
+                        enabled = !effectiveIsRunning && token.isNotBlank() && repoName.isNotBlank(),
+                        isLoading = isCheckingPreflight,
+                        icon = Icons.Default.Verified,
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        height = 44.dp,
+                        modifier = Modifier.weight(0.9f),
+                        testTag = "github_preflight_check_btn"
+                    )
+                }
+
+                preflightReport?.let { rep ->
+                    val repAccent = if (rep.allSigningSecretsReadyOnGitHub && !rep.hasWorkflowScopeWarning) {
+                        SpaceColors.Emerald
+                    } else {
+                        SpaceColors.Gold
+                    }
+                    NeonGlassCard(
+                        accentColor = repAccent,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = 6.dp,
+                        glassAlpha = 0.88f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("github_preflight_report_card")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                text = rep.summaryAr,
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.White,
+                                lineHeight = 16.sp
+                            )
+                            val sha256Colon = QuantumKeyVault.formatFingerprintColon(rep.localVaultSha256)
+                            val sha1Colon = QuantumKeyVault.formatFingerprintColon(rep.localVaultSha1)
+                            if (sha256Colon.isNotBlank()) {
+                                Text(
+                                    text = "KeyVault SHA-256:\n$sha256Colon",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.NeonCyan,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                            if (sha1Colon.isNotBlank()) {
+                                Text(
+                                    text = "SHA-1 (Firebase/Play): $sha1Colon",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.Gold,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                            Text(
+                                text = "📋 نسخ البصمات (SHA-1 / SHA-256)",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                                color = SpaceColors.Emerald,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(
+                                            android.content.ClipData.newPlainText(
+                                                "ApkForge Signing Fingerprints",
+                                                "SHA-256: $sha256Colon\nSHA-1: $sha1Colon"
+                                            )
+                                        )
+                                        Toast.makeText(context, "تم نسخ بصمات الشهادة (SHA-1 & SHA-256) ✓", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+
+                NeonButton(
+                    text = if (effectiveIsRunning) "جارٍ البناء السحابي ومتابعة Gradle..." else "بناء سحابي كامل وجلب الحزمة تلقائياً ☁️",
+                    onClick = {
+                        cloudError = null
+                        localFailureExcerpt = null
+                        downloadedArtifact = null
+                        cloudEngine.saveCredentials(token, repoName)
+                        hasStoredToken = cloudEngine.hasSavedToken()
+
+                        if (hybridCoordinator != null) {
+                            hybridCoordinator.startCloudBuild(
+                                project = project,
+                                targetType = selectedTarget,
+                                options = options,
+                                repoNameOverride = repoName,
+                                cloudEngineOverride = cloudEngine,
+                                syncSigningSecrets = autoSyncSecrets,
+                                onCompleted = { fileName, path, sizeText ->
+                                    onArtifactDownloaded?.invoke(fileName, path, sizeText)
+                                },
+                                onFailed = { err -> cloudError = err }
+                            )
+                        } else {
                             scope.launch {
                                 isRunning = true
                                 progressLogs = emptyList()
-                                cloudEngine.saveCredentials(token, repoName)
-                                val files = exporter.buildProjectTextEntries(project, options)
+                                if (autoSyncSecrets) {
+                                    cloudEngine.syncProjectSigningSecrets(
+                                        token = token,
+                                        repoName = repoName,
+                                        keyAlias = project.signingConfig.keyAlias.ifBlank { "apkforge_release" },
+                                        organization = project.name
+                                    ) { msg ->
+                                        progressLogs = (progressLogs + BuildLogSanitizer.redactSensitive(msg)).takeLast(20)
+                                    }.onSuccess { sRes ->
+                                        secretsSynced = true
+                                        syncedCertFingerprint = sRes.certSha256
+                                    }.onFailure { err ->
+                                        val safeWarn = BuildLogSanitizer.redactSensitive(err.message ?: "تعذر مزامنة الأسرار")
+                                        progressLogs = (progressLogs + "⚠️ $safeWarn").takeLast(20)
+                                    }
+                                }
+                                val files = exporter.buildProjectTextEntries(
+                                    project = project,
+                                    options = options,
+                                    forceCloudWorkflow = true,
+                                    cloudBuildTarget = selectedTarget
+                                )
                                 val binaries = exporter.buildProjectBinaryEntries(project)
                                 val res = cloudEngine.pushAndTriggerCloudBuild(
                                     token = token,
@@ -853,85 +1136,295 @@ fun GitHubCloudBuildDialog(
                                     filesToPush = files,
                                     binaryFiles = binaries
                                 ) { msg ->
-                                    progressLogs = (listOf(msg) + progressLogs).take(12)
+                                    progressLogs = (progressLogs + BuildLogSanitizer.redactSensitive(msg)).takeLast(20)
+                                }
+                                res.onSuccess { tr ->
+                                    triggerResult = tr
+                                    progressLogs = (progressLogs + "✅ ${tr.statusMessage}").takeLast(20)
+                                    val finalRun = cloudEngine.pollWorkflowUntilComplete(
+                                        token = token,
+                                        owner = tr.owner,
+                                        repoName = tr.repoName
+                                    ) { rInfo, jobs ->
+                                        runInfo = rInfo
+                                        val activeStep = jobs.flatMap { it.steps }.lastOrNull { it.status != "queued" }
+                                        if (activeStep != null) {
+                                            progressLogs = (progressLogs + "☁️ #${activeStep.number}: ${activeStep.name}").takeLast(20)
+                                        }
+                                    }.getOrNull()
+
+                                    if (finalRun != null && finalRun.conclusion == "success") {
+                                        val arts = cloudEngine.listRunArtifacts(token, tr.owner, tr.repoName, finalRun.runId).getOrDefault(emptyList())
+                                        val preferExt = if (selectedTarget == "aab") "aab" else "apk"
+                                        val art = arts.firstOrNull { !it.expired && it.name.contains(preferExt, ignoreCase = true) }
+                                            ?: arts.firstOrNull { !it.expired }
+                                        if (art != null) {
+                                            val assembler = BuildPackageAssembler(context, exporter)
+                                            cloudEngine.downloadAndExtractArtifact(
+                                                token = token,
+                                                artifact = art,
+                                                outputDir = assembler.getBuildsDir(),
+                                                preferExtension = preferExt,
+                                                expectedVaultCertSha256 = syncedCertFingerprint.takeIf { it.isNotBlank() }
+                                            ) { msg ->
+                                                progressLogs = (progressLogs + msg).takeLast(20)
+                                            }.onSuccess { dl ->
+                                                downloadedArtifact = dl
+                                                val mime = if (dl.fileName.endsWith(".aab", true)) "application/octet-stream" else "application/vnd.android.package-archive"
+                                                assembler.mirrorFileToPublicDownloads(dl.file, dl.fileName, mime)
+                                                val sizeText = "${maxOf(1L, dl.sizeBytes / 1024L)} KB"
+                                                onArtifactDownloaded?.invoke(dl.fileName, dl.file.absolutePath, sizeText)
+                                                progressLogs = (progressLogs + "🎉 تم جلب ${dl.fileName} بنجاح ✓").takeLast(20)
+                                            }.onFailure { err ->
+                                                cloudError = err.message
+                                            }
+                                        } else {
+                                            cloudError = "انتهى البناء لكن لم يُعثر على مخرج APK/AAB في GitHub Actions."
+                                        }
+                                    } else if (finalRun != null) {
+                                        val jobs = cloudEngine.fetchWorkflowJobs(token, tr.owner, tr.repoName, finalRun.runId).getOrDefault(emptyList())
+                                        cloudError = jobs.firstNotNullOfOrNull { it.failedStepSummary }
+                                            ?: "انتهى التشغيل بالحالة: ${finalRun.conclusion ?: finalRun.status}"
+                                        val failedJob = jobs.firstOrNull { it.conclusion == "failure" } ?: jobs.firstOrNull()
+                                        if (failedJob != null && failedJob.jobId > 0L) {
+                                            localFailureExcerpt = cloudEngine.fetchJobFailureLogExcerpt(
+                                                token = token,
+                                                owner = tr.owner,
+                                                repoName = tr.repoName,
+                                                jobId = failedJob.jobId
+                                            ).getOrNull()
+                                        }
+                                    }
+                                }.onFailure { err ->
+                                    cloudError = BuildLogSanitizer.redactSensitive(err.message ?: "فشل الرفع السحابي")
+                                    progressLogs = (progressLogs + "❌ $cloudError").takeLast(20)
                                 }
                                 isRunning = false
-                                res.onSuccess {
-                                    triggerResult = it
-                                    progressLogs = listOf("✅ ${it.statusMessage}") + progressLogs
-                                }.onFailure { err ->
-                                    progressLogs = listOf("❌ خطأ: ${err.message}") + progressLogs
-                                    Toast.makeText(context, "فشل الرفع السحابي: ${err.message}", Toast.LENGTH_LONG).show()
-                                }
                             }
-                        },
-                        enabled = !isRunning && token.isNotBlank() && repoName.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
-                        if (isRunning) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("جارٍ الرفع والتشغيل...", fontFamily = CairoFontFamily, color = Color.White)
-                        } else {
-                            Icon(Icons.Default.RocketLaunch, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("رفع المشروع وتشغيل البناء السحابي ☁️", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
                         }
-                    }
+                    },
+                    enabled = !effectiveIsRunning && token.isNotBlank() && repoName.isNotBlank(),
+                    isLoading = effectiveIsRunning,
+                    icon = Icons.Default.RocketLaunch,
+                    style = NeonButtonStyle.GOLD_ENGINE,
+                    modifier = Modifier.fillMaxWidth(),
+                    testTag = "github_cloud_launch_btn"
+                )
 
-                    if (progressLogs.isNotEmpty()) {
-                        Surface(
-                            color = TerminalBackground,
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF232C3E)),
-                            modifier = Modifier.fillMaxWidth()
+                // عرض التقدم المنسق من HybridBuildCoordinator إن كان متصلاً
+                if (hybridCoordinator != null && (coordinatorState.activeEngine == SelectedBuildEngine.CLOUD_GRADLE_SDK) &&
+                    (coordinatorState.isRunning || coordinatorState.progress > 0f || coordinatorState.errorMessage != null)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                progressLogs.forEach { line ->
-                                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = TerminalText)
-                                }
+                            Text(
+                                text = coordinatorState.statusMessage,
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = if (coordinatorState.errorMessage != null) SpaceColors.ErrorRed else SpaceColors.NeonCyan,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${(coordinatorState.progress * 100).toInt()}%",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = SpaceColors.Gold
+                            )
+                        }
+                        NeonProgressIndicator(
+                            progress = coordinatorState.progress,
+                            height = 6.dp,
+                            startColor = SpaceColors.NeonCyan,
+                            endColor = SpaceColors.Gold
+                        )
+                    }
+                }
+
+                val mergedLogs = if (hybridCoordinator != null && coordinatorState.logs.isNotEmpty()) {
+                    coordinatorState.logs.takeLast(14)
+                } else {
+                    progressLogs
+                }
+                if (mergedLogs.isNotEmpty()) {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.NeonCyan,
+                        secondaryAccent = SpaceColors.ElectricBlue,
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = 6.dp,
+                        glassAlpha = 0.92f,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            mergedLogs.forEach { line ->
+                                Text(line, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = SpaceColors.Emerald)
                             }
                         }
                     }
+                }
 
-                    triggerResult?.let { tr ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
+                val displayError = cloudError ?: coordinatorState.errorMessage
+                val displayExcerpt = localFailureExcerpt ?: coordinatorState.failureLogExcerpt
+                if (!displayError.isNullOrBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SpaceColors.ErrorRed.copy(alpha = 0.14f))
+                            .border(1.dp, SpaceColors.ErrorRed.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "❌ $displayError",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = SpaceColors.ErrorRed
+                        )
+                        if (!displayExcerpt.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(SpaceColors.TerminalBg)
+                                    .border(0.8.dp, SpaceColors.ErrorRed.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = displayExcerpt,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.5.sp,
+                                    color = SpaceColors.White,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val readyArtifactPath = downloadedArtifact?.file?.absolutePath ?: coordinatorState.artifactFilePath
+                val readyArtifactName = downloadedArtifact?.fileName ?: coordinatorState.artifactFileName
+                val sigVerdictLabel = downloadedArtifact?.signingModeLabelAr?.takeIf { it.isNotBlank() }
+                    ?: coordinatorState.artifactSigningLabelAr
+                val sigCertSha256 = downloadedArtifact?.signerCertSha256?.takeIf { it.isNotBlank() }
+                    ?: coordinatorState.artifactSignerSha256.orEmpty()
+                val sigCertSha1 = downloadedArtifact?.signerCertSha1?.takeIf { it.isNotBlank() }
+                    ?: coordinatorState.artifactSignerSha1.orEmpty()
+                val sigSubject = downloadedArtifact?.signerSubject?.takeIf { it.isNotBlank() }
+                    ?: coordinatorState.artifactSignerSubject.orEmpty()
+                val sigMatchesVault = downloadedArtifact?.matchesVaultCert ?: coordinatorState.artifactMatchesVaultKey
+
+                if (!sigVerdictLabel.isNullOrBlank()) {
+                    val verdictColor = when (sigMatchesVault) {
+                        true -> SpaceColors.Emerald
+                        false -> SpaceColors.Gold
+                        null -> SpaceColors.NeonCyan
+                    }
+                    NeonGlassCard(
+                        accentColor = verdictColor,
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = 6.dp,
+                        glassAlpha = 0.88f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("cloud_artifact_cert_card")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "🔏 فحص شهادة المخرج السحابي: $sigVerdictLabel",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = verdictColor
+                            )
+                            if (sigSubject.isNotBlank()) {
+                                Text(
+                                    text = "Subject: $sigSubject",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.MutedText
+                                )
+                            }
+                            if (sigCertSha256.isNotBlank()) {
+                                val sha256Formatted = QuantumKeyVault.formatFingerprintColon(sigCertSha256)
+                                Text(
+                                    text = "SHA-256: $sha256Formatted",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.White,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                            if (sigCertSha1.isNotBlank()) {
+                                Text(
+                                    text = "SHA-1: ${QuantumKeyVault.formatFingerprintColon(sigCertSha1)}",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = SpaceColors.Gold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!readyArtifactPath.isNullOrBlank() && !readyArtifactName.isNullOrBlank() && readyArtifactName.endsWith(".apk", true)) {
+                    NeonButton(
+                        text = "تثبيت $readyArtifactName الآن 📲",
+                        icon = Icons.Default.InstallMobile,
+                        style = NeonButtonStyle.EMERALD_SUCCESS,
+                        height = 44.dp,
+                        onClick = {
+                            val res = exporter.installApkDirectly(readyArtifactPath, "cloud_release", project.name)
+                            Toast.makeText(context, res.messageAr, Toast.LENGTH_LONG).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                val actionsLink = triggerResult?.actionsUrl ?: coordinatorState.actionsUrl
+                if (!actionsLink.isNullOrBlank()) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (triggerResult != null) {
+                            NeonButton(
+                                text = "تحديث Workflow",
                                 onClick = {
                                     scope.launch {
-                                        cloudEngine.fetchLatestWorkflowRun(token, tr.owner, tr.repoName).onSuccess {
+                                        cloudEngine.fetchLatestWorkflowRun(token, triggerResult!!.owner, triggerResult!!.repoName).onSuccess {
                                             runInfo = it
                                         }
                                     }
                                 },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("تحديث حالة Workflow", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
-                            }
-                            Button(
-                                onClick = {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(tr.actionsUrl)))
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("فتح Actions ↗", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
-                            }
+                                style = NeonButtonStyle.CYBER_OUTLINE,
+                                height = 42.dp,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
-                    }
-
-                    runInfo?.let { info ->
-                        Text(
-                            text = "Run #${info.runId}: ${info.status} (${info.conclusion ?: "جارٍ التنفيذ"}) • Artifacts: ${info.artifactCount}",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = OrangePrimary
+                        NeonButton(
+                            text = "فتح Actions ↗",
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(actionsLink)))
+                            },
+                            style = NeonButtonStyle.CYBER_OUTLINE,
+                            height = 42.dp,
+                            modifier = Modifier.weight(1f)
                         )
                     }
+                }
+
+                runInfo?.let { info ->
+                    Text(
+                        text = "Run #${info.runId}: ${info.status} (${info.conclusion ?: "جارٍ التنفيذ"}) • Artifacts: ${info.artifactCount}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = SpaceColors.Gold
+                    )
                 }
             }
         }
@@ -945,37 +1438,51 @@ private fun StudioSwitchTile(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0E131D))
-            .clickable { onCheckedChange(!checked) }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+    NeonGlassCard(
+        accentColor = if (checked) SpaceColors.NeonCyan else SpaceColors.GlassBorderSubtle,
+        secondaryAccent = SpaceColors.NeonPurple,
+        shape = RoundedCornerShape(14.dp),
+        elevation = if (checked) 8.dp else 4.dp,
+        glassAlpha = 0.78f,
+        onClick = { onCheckedChange(!checked) },
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-            Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = TextPrimary)
-            Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 10.sp, color = TextSecondary)
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                Text(title, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = SpaceColors.White)
+                Text(subtitle, fontFamily = TajawalFontFamily, fontSize = 10.sp, color = SpaceColors.MutedText)
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SpaceColors.DeepSpace,
+                    checkedTrackColor = SpaceColors.NeonCyan,
+                    uncheckedThumbColor = SpaceColors.MutedText,
+                    uncheckedTrackColor = SpaceColors.SurfaceDeep
+                )
+            )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
 @Composable
 private fun PresetCssChip(label: String, onClick: () -> Unit) {
     Surface(
-        color = Color(0xFF0E131D),
+        color = SpaceColors.SurfaceDeep.copy(alpha = 0.85f),
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.4f)),
-        modifier = Modifier.clickable { onClick() }
+        border = BorderStroke(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f)),
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() }
     ) {
         Text(
             text = "+ $label",
             fontFamily = CairoFontFamily,
             fontSize = 10.sp,
-            color = OrangePrimary,
+            color = SpaceColors.NeonCyan,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
@@ -983,18 +1490,21 @@ private fun PresetCssChip(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun DialogFooterButtons(onDismiss: () -> Unit, onSave: () -> Unit) {
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(6.dp))
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) {
-            Text("إلغاء", fontFamily = CairoFontFamily, color = TextSecondary)
-        }
-        Button(
+        NeonButton(
+            text = "إلغاء",
+            onClick = onDismiss,
+            style = NeonButtonStyle.CYBER_OUTLINE,
+            height = 46.dp,
+            modifier = Modifier.weight(1f)
+        )
+        NeonButton(
+            text = "حفظ وتطبيق ✓",
             onClick = onSave,
-            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-            modifier = Modifier.weight(1.4f),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text("حفظ وتطبيق ✓", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-        }
+            style = NeonButtonStyle.PRIMARY_GLOW,
+            height = 46.dp,
+            modifier = Modifier.weight(1.4f)
+        )
     }
 }

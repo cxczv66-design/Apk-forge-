@@ -65,8 +65,8 @@ fun RealAppIconAvatar(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(cornerRadius))
-            .background(Brush.linearGradient(listOf(accent, OrangePrimary)))
-            .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(cornerRadius)),
+            .background(Brush.linearGradient(listOf(accent, SpaceColors.NeonPurple)))
+            .border(1.2.dp, SpaceColors.NeonCyan.copy(alpha = 0.6f), RoundedCornerShape(cornerRadius)),
         contentAlignment = Alignment.Center
     ) {
         if (iconUri != null && !loadFailed) {
@@ -86,7 +86,7 @@ fun RealAppIconAvatar(
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = (size.value * 0.36f).sp,
-                color = Color.White
+                color = SpaceColors.White
             )
         }
     }
@@ -122,13 +122,10 @@ fun InAppToolchainTerminalCard(
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF101622),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (allReady) StatusGreen.copy(alpha = 0.55f) else OrangePrimary.copy(alpha = 0.45f)
-            ),
+        com.example.ui.components.space.NeonGlassCard(
+            accentColor = if (allReady) SpaceColors.Emerald else SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("in_app_toolchain_terminal_card")
@@ -137,30 +134,18 @@ fun InAppToolchainTerminalCard(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (allReady) StatusGreen.copy(alpha = 0.16f)
-                                    else OrangePrimary.copy(alpha = 0.16f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (allReady) Icons.Default.Verified else Icons.Default.BuildCircle,
-                                contentDescription = null,
-                                tint = if (allReady) StatusGreen else OrangePrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                        com.example.ui.components.space.Space3DFeatureBadge(
+                            icon = if (allReady) Icons.Default.Verified else Icons.Default.BuildCircle,
+                            accentColor = if (allReady) SpaceColors.Emerald else SpaceColors.NeonCyan,
+                            secondaryColor = SpaceColors.ElectricBlue,
+                            size = 38.dp
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
@@ -168,20 +153,21 @@ fun InAppToolchainTerminalCard(
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = "مثبت ومُتحقق: $installedCount / ${tools.size} • ${toolchainManager.getDeviceAbi()} • ${toolchainManager.getFreeStorageMb()}MB حرة",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
-                                color = if (allReady) StatusGreen else TextSecondary
+                                color = if (allReady) SpaceColors.Emerald else SpaceColors.MutedText
                             )
                         }
                     }
 
                     Surface(
-                        color = Color(0xFF1A2232),
-                        shape = RoundedCornerShape(8.dp),
+                        color = SpaceColors.SurfaceDeep,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.GlassBorderCyan),
                         modifier = Modifier.clickable { showToolsGrid = !showToolsGrid }
                     ) {
                         Row(
@@ -192,78 +178,45 @@ fun InAppToolchainTerminalCard(
                                 text = if (showToolsGrid) "إخفاء" else "الأدوات (${tools.size})",
                                 fontFamily = CairoFontFamily,
                                 fontSize = 10.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Icon(
                                 imageVector = if (showToolsGrid) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                 contentDescription = null,
-                                tint = OrangePrimary,
+                                tint = SpaceColors.NeonCyan,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 }
 
-                // Prominent In-App Install & Verify Button
-                Button(
+                com.example.ui.components.space.NeonButton(
+                    text = when {
+                        isInstalling -> "جارٍ التثبيت والتحقق الفعلي (${(installProgress * 100).toInt()}%)..."
+                        allReady -> "إعادة فحص وتحديث جميع الأدوات ✓"
+                        else -> "تثبيت والتحقق من أدوات البناء داخل التطبيق ⚡"
+                    },
+                    icon = if (allReady) Icons.Default.FactCheck else Icons.Default.InstallMobile,
+                    style = if (allReady) com.example.ui.components.space.NeonButtonStyle.EMERALD_SUCCESS
+                    else com.example.ui.components.space.NeonButtonStyle.PRIMARY_GLOW,
+                    isLoading = isInstalling,
+                    enabled = !isInstalling,
+                    testTag = "install_verify_tools_btn",
                     onClick = {
                         toolchainManager.launchInstallAndVerifyAllTools(activeProject)
                         val msg = "⚡ بدأ تثبيت والتحقق من الأدوات في الخلفية..."
                         onToolActionToast?.invoke(msg)
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     },
-                    enabled = !isInstalling,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (allReady) StatusGreen else OrangePrimary
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("install_verify_tools_btn")
-                ) {
-                    if (isInstalling) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "جارٍ التثبيت والتحقق الفعلي (${(installProgress * 100).toInt()}%)...",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = Color.White
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (allReady) Icons.Default.FactCheck else Icons.Default.InstallMobile,
-                            contentDescription = null,
-                            tint = if (allReady) Color.Black else Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (allReady) "إعادة فحص وتحديث جميع الأدوات ✓" else "تثبيت والتحقق من أدوات البناء داخل التطبيق ⚡",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = if (allReady) Color.Black else Color.White
-                        )
-                    }
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 if (isInstalling) {
-                    LinearProgressIndicator(
-                        progress = { installProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(CircleShape),
-                        color = OrangePrimary,
-                        trackColor = Color(0xFF1F2937)
+                    com.example.ui.components.space.NeonProgressIndicator(
+                        progress = installProgress,
+                        startColor = SpaceColors.NeonCyan,
+                        endColor = SpaceColors.Emerald
                     )
                 }
 
@@ -457,13 +410,14 @@ fun InAppToolchainTerminalCard(
                                 },
                                 modifier = Modifier
                                     .size(48.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(OrangePrimary)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(SpaceColors.CyanBlueGradient)
+                                    .border(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Send,
                                     contentDescription = "تنفيذ",
-                                    tint = Color.White,
+                                    tint = SpaceColors.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -482,11 +436,11 @@ private fun ToolChipCard(
     onClick: () -> Unit
 ) {
     Surface(
-        color = Color(0xFF0A0E17),
+        color = SpaceColors.SurfaceDeep,
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (tool.isInstalled) StatusGreen.copy(alpha = 0.45f) else Color(0xFF1F2838)
+            if (tool.isInstalled) SpaceColors.Emerald.copy(alpha = 0.45f) else SpaceColors.GlassBorderSubtle
         ),
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -502,13 +456,13 @@ private fun ToolChipCard(
                     text = tool.categoryAr,
                     fontFamily = CairoFontFamily,
                     fontSize = 9.sp,
-                    color = OrangePrimary,
+                    color = SpaceColors.NeonCyan,
                     fontWeight = FontWeight.Bold
                 )
                 Icon(
                     imageVector = if (tool.isInstalled) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (tool.isInstalled) StatusGreen else TextMuted,
+                    tint = if (tool.isInstalled) SpaceColors.Emerald else SpaceColors.SubtleText,
                     modifier = Modifier.size(13.dp)
                 )
             }
@@ -517,7 +471,7 @@ private fun ToolChipCard(
                 fontFamily = CairoFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
-                color = TextPrimary,
+                color = SpaceColors.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -525,7 +479,7 @@ private fun ToolChipCard(
                 text = if (tool.isInstalled) "v${tool.version} • SHA:${tool.verifiedSha256.take(6)}" else "v${tool.version} • غير مثبت",
                 fontFamily = FontFamily.Monospace,
                 fontSize = 9.sp,
-                color = if (tool.isInstalled) StatusGreen else TextMuted,
+                color = if (tool.isInstalled) SpaceColors.Emerald else SpaceColors.MutedText,
                 maxLines = 1
             )
         }
@@ -535,9 +489,9 @@ private fun ToolChipCard(
 @Composable
 private fun QuickTerminalPill(label: String, onClick: () -> Unit) {
     Surface(
-        color = Color(0xFF141D2D),
+        color = SpaceColors.SurfaceElevated,
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF283750)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f)),
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable { onClick() }
@@ -546,7 +500,7 @@ private fun QuickTerminalPill(label: String, onClick: () -> Unit) {
             text = "$ $label",
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
-            color = Color(0xFF38BDF8),
+            color = SpaceColors.NeonCyan,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }

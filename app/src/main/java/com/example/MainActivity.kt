@@ -24,7 +24,9 @@ import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.components.QuantumEngineStatusDialog
 import com.example.ui.screens.*
-import com.example.ui.theme.DarkBackground
+import androidx.compose.ui.graphics.Color
+import com.example.ui.components.space.SpaceBackground
+import com.example.ui.theme.SpaceColors
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.util.LocalAppLanguage
 
@@ -72,6 +74,7 @@ fun AppRoot(
     val aiWizardState by viewModel.aiWizardState.collectAsState()
     val activeAdaptiveAiPlan by viewModel.activeAdaptiveAiPlan.collectAsState()
     val activeProjectId by viewModel.activeProjectId.collectAsState()
+    val selectedBuildMode by viewModel.selectedBuildMode.collectAsState()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -112,8 +115,14 @@ fun AppRoot(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(DarkBackground)
+                .background(SpaceColors.DeepSpace)
         ) {
+            // خلفية فضائية ثلاثية الأبعاد موحدة وعالية الأداء خلف جميع الشاشات
+            SpaceBackground(
+                modifier = Modifier.fillMaxSize(),
+                intensity = 1f
+            )
+
             val screenContent: @Composable () -> Unit = {
                 AnimatedContent(
                     targetState = currentScreen,
@@ -154,6 +163,9 @@ fun AppRoot(
                                 onOpenProject = { project ->
                                     viewModel.clearActiveAiPlan()
                                     viewModel.navigateTo(AppScreen.AdaptiveStudio(project, 0))
+                                },
+                                onDeleteProject = { projectId ->
+                                    viewModel.deleteProject(projectId)
                                 },
                                 onOpenQuantumDiagnostic = { viewModel.openDiagnosticDialog() },
                                 onUseTemplate = { templateProject ->
@@ -438,6 +450,18 @@ fun AppRoot(
                                 },
                                 onInspectPackage = { path ->
                                     viewModel.inspectBuiltPackage(path)
+                                },
+                                hybridCoordinator = viewModel.hybridCoordinator,
+                                smartBuildRouter = viewModel.smartBuildRouter,
+                                selectedBuildMode = selectedBuildMode,
+                                onSelectBuildMode = { mode ->
+                                    viewModel.setHybridBuildMode(mode)
+                                },
+                                onStartHybridBuild = { proj, targetType, options, autoBump ->
+                                    viewModel.startHybridBuild(proj, targetType, options, autoBump)
+                                },
+                                onCancelCloudBuild = {
+                                    viewModel.cancelCloudBuild()
                                 },
                                 onBuildCompleted = { updatedProject, fileName, outputPath, sizeText ->
                                     viewModel.recordCompletedBuild(updatedProject, fileName, outputPath, sizeText)

@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +20,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -34,13 +34,11 @@ import com.example.engine.BuildStageInfo
 import com.example.engine.BuildStageStatus
 import com.example.engine.BuildTelemetry
 import com.example.engine.QuantumBuildEngine
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.Space3DFeatureBadge
 import com.example.ui.theme.*
 import java.util.Locale
 
-/**
- * لوحة البناء التفاعلية الحية لنظام Quantum المدمج:
- * تعرض مراحل البناء الحقيقية (KeyVault -> aapt2 -> d8 -> zipalign -> apksig v1-v4 -> Package) مع حالة التوقيع والمحاذاة.
- */
 @Composable
 fun AdaptiveBuildPipelineBoard(
     project: AppProject,
@@ -53,7 +51,13 @@ fun AdaptiveBuildPipelineBoard(
     val isRunning = engineState is QuantumBuildEngine.EngineStatus.Running
     val isSuccess = engineState is QuantumBuildEngine.EngineStatus.Success
     val isError = engineState is QuantumBuildEngine.EngineStatus.Failure
-    val accent = parseColorSafe(project.accentColorHex, OrangePrimary)
+
+    val borderAccent = when {
+        isError -> SpaceColors.ErrorRed
+        isRunning -> SpaceColors.NeonCyan
+        isSuccess -> SpaceColors.Emerald
+        else -> SpaceColors.ElectricBlue
+    }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         BoxWithConstraints(
@@ -63,49 +67,28 @@ fun AdaptiveBuildPipelineBoard(
         ) {
             val isExpandedLayout = maxWidth >= 560.dp
 
-            Surface(
-                color = Color(0xFF121722),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    width = 1.dp,
-                    color = when {
-                        isError -> ErrorRed.copy(alpha = 0.7f)
-                        isRunning -> OrangePrimary.copy(alpha = 0.65f)
-                        isSuccess -> StatusGreen.copy(alpha = 0.6f)
-                        else -> Color(0xFF222C3D)
-                    }
-                ),
+            NeonGlassCard(
+                accentColor = borderAccent,
+                secondaryAccent = SpaceColors.NeonPurple,
+                shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Header + Live Status Pill
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(accent.copy(alpha = 0.25f), OrangePrimary.copy(alpha = 0.15f))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PrecisionManufacturing,
-                                    contentDescription = null,
-                                    tint = OrangePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Space3DFeatureBadge(
+                                icon = Icons.Default.PrecisionManufacturing,
+                                accentColor = borderAccent,
+                                secondaryColor = SpaceColors.NeonPurple,
+                                size = 40.dp
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
@@ -113,13 +96,13 @@ fun AdaptiveBuildPipelineBoard(
                                     fontFamily = CairoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
-                                    color = TextPrimary
+                                    color = SpaceColors.White
                                 )
                                 Text(
                                     text = telemetry.activeTarget,
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 11.sp,
-                                    color = TextSecondary,
+                                    color = SpaceColors.MutedText,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -129,7 +112,6 @@ fun AdaptiveBuildPipelineBoard(
                         StatusLiveBadge(isRunning = isRunning, isSuccess = isSuccess, isError = isError)
                     }
 
-                    // Adaptive Layout: 2 columns on tablet/wide screens, stacked on phones
                     if (isExpandedLayout) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -161,12 +143,11 @@ fun AdaptiveBuildPipelineBoard(
                         )
                     }
 
-                    // Celebratory Green Success Output Card with Direct Actions
                     AnimatedVisibility(visible = isSuccess && telemetry.lastOutputFileName != null) {
                         Surface(
-                            color = StatusGreen.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(14.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, StatusGreen.copy(alpha = 0.65f)),
+                            color = SpaceColors.Emerald.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.2.dp, SpaceColors.Emerald.copy(alpha = 0.7f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpenDownloads() }
@@ -188,7 +169,7 @@ fun AdaptiveBuildPipelineBoard(
                                         Icon(
                                             imageVector = Icons.Default.CheckCircle,
                                             contentDescription = null,
-                                            tint = StatusGreen,
+                                            tint = SpaceColors.Emerald,
                                             modifier = Modifier.size(22.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
@@ -198,14 +179,14 @@ fun AdaptiveBuildPipelineBoard(
                                                 fontFamily = CairoFontFamily,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 13.sp,
-                                                color = StatusGreen
+                                                color = SpaceColors.Emerald
                                             )
                                             Text(
                                                 text = telemetry.lastOutputFileName.orEmpty(),
                                                 fontFamily = FontFamily.Monospace,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.sp,
-                                                color = TextPrimary,
+                                                color = SpaceColors.White,
                                                 style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
@@ -215,14 +196,14 @@ fun AdaptiveBuildPipelineBoard(
                                                     text = telemetry.estimatedSizeMb,
                                                     fontFamily = FontFamily.Monospace,
                                                     fontSize = 11.sp,
-                                                    color = StatusGreen,
+                                                    color = SpaceColors.Emerald,
                                                     style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                                                 )
                                                 Text(
-                                                    text = "• ${String.format(Locale.US, "%.1fs", telemetry.elapsedSec)} • محفوظ في Download/",
+                                                    text = "• ${String.format(Locale.US, "%.1fs", telemetry.elapsedSec)} • Download/",
                                                     fontFamily = FontFamily.Monospace,
                                                     fontSize = 11.sp,
-                                                    color = GoldAccent,
+                                                    color = SpaceColors.Gold,
                                                     style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                                                 )
                                             }
@@ -230,7 +211,7 @@ fun AdaptiveBuildPipelineBoard(
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Surface(
-                                        color = StatusGreen,
+                                        color = SpaceColors.Emerald,
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
                                         Text(
@@ -238,13 +219,12 @@ fun AdaptiveBuildPipelineBoard(
                                             fontFamily = CairoFontFamily,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
-                                            color = Color(0xFF062114),
+                                            color = SpaceColors.DeepSpace,
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                                         )
                                     }
                                 }
 
-                                // Real Cryptographic & Alignment Verification Badges (v1-v4 + ZipAlign + AES-256-GCM)
                                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -272,24 +252,21 @@ private fun StatusLiveBadge(isRunning: Boolean, isSuccess: Boolean, isError: Boo
     val dotAlpha by infiniteTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650),
-            repeatMode = RepeatMode.Reverse
-        ),
+        animationSpec = infiniteRepeatable(tween(650), repeatMode = RepeatMode.Reverse),
         label = "dotAlpha"
     )
 
     val (bgColor, textColor, label) = when {
-        isError -> Triple(ErrorRed.copy(alpha = 0.16f), ErrorRed, "يتطلب معالجة ⚠")
-        isRunning -> Triple(OrangePrimary.copy(alpha = 0.18f), OrangePrimary, "جارٍ البناء حيّاً")
-        isSuccess -> Triple(StatusGreen.copy(alpha = 0.16f), StatusGreen, "تم الحفظ على القرص ✓")
-        else -> Triple(Color(0xFF1D2432), TextSecondary, "في وضع الاستعداد")
+        isError -> Triple(SpaceColors.ErrorRed.copy(alpha = 0.16f), SpaceColors.ErrorRed, "يتطلب معالجة ⚠")
+        isRunning -> Triple(SpaceColors.NeonCyan.copy(alpha = 0.18f), SpaceColors.NeonCyan, "جارٍ البناء حيّاً")
+        isSuccess -> Triple(SpaceColors.Emerald.copy(alpha = 0.16f), SpaceColors.Emerald, "تم الحفظ على القرص ✓")
+        else -> Triple(SpaceColors.SurfaceDeep, SpaceColors.MutedText, "في وضع الاستعداد")
     }
 
     Surface(
         color = bgColor,
         shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, textColor.copy(alpha = 0.4f))
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.5f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -331,9 +308,9 @@ private fun LiveAppAssemblyBlueprint(
     )
 
     Surface(
-        color = Color(0xFF0C1018),
+        color = SpaceColors.SurfaceDeep,
         shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1D2638)),
+        border = BorderStroke(1.dp, SpaceColors.GlassBorderCyan),
         modifier = modifier
     ) {
         BoxWithConstraints {
@@ -343,7 +320,6 @@ private fun LiveAppAssemblyBlueprint(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Live App Card Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -365,7 +341,7 @@ private fun LiveAppAssemblyBlueprint(
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = TextPrimary,
+                                color = SpaceColors.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -373,7 +349,7 @@ private fun LiveAppAssemblyBlueprint(
                                 text = project.packageConfig.packageName,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
-                                color = TextSecondary,
+                                color = SpaceColors.MutedText,
                                 style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -381,7 +357,6 @@ private fun LiveAppAssemblyBlueprint(
                         }
                     }
 
-                    // Telemetry Mini Metrics with clean LTR number/unit formatting
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
@@ -389,7 +364,7 @@ private fun LiveAppAssemblyBlueprint(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = if (isSuccess) StatusGreen else OrangePrimary
+                            color = if (isSuccess) SpaceColors.Emerald else SpaceColors.NeonCyan
                         )
                         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                             Text(
@@ -397,14 +372,13 @@ private fun LiveAppAssemblyBlueprint(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = TextSecondary,
+                                color = SpaceColors.MutedText,
                                 style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                             )
                         }
                     }
                 }
 
-                // Live Layer Assembly Visualizer (3x2 grid on phones so Manifest/Icons never clip!)
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     val rows = if (useSingleRow) listOf(layerLabels) else layerLabels.chunked(3)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -421,24 +395,24 @@ private fun LiveAppAssemblyBlueprint(
 
                                     val boxBg by animateColorAsState(
                                         targetValue = when {
-                                            isCurrent -> OrangePrimary.copy(alpha = 0.22f)
-                                            isBuilt -> StatusGreen.copy(alpha = 0.16f)
-                                            else -> Color(0xFF151C28)
+                                            isCurrent -> SpaceColors.NeonCyan.copy(alpha = 0.22f)
+                                            isBuilt -> SpaceColors.Emerald.copy(alpha = 0.16f)
+                                            else -> SpaceColors.MidnightBlue
                                         },
                                         label = "layerBg"
                                     )
                                     val borderClr by animateColorAsState(
                                         targetValue = when {
-                                            isCurrent -> OrangePrimary
-                                            isBuilt -> StatusGreen.copy(alpha = 0.7f)
-                                            else -> Color(0xFF242F42)
+                                            isCurrent -> SpaceColors.NeonCyan
+                                            isBuilt -> SpaceColors.Emerald.copy(alpha = 0.7f)
+                                            else -> SpaceColors.GlassBorderSubtle
                                         },
                                         label = "layerBorder"
                                     )
                                     val tintClr = when {
-                                        isCurrent -> OrangePrimary
-                                        isBuilt -> StatusGreen
-                                        else -> Color(0xFF607087)
+                                        isCurrent -> SpaceColors.NeonCyan
+                                        isBuilt -> SpaceColors.Emerald
+                                        else -> SpaceColors.MutedText
                                     }
 
                                     Column(
@@ -474,20 +448,19 @@ private fun LiveAppAssemblyBlueprint(
                     }
                 }
 
-                // Active File / Artifact Monitor Strip (Strictly LTR so paths & seconds stay aligned)
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF141B27))
+                            .background(SpaceColors.MidnightBlue)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.Code,
                             contentDescription = null,
-                            tint = OrangePrimary,
+                            tint = SpaceColors.NeonCyan,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -495,7 +468,7 @@ private fun LiveAppAssemblyBlueprint(
                             text = telemetry.currentArtifact,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
-                            color = TextPrimary,
+                            color = SpaceColors.White,
                             style = LocalTextStyle.current.copy(textDirection = TextDirection.ContentOrLtr),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -507,7 +480,7 @@ private fun LiveAppAssemblyBlueprint(
                                 text = "${String.format(Locale.US, "%.1f", telemetry.elapsedSec)}s",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
-                                color = GoldAccent,
+                                color = SpaceColors.Gold,
                                 style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr)
                             )
                         }
@@ -536,28 +509,25 @@ private fun LiveStagesTimeline(
             val scale by pulseTransition.animateFloat(
                 initialValue = 1f,
                 targetValue = if (isRunning) 1.12f else 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(550),
-                    repeatMode = RepeatMode.Reverse
-                ),
+                animationSpec = infiniteRepeatable(tween(550), RepeatMode.Reverse),
                 label = "nodeScale"
             )
 
             val rowBg by animateColorAsState(
                 targetValue = when {
-                    isErr -> Color(0xFF261215)
-                    isRunning -> Color(0xFF1F1A18)
-                    isDone -> Color(0xFF111D19)
-                    else -> Color(0xFF0E131C)
+                    isErr -> SpaceColors.ErrorRed.copy(alpha = 0.14f)
+                    isRunning -> SpaceColors.NeonCyan.copy(alpha = 0.14f)
+                    isDone -> SpaceColors.Emerald.copy(alpha = 0.11f)
+                    else -> SpaceColors.SurfaceDeep
                 },
                 label = "stageBg"
             )
             val rowBorder by animateColorAsState(
                 targetValue = when {
-                    isErr -> ErrorRed.copy(alpha = 0.7f)
-                    isRunning -> OrangePrimary.copy(alpha = 0.7f)
-                    isDone -> StatusGreen.copy(alpha = 0.45f)
-                    else -> Color(0xFF1D2534)
+                    isErr -> SpaceColors.ErrorRed.copy(alpha = 0.7f)
+                    isRunning -> SpaceColors.NeonCyan.copy(alpha = 0.75f)
+                    isDone -> SpaceColors.Emerald.copy(alpha = 0.45f)
+                    else -> SpaceColors.GlassBorderSubtle
                 },
                 label = "stageBorder"
             )
@@ -583,39 +553,19 @@ private fun LiveStagesTimeline(
                             .clip(CircleShape)
                             .background(
                                 when {
-                                    isErr -> ErrorRed
-                                    isRunning -> OrangePrimary
-                                    isDone -> StatusGreen
-                                    else -> Color(0xFF1E2636)
+                                    isErr -> SpaceColors.ErrorRed
+                                    isRunning -> SpaceColors.NeonCyan
+                                    isDone -> SpaceColors.Emerald
+                                    else -> SpaceColors.SurfaceElevated
                                 }
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         when {
-                            isErr -> Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            isRunning -> CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            isDone -> Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF062114),
-                                modifier = Modifier.size(15.dp)
-                            )
-                            else -> Text(
-                                text = "${stage.index}",
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = TextSecondary
-                            )
+                            isErr -> Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            isRunning -> CircularProgressIndicator(modifier = Modifier.size(14.dp), color = SpaceColors.DeepSpace, strokeWidth = 2.dp)
+                            isDone -> Icon(Icons.Default.Check, contentDescription = null, tint = SpaceColors.DeepSpace, modifier = Modifier.size(15.dp))
+                            else -> Text("${stage.index}", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = SpaceColors.MutedText)
                         }
                     }
 
@@ -627,7 +577,7 @@ private fun LiveStagesTimeline(
                             fontFamily = CairoFontFamily,
                             fontWeight = if (isRunning || isDone) FontWeight.Bold else FontWeight.Normal,
                             fontSize = 12.sp,
-                            color = if (stage.status == BuildStageStatus.PENDING) TextSecondary else TextPrimary,
+                            color = if (stage.status == BuildStageStatus.PENDING) SpaceColors.MutedText else SpaceColors.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -635,7 +585,7 @@ private fun LiveStagesTimeline(
                             text = stage.detailAr,
                             fontFamily = TajawalFontFamily,
                             fontSize = 10.sp,
-                            color = TextMuted,
+                            color = SpaceColors.SubtleText,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -646,10 +596,10 @@ private fun LiveStagesTimeline(
 
                 Surface(
                     color = when {
-                        isErr -> ErrorRed.copy(alpha = 0.2f)
-                        isRunning -> OrangePrimary.copy(alpha = 0.18f)
-                        isDone -> StatusGreen.copy(alpha = 0.14f)
-                        else -> Color(0xFF18202E)
+                        isErr -> SpaceColors.ErrorRed.copy(alpha = 0.2f)
+                        isRunning -> SpaceColors.NeonCyan.copy(alpha = 0.18f)
+                        isDone -> SpaceColors.Emerald.copy(alpha = 0.14f)
+                        else -> SpaceColors.MidnightBlue
                     },
                     shape = RoundedCornerShape(6.dp)
                 ) {
@@ -660,10 +610,10 @@ private fun LiveStagesTimeline(
                         fontWeight = FontWeight.Bold,
                         style = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                         color = when {
-                            isErr -> ErrorRed
-                            isRunning -> OrangePrimary
-                            isDone -> StatusGreen
-                            else -> TextMuted
+                            isErr -> SpaceColors.ErrorRed
+                            isRunning -> SpaceColors.NeonCyan
+                            isDone -> SpaceColors.Emerald
+                            else -> SpaceColors.MutedText
                         },
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
@@ -675,13 +625,13 @@ private fun LiveStagesTimeline(
 
 @Composable
 private fun VerificationSchemeChip(label: String, verified: Boolean) {
-    val bgColor = if (verified) StatusGreen.copy(alpha = 0.16f) else Color(0xFF151C28)
-    val borderColor = if (verified) StatusGreen.copy(alpha = 0.6f) else Color(0xFF263144)
-    val contentColor = if (verified) StatusGreen else TextMuted
+    val bgColor = if (verified) SpaceColors.Emerald.copy(alpha = 0.16f) else SpaceColors.MidnightBlue
+    val borderColor = if (verified) SpaceColors.Emerald.copy(alpha = 0.65f) else SpaceColors.GlassBorderSubtle
+    val contentColor = if (verified) SpaceColors.Emerald else SpaceColors.SubtleText
     Surface(
         color = bgColor,
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+        border = BorderStroke(1.dp, borderColor)
     ) {
         Text(
             text = if (verified) "$label ✓" else label,
@@ -694,4 +644,3 @@ private fun VerificationSchemeChip(label: String, verified: Boolean) {
         )
     }
 }
-

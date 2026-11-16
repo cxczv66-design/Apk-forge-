@@ -52,10 +52,10 @@ fun CloudAndBridgeFactoryCard(
 ) {
     val bridge = project.bridgeConfig
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF131A26),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF28354D)),
+        com.example.ui.components.space.NeonGlassCard(
+            accentColor = SpaceColors.NeonCyan,
+            secondaryAccent = SpaceColors.NeonPurple,
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -68,7 +68,7 @@ fun CloudAndBridgeFactoryCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.CloudDone, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
@@ -76,19 +76,18 @@ fun CloudAndBridgeFactoryCard(
                                 fontFamily = CairoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = "GitHub Actions • JS Bridge • App Links • Google Play Bundle",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
-                                color = TextSecondary
+                                color = SpaceColors.MutedText
                             )
                         }
                     }
                 }
 
-                // Active Status Badges
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -107,60 +106,51 @@ fun CloudAndBridgeFactoryCard(
                     )
                 }
 
-                // Primary Cloud ZIP Export CTA
-                Button(
+                com.example.ui.components.space.NeonButton(
+                    text = "تصدير مشروع Android Studio + GitHub Actions (.zip)",
+                    icon = Icons.Default.FolderZip,
+                    style = com.example.ui.components.space.NeonButtonStyle.PRIMARY_GLOW,
+                    height = 48.dp,
+                    testTag = "export_studio_zip_btn",
                     onClick = onExportAndroidStudioZip,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .testTag("export_studio_zip_btn")
-                ) {
-                    Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "تصدير مشروع Android Studio + GitHub Actions (.zip)",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = Color.White
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                // Secondary Actions Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = onOpenBridgeConfig,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.GlassBorderCyan),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Cable, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.Cable, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("إعدادات Bridge", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
+                        Text("إعدادات Bridge", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
                     }
 
                     OutlinedButton(
                         onClick = onOpenPlayStorePrep,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.Emerald.copy(alpha = 0.5f)),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Policy, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.Policy, contentDescription = null, tint = SpaceColors.Emerald, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("ملف Google Play", fontFamily = CairoFontFamily, fontSize = 11.sp, color = TextPrimary)
+                        Text("ملف Google Play", fontFamily = CairoFontFamily, fontSize = 11.sp, color = SpaceColors.White)
                     }
 
                     OutlinedButton(
                         onClick = onExportApkForgeJson,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.NeonPurple.copy(alpha = 0.55f)),
                         modifier = Modifier.weight(0.9f)
                     ) {
-                        Icon(Icons.Default.SaveAlt, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.SaveAlt, contentDescription = null, tint = SpaceColors.NeonPurple, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(".apkforge", fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = TextPrimary)
+                        Text(".apkforge", fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = SpaceColors.White)
                     }
                 }
             }
@@ -171,15 +161,15 @@ fun CloudAndBridgeFactoryCard(
 @Composable
 private fun StatusMiniTag(text: String, active: Boolean) {
     Surface(
-        color = if (active) StatusGreen.copy(alpha = 0.14f) else Color(0xFF0E131D),
+        color = if (active) SpaceColors.Emerald.copy(alpha = 0.14f) else SpaceColors.SurfaceDeep,
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) StatusGreen.copy(alpha = 0.45f) else Color(0xFF263042))
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) SpaceColors.Emerald.copy(alpha = 0.45f) else SpaceColors.GlassBorderSubtle)
     ) {
         Text(
             text = text,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
-            color = if (active) StatusGreen else TextMuted,
+            color = if (active) SpaceColors.Emerald else SpaceColors.SubtleText,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
@@ -198,121 +188,96 @@ fun BridgeAndCloudConfigDialog(
     var adMobAppId by remember { mutableStateOf(initialConfig.adMobAppId) }
     var remoteConfigUrl by remember { mutableStateOf(initialConfig.remoteConfigUrl) }
 
-    Dialog(
+    com.example.ui.components.space.SpaceDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = "إعدادات الجسر البرمجي والسحابة",
+        subtitle = "ربط الموقع بميزات النظام والروابط العميقة وGitHub CI",
+        icon = Icons.Default.Hub,
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.NeonPurple,
+        widthFraction = 0.93f
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth(0.92f)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .padding(20.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                BridgeToggleRow(
+                    title = "تفعيل الجسر البرمجي (window.ApkForge)",
+                    subtitle = "يدعم showToast و vibrate و share و getDeviceInfo من داخل HTML/JS",
+                    checked = jsBridge,
+                    onCheckedChange = { jsBridge = it }
+                )
+
+                BridgeToggleRow(
+                    title = "التوجيه الذكي للروابط الخارجية",
+                    subtitle = "فتح wa.me و tel: و mailto: وروابط الدفع بالتطبيقات الأصلية",
+                    checked = extIntents,
+                    onCheckedChange = { extIntents = it }
+                )
+
+                BridgeToggleRow(
+                    title = "توليد GitHub Actions CI (.yml)",
+                    subtitle = "يبني APK و AAB تلقائياً على خوادم GitHub عند رفع المشروع",
+                    checked = githubCi,
+                    onCheckedChange = { githubCi = it }
+                )
+
+                com.example.ui.components.space.NeonTextField(
+                    value = deepLinkDomain,
+                    onValueChange = { deepLinkDomain = it },
+                    label = "نطاق الروابط العميقة (App Links Host)",
+                    placeholder = "app.yourdomain.com",
+                    accentColor = SpaceColors.NeonCyan
+                )
+
+                com.example.ui.components.space.NeonTextField(
+                    value = adMobAppId,
+                    onValueChange = { adMobAppId = it },
+                    label = "معرّف Google AdMob App ID (اختياري)",
+                    placeholder = "ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy",
+                    accentColor = SpaceColors.NeonPurple
+                )
+
+                com.example.ui.components.space.NeonTextField(
+                    value = remoteConfigUrl,
+                    onValueChange = { remoteConfigUrl = it },
+                    label = "رابط Remote Config / التحديث عن بُعد (اختياري)",
+                    placeholder = "https://yourdomain.com/app-config.json",
+                    accentColor = SpaceColors.Gold
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "إعدادات الجسر البرمجي والسحابة",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
+                    com.example.ui.components.space.NeonButton(
+                        text = "إلغاء",
+                        style = com.example.ui.components.space.NeonButtonStyle.CYBER_OUTLINE,
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "اربط موقعك بميزات النظام الأصلية والروابط العميقة وتجهيز GitHub Actions",
-                        fontFamily = TajawalFontFamily,
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    BridgeToggleRow(
-                        title = "تفعيل الجسر البرمجي (window.ApkForge)",
-                        subtitle = "يدعم showToast و vibrate و share و getDeviceInfo من داخل HTML/JS",
-                        checked = jsBridge,
-                        onCheckedChange = { jsBridge = it }
-                    )
-
-                    BridgeToggleRow(
-                        title = "التوجيه الذكي للروابط الخارجية",
-                        subtitle = "فتح wa.me و tel: و mailto: وروابط الدفع بالتطبيقات الأصلية",
-                        checked = extIntents,
-                        onCheckedChange = { extIntents = it }
-                    )
-
-                    BridgeToggleRow(
-                        title = "توليد GitHub Actions CI (.yml)",
-                        subtitle = "يبني APK و AAB تلقائياً على خوادم GitHub عند رفع المشروع",
-                        checked = githubCi,
-                        onCheckedChange = { githubCi = it }
-                    )
-
-                    OutlinedTextField(
-                        value = deepLinkDomain,
-                        onValueChange = { deepLinkDomain = it },
-                        label = { Text("نطاق الروابط العميقة (App Links Host)") },
-                        placeholder = { Text("app.yourdomain.com") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = adMobAppId,
-                        onValueChange = { adMobAppId = it },
-                        label = { Text("معرّف Google AdMob App ID (اختياري)") },
-                        placeholder = { Text("ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = remoteConfigUrl,
-                        onValueChange = { remoteConfigUrl = it },
-                        label = { Text("رابط Remote Config / التحديث عن بُعد (اختياري)") },
-                        placeholder = { Text("https://yourdomain.com/app-config.json") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("إلغاء", fontFamily = CairoFontFamily, color = TextSecondary)
-                        }
-                        Button(
-                            onClick = {
-                                onSave(
-                                    BridgeAndCloudConfig(
-                                        jsBridgeEnabled = jsBridge,
-                                        handleExternalIntents = extIntents,
-                                        deepLinkDomain = deepLinkDomain.trim(),
-                                        adMobAppId = adMobAppId.trim(),
-                                        remoteConfigUrl = remoteConfigUrl.trim(),
-                                        gitHubCiEnabled = githubCi
-                                    )
+                    com.example.ui.components.space.NeonButton(
+                        text = "حفظ وتطبيق ✓",
+                        style = com.example.ui.components.space.NeonButtonStyle.PRIMARY_GLOW,
+                        onClick = {
+                            onSave(
+                                BridgeAndCloudConfig(
+                                    jsBridgeEnabled = jsBridge,
+                                    handleExternalIntents = extIntents,
+                                    deepLinkDomain = deepLinkDomain.trim(),
+                                    adMobAppId = adMobAppId.trim(),
+                                    remoteConfigUrl = remoteConfigUrl.trim(),
+                                    gitHubCiEnabled = githubCi
                                 )
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            modifier = Modifier.weight(1.4f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("حفظ وتطبيق ✓", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
+                            )
+                        },
+                        modifier = Modifier.weight(1.4f)
+                    )
                 }
             }
         }
@@ -354,131 +319,108 @@ fun PlayStorePrepDialog(
     val policyText = remember(project) { exporter.generatePrivacyPolicy(project) }
     val safetyRows: List<DataSafetyRow> = remember(project) { exporter.generateDataSafetyChecklist(project) }
 
-    Dialog(
+    com.example.ui.components.space.SpaceDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = "حزمة تجهيز متجر Google Play",
+        subtitle = "Data Safety Checklist وسياسة الخصوصية",
+        icon = Icons.Default.VerifiedUser,
+        accentColor = SpaceColors.Emerald,
+        secondaryAccent = SpaceColors.NeonCyan,
+        widthFraction = 0.93f
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .fillMaxHeight(0.82f)
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = StatusGreen)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "حزمة تجهيز متجر Google Play",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = TextPrimary
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "نموذج أمان البيانات (Data Safety Checklist)",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = SpaceColors.NeonCyan
+                    )
+
+                    safetyRows.forEach { row ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SpaceColors.SurfaceDeep)
+                                .border(0.8.dp, SpaceColors.GlassBorderSubtle, RoundedCornerShape(12.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (row.isCollected) Icons.Default.Info else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (row.isCollected) SpaceColors.Gold else SpaceColors.Emerald,
+                                modifier = Modifier.size(18.dp)
                             )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = TextSecondary)
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "نموذج أمان البيانات (Data Safety Checklist)",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = OrangePrimary
-                        )
-
-                        safetyRows.forEach { row ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF0E131D))
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = if (row.isCollected) Icons.Default.Info else Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = if (row.isCollected) OrangePrimary else StatusGreen,
-                                    modifier = Modifier.size(18.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${row.categoryAr} — ${row.statusAr}",
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = SpaceColors.White
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "${row.categoryAr} — ${row.statusAr}",
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        text = row.noteAr,
-                                        fontFamily = TajawalFontFamily,
-                                        fontSize = 10.sp,
-                                        color = TextSecondary
-                                    )
-                                }
+                                Text(
+                                    text = row.noteAr,
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 10.sp,
+                                    color = SpaceColors.MutedText
+                                )
                             }
                         }
-
-                        Text(
-                            text = "سياسة الخصوصية المولّدة تلقائياً (Markdown)",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = OrangePrimary
-                        )
-
-                        Surface(
-                            color = TerminalBackground,
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF232C3E)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = policyText,
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 11.sp,
-                                color = TextPrimary,
-                                lineHeight = 18.sp,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "سياسة الخصوصية المولّدة تلقائياً (Markdown)",
+                        fontFamily = CairoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = SpaceColors.NeonCyan
+                    )
 
-                    Button(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Privacy Policy", policyText))
-                            Toast.makeText(context, "تم نسخ سياسة الخصوصية لمتجر Google Play ✓", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
+                    Surface(
+                        color = SpaceColors.TerminalBg,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.GlassBorderCyan),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Black)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("نسخ سياسة الخصوصية للمتجر", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(
+                            text = policyText,
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.sp,
+                            color = SpaceColors.White,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(12.dp)
+                        )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                com.example.ui.components.space.NeonButton(
+                    text = "نسخ سياسة الخصوصية للمتجر",
+                    icon = Icons.Default.ContentCopy,
+                    style = com.example.ui.components.space.NeonButtonStyle.EMERALD_SUCCESS,
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Privacy Policy", policyText))
+                        Toast.makeText(context, "تم نسخ سياسة الخصوصية لمتجر Google Play ✓", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -490,10 +432,10 @@ fun BuildHistoryCard(history: List<BuildHistoryEntry>) {
     val formatter = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(
-            color = Color(0xFF131924),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
+        com.example.ui.components.space.NeonGlassCard(
+            accentColor = SpaceColors.ElectricBlue,
+            secondaryAccent = SpaceColors.NeonCyan,
+            shape = RoundedCornerShape(18.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -501,14 +443,14 @@ fun BuildHistoryCard(history: List<BuildHistoryEntry>) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.History, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.History, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "سجل الإصدارات السابقة (${history.size})",
                         fontFamily = CairoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = TextPrimary
+                        color = SpaceColors.White
                     )
                 }
 
@@ -517,7 +459,8 @@ fun BuildHistoryCard(history: List<BuildHistoryEntry>) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF0E131C))
+                            .background(SpaceColors.SurfaceDeep)
+                            .border(0.8.dp, SpaceColors.GlassBorderSubtle, RoundedCornerShape(10.dp))
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -527,20 +470,20 @@ fun BuildHistoryCard(history: List<BuildHistoryEntry>) {
                                 text = entry.fileName,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
-                                color = TextPrimary
+                                color = SpaceColors.White
                             )
                             Text(
                                 text = "v${entry.versionName} (${entry.versionCode}) • ${entry.targetType} • ${entry.sizeText}",
                                 fontFamily = TajawalFontFamily,
                                 fontSize = 10.sp,
-                                color = TextSecondary
+                                color = SpaceColors.MutedText
                             )
                         }
                         Text(
                             text = formatter.format(Date(entry.timestamp)),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
-                            color = TextMuted
+                            color = SpaceColors.SubtleText
                         )
                     }
                 }
@@ -572,68 +515,53 @@ fun ImportApkForgeDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    com.example.ui.components.space.SpaceDialog(
+        onDismissRequest = onDismiss,
+        title = "استيراد مشروع (.apkforge / JSON)",
+        icon = Icons.Default.FileOpen,
+        accentColor = SpaceColors.NeonCyan,
+        secondaryAccent = SpaceColors.NeonPurple
+    ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Surface(
-                color = Color(0xFF141A26),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                com.example.ui.components.space.NeonButton(
+                    text = "اختيار ملف .apkforge من الجهاز",
+                    icon = Icons.Default.FileOpen,
+                    style = com.example.ui.components.space.NeonButtonStyle.CYBER_OUTLINE,
+                    onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                com.example.ui.components.space.NeonTextField(
+                    value = rawJson,
+                    onValueChange = { rawJson = it },
+                    label = "أو الصق محتوى JSON المشروع هنا",
+                    singleLine = false,
+                    minLines = 4,
+                    maxLines = 6,
+                    accentColor = SpaceColors.NeonCyan
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "استيراد مشروع (.apkforge / JSON)",
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = TextPrimary
+                    com.example.ui.components.space.NeonButton(
+                        text = "إلغاء",
+                        style = com.example.ui.components.space.NeonButtonStyle.CYBER_OUTLINE,
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
                     )
-
-                    Button(
-                        onClick = { fileLauncher.launch(arrayOf("*/*")) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("اختيار ملف .apkforge من الجهاز", fontFamily = CairoFontFamily, color = TextPrimary)
-                    }
-
-                    OutlinedTextField(
-                        value = rawJson,
-                        onValueChange = { rawJson = it },
-                        label = { Text("أو الصق محتوى JSON المشروع هنا") },
-                        minLines = 4,
-                        maxLines = 6,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                    com.example.ui.components.space.NeonButton(
+                        text = "استيراد المشروع",
+                        style = com.example.ui.components.space.NeonButtonStyle.PRIMARY_GLOW,
+                        enabled = rawJson.isNotBlank(),
+                        onClick = { onImportJson(rawJson) },
+                        modifier = Modifier.weight(1.3f)
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("إلغاء", fontFamily = CairoFontFamily, color = TextSecondary)
-                        }
-                        Button(
-                            onClick = { onImportJson(rawJson) },
-                            enabled = rawJson.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                            modifier = Modifier.weight(1.3f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("استيراد المشروع", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
                 }
             }
         }

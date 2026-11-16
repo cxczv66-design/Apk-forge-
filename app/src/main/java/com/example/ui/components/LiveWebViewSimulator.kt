@@ -175,9 +175,10 @@ fun LiveWebViewContainer(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var rendererSessionKey by remember { mutableIntStateOf(0) }
     var rendererCrashCount by remember { mutableIntStateOf(0) }
-    var useSoftwareLayer by remember { mutableStateOf(false) }
-    var isRendererFailed by remember { mutableStateOf(false) }
+    var useSoftwareLayer by remember { mutableStateOf(WebViewSafety.shouldDefaultToSoftwareLayer()) }
+    var isRendererFailed by remember { mutableStateOf(WebViewSafety.isSessionRendererBlocked()) }
     var pendingRendererRecovery by remember { mutableStateOf(false) }
+    var hasLoadedPage by remember { mutableStateOf(false) }
     var lastHandledReloadTrigger by remember { mutableIntStateOf(reloadTrigger) }
     val destroyedWebViews = remember { Collections.newSetFromMap(WeakHashMap<WebView, Boolean>()) }
 
@@ -190,7 +191,7 @@ fun LiveWebViewContainer(
     }
 
     fun injectLiveCustomizations(wv: WebView?, proj: AppProject, logUpdates: Boolean) {
-        if (wv == null || destroyedWebViews.contains(wv)) return
+        if (!WebViewSafety.canSafelyInteract(wv, destroyedWebViews, isRendererFailed) || wv == null) return
         val pro = proj.proConfig
         val omni = proj.omniConfig
         val darkCss = if (pro.forceDarkCss) {
@@ -239,36 +240,27 @@ fun LiveWebViewContainer(
     }
 
     fun destroyWebViewSafely(wv: WebView?) {
-        if (wv == null || destroyedWebViews.contains(wv)) return
-        destroyedWebViews.add(wv)
-        runCatching {
-            wv.stopLoading()
-            wv.webChromeClient = null
-            wv.webViewClient = WebViewClient()
-            wv.removeJavascriptInterface("ApkForge")
-            wv.clearHistory()
-            (wv.parent as? android.view.ViewGroup)?.removeView(wv)
-            wv.removeAllViews()
-            wv.destroy()
-        }
+        WebViewSafety.destroyWebViewSafely(wv, destroyedWebViews, jsBridgeName = "ApkForge")
     }
 
     fun triggerRendererRecovery(crashed: Boolean) {
         isLoading = false
-        if (rendererCrashCount < 1) {
+        hasLoadedPage = false
+        val canRetrySoftware = !useSoftwareLayer && rendererCrashCount < 1 && !WebViewSafety.isSessionRendererBlocked()
+        if (canRetrySoftware) {
             rendererCrashCount++
             useSoftwareLayer = true
             safeLog(
                 ConsoleLevel.WARN,
-                if (crashed) "تعافٍ تلقائي لمحرك العرض بالوضع البرمجي الآمن..."
+                if (crashed) "تعافٍ تلقائي لمحرك العرض بالوضع البرمجي الآمن (#$rendererCrashCount)..."
                 else "استعادة محرك WebView بالوضع البرمجي الآمن..."
             )
             mainHandler.postDelayed({
                 rendererSessionKey++
-            }, 250)
+            }, 350)
         } else {
             isRendererFailed = true
-            safeLog(ConsoleLevel.ERROR, "توقف محرك العرض مؤقتاً — اضغط إعادة التشغيل لإعادة المحاولة.")
+            safeLog(ConsoleLevel.ERROR, "توقف محرك WebView مؤقتاً لحماية التطبيق — اضغط إعادة التشغيل لإعادة المحاولة.")
         }
     }
 
@@ -286,6 +278,7 @@ fun LiveWebViewContainer(
                     webViewRef?.onPause()
                 }
                 Lifecycle.Event.ON_DESTROY -> {
+                    mainHandler.removeCallbacksAndMessages(null)
                     destroyWebViewSafely(webViewRef)
                     webViewRef = null
                 }
@@ -294,6 +287,7 @@ fun LiveWebViewContainer(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            mainHandler.removeCallbacksAndMessages(null)
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -305,9 +299,12 @@ fun LiveWebViewContainer(
 
     LaunchedEffect(jsCommandToRun?.first) {
         val cmd = jsCommandToRun?.second
-        if (!cmd.isNullOrBlank() && !isOfflineMode && !isRendererFailed) {
+        val wv = webViewRef
+        if (!cmd.isNullOrBlank() && !isOfflineMode &&
+            WebViewSafety.canSafelyInteract(wv, destroyedWebViews, isRendererFailed)
+        ) {
             safeLog(ConsoleLevel.INFO, "eval> $cmd")
-            webViewRef?.evaluateJavascript(cmd) { result ->
+            wv?.evaluateJavascript(cmd) { result ->
                 if (!result.isNullOrBlank() && result != "null") {
                     safeLog(ConsoleLevel.INFO, "< $result")
                 }
@@ -322,6 +319,7 @@ fun LiveWebViewContainer(
                 if (isRendererFailed) {
                     rendererCrashCount = 0
                     isRendererFailed = false
+                    hasLoadedPage = false
                     rendererSessionKey++
                 } else {
                     val wv = webViewRef
@@ -330,7 +328,8 @@ fun LiveWebViewContainer(
                         val dir = File(path)
                         LocalWorkspaceEngine.findEntryHtml(dir)
                     }
-                    if (wv != null && !destroyedWebViews.contains(wv)) {
+                    if (wv != null && !destroyedWebViews.contains(wv) && wv.isAttachedToWindow) {
+                        hasLoadedPage = false
                         if (proj.sourceType == SourceType.WEB_URL &&
                             (proj.sourceValue.startsWith("http://") || proj.sourceValue.startsWith("https://"))
                         ) {
@@ -353,6 +352,7 @@ fun LiveWebViewContainer(
     }
 
     LaunchedEffect(
+        hasLoadedPage,
         project.name,
         project.accentColorHex,
         project.omniConfig,
@@ -360,7 +360,9 @@ fun LiveWebViewContainer(
         project.proConfig.customCss,
         project.proConfig.customJs
     ) {
-        injectLiveCustomizations(webViewRef, currentProject, logUpdates = false)
+        if (hasLoadedPage) {
+            injectLiveCustomizations(webViewRef, currentProject, logUpdates = false)
+        }
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0E16))) {
@@ -441,8 +443,10 @@ fun LiveWebViewContainer(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
+                        WebViewSafety.resetRendererSession()
                         rendererCrashCount = 0
                         isRendererFailed = false
+                        useSoftwareLayer = true
                         rendererSessionKey++
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
@@ -470,12 +474,7 @@ fun LiveWebViewContainer(
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             setBackgroundColor(android.graphics.Color.parseColor("#0F1318"))
-                            if (useSoftwareLayer) {
-                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                            }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
-                            }
+                            WebViewSafety.applySafeWebSettings(this, useSoftwareLayer)
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = true
@@ -527,12 +526,14 @@ fun LiveWebViewContainer(
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                 isLoading = true
+                                hasLoadedPage = false
                                 safeLog(ConsoleLevel.NETWORK, "GET ${url?.take(60) ?: "local"}")
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 if (view == null || destroyedWebViews.contains(view)) return
                                 isLoading = false
+                                hasLoadedPage = true
                                 val liveProj = currentProject
                                 safeLog(
                                     ConsoleLevel.NETWORK,
@@ -563,7 +564,9 @@ fun LiveWebViewContainer(
                             @TargetApi(Build.VERSION_CODES.O)
                             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                                 val crashed = detail?.didCrash() == true
+                                WebViewSafety.recordRendererCrash()
                                 mainHandler.post {
+                                    hasLoadedPage = false
                                     destroyWebViewSafely(view)
                                     if (webViewRef === view) {
                                         webViewRef = null
@@ -729,9 +732,9 @@ fun DevToolsConsoleDrawer(
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Surface(
-            color = Color(0xFF0A0E14),
+            color = SpaceColors.DeepSpace.copy(alpha = 0.94f),
             shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF232C3E)),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f)),
             modifier = modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -741,21 +744,21 @@ fun DevToolsConsoleDrawer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.BugReport, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.BugReport, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "DevTools Console (${logs.size})",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = TextPrimary
+                            color = SpaceColors.White
                         )
                     }
                     Text(
                         text = "مسح السجل",
                         fontFamily = CairoFontFamily,
                         fontSize = 11.sp,
-                        color = OrangePrimary,
+                        color = SpaceColors.NeonCyan,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { onClear() }
@@ -782,8 +785,9 @@ fun DevToolsConsoleDrawer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(110.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF06090D))
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SpaceColors.SurfaceDeep)
+                        .border(1.dp, SpaceColors.GlassBorderSubtle, RoundedCornerShape(10.dp))
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -793,7 +797,7 @@ fun DevToolsConsoleDrawer(
                                 text = "> في انتظار أحداث WebView و ApkForge JS Bridge v2...",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
-                                color = TextMuted
+                                color = SpaceColors.MutedText
                             )
                         }
                     } else {
@@ -820,19 +824,25 @@ fun DevToolsConsoleDrawer(
                         value = jsInput,
                         onValueChange = { jsInput = it },
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-                        placeholder = { Text("تنفيذ أمر JavaScript...", fontSize = 11.sp) },
+                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = SpaceColors.White),
+                        placeholder = { Text("تنفيذ أمر JavaScript...", fontSize = 11.sp, color = SpaceColors.MutedText) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SpaceColors.NeonCyan,
+                            unfocusedBorderColor = SpaceColors.NeonCyan.copy(alpha = 0.35f),
+                            focusedContainerColor = SpaceColors.SurfaceDeep,
+                            unfocusedContainerColor = SpaceColors.MidnightBlue
+                        ),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
                     )
                     Button(
                         onClick = { if (jsInput.isNotBlank()) onRunJs(jsInput) },
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = SpaceColors.ElectricBlue),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp),
                         modifier = Modifier.height(48.dp)
                     ) {
-                        Text("تشغيل", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+                        Text("تشغيل", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = SpaceColors.White)
                     }
                 }
             }
@@ -843,16 +853,16 @@ fun DevToolsConsoleDrawer(
 @Composable
 private fun QuickJsChip(label: String, onClick: () -> Unit) {
     Surface(
-        color = Color(0xFF151C28),
+        color = SpaceColors.MidnightBlue,
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.4f)),
-        modifier = Modifier.clickable { onClick() }
+        border = androidx.compose.foundation.BorderStroke(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.45f)),
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() }
     ) {
         Text(
             text = label,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
-            color = OrangePrimary,
+            color = SpaceColors.NeonCyan,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }

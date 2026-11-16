@@ -12,22 +12,22 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.components.GlassmorphismCard
-import com.example.ui.components.GlowingButton
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 
 @Composable
@@ -41,26 +41,32 @@ fun OnboardingScreen(
             title = "مصنع تطبيقات متكامل على هاتفك",
             description = "حوّل مواقع الويب وملفات HTML ومشاريعك إلى تطبيقات أندرويد حقيقية بصيغة APK و AAB بأعلى سرعة وكفاءة.",
             icon = Icons.Default.Build,
-            badge = "الجيل الجديد من App Builders"
+            badge = "الجيل الجديد من App Builders",
+            accent = SpaceColors.NeonCyan,
+            secondary = SpaceColors.ElectricBlue
         ),
         OnboardingPageData(
             title = "محرك Quantum للبناء داخل التطبيق",
             description = "يجمع التطبيق أدوات aapt2 و d8 و zipalign ومكتبة Google apksig الرسمية (v1-v4) مع تشفير AndroidKeyStore AES-256-GCM مباشرة داخل هاتفك دون الحاجة لأي تطبيق خارجي.",
             icon = Icons.Default.Terminal,
-            badge = "بناء وتوقيع مدمج 100%"
+            badge = "بناء وتوقيع مدمج 100%",
+            accent = SpaceColors.NeonPurple,
+            secondary = SpaceColors.NeonCyan
         ),
         OnboardingPageData(
             title = "معالج تخصيص من 9 خطوات",
-            description = "تحكم كامل في الهوية، الأيقونة، شاشات البداية، ميزات WebView، الشريط السفلي، والأذونات مع واجهة زجاجية عصرية.",
+            description = "تحكم كامل في الهوية، الأيقونة، شاشات البداية، ميزات WebView، الشريط السفلي، والأذونات مع واجهة فضائية مستقبلية فائقة.",
             icon = Icons.Default.Speed,
-            badge = "تصميم Material 3 فاخر"
+            badge = "تصميم Space 3D فاخر",
+            accent = SpaceColors.Gold,
+            secondary = SpaceColors.Emerald
         )
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
+            .background(Color.Transparent)
             .statusBarsPadding()
             .navigationBarsPadding()
             .testTag("onboarding_screen")
@@ -68,34 +74,56 @@ fun OnboardingScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Bar with Skip Button
+            // Top Bar with Logo + Skip Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "AppForge Studio",
-                    fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = AmberPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SpaceApkForgeLogoMark(size = 34.dp)
+                    Column {
+                        Text(
+                            text = "ApkForge",
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontStyle = FontStyle.Italic,
+                            fontSize = 18.sp,
+                            color = SpaceColors.White
+                        )
+                        Text(
+                            text = "Space Studio",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 10.sp,
+                            color = SpaceColors.NeonCyan
+                        )
+                    }
+                }
 
                 if (currentPage < pages.size - 1) {
-                    Text(
-                        text = "تخطي",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 14.sp,
-                        color = TextSecondary,
+                    Box(
                         modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SpaceColors.SurfaceElevated.copy(alpha = 0.7f))
+                            .border(1.dp, SpaceColors.GlassBorderSubtle, RoundedCornerShape(12.dp))
                             .clickable { onFinish() }
-                            .padding(8.dp)
-                    )
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "تخطي",
+                            fontFamily = CairoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = SpaceColors.MutedText
+                        )
+                    }
                 }
             }
 
@@ -113,57 +141,56 @@ fun OnboardingScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Hero Glass Card with Icon
-                    GlassmorphismCard(
-                        modifier = Modifier
-                            .size(140.dp)
-                            .padding(8.dp),
-                        backgroundColor = DarkSurfaceElevated,
-                        borderColor = AmberPrimary.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(32.dp)
+                    // 3D Neon Glass Showcase
+                    NeonGlassCard(
+                        accentColor = page.accent,
+                        secondaryAccent = page.secondary,
+                        shape = RoundedCornerShape(34.dp),
+                        elevation = 20.dp,
+                        modifier = Modifier.size(152.dp)
                     ) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = page.icon,
-                                contentDescription = null,
-                                tint = AmberPrimary,
-                                modifier = Modifier.size(56.dp)
+                            Space3DFeatureBadge(
+                                icon = page.icon,
+                                accentColor = page.accent,
+                                secondaryColor = page.secondary,
+                                size = 86.dp
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(28.dp))
 
-                    // Badge
+                    // Neon Pill Badge
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(AmberPrimary.copy(alpha = 0.15f))
-                            .border(1.dp, AmberPrimary.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .background(page.accent.copy(alpha = 0.16f))
+                            .border(1.dp, page.accent.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = page.badge,
                             fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = GoldAccent
+                            color = page.accent
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     Text(
                         text = page.title,
                         fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = TextPrimary,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 23.sp,
+                        color = SpaceColors.White,
                         textAlign = TextAlign.Center,
-                        lineHeight = 32.sp
+                        lineHeight = 34.sp
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -172,9 +199,9 @@ fun OnboardingScreen(
                         text = page.description,
                         fontFamily = TajawalFontFamily,
                         fontSize = 15.sp,
-                        color = TextSecondary,
+                        color = SpaceColors.MutedText,
                         textAlign = TextAlign.Center,
-                        lineHeight = 24.sp
+                        lineHeight = 25.sp
                     )
                 }
             }
@@ -184,7 +211,7 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Page Indicator Dots
+                // Neon Page Indicator Dots
                 Row(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
@@ -194,19 +221,31 @@ fun OnboardingScreen(
                         Box(
                             modifier = Modifier
                                 .padding(horizontal = 4.dp)
-                                .height(6.dp)
-                                .width(if (isSelected) 24.dp else 6.dp)
+                                .height(7.dp)
+                                .width(if (isSelected) 28.dp else 7.dp)
+                                .shadow(
+                                    elevation = if (isSelected) 8.dp else 0.dp,
+                                    shape = CircleShape,
+                                    spotColor = SpaceColors.NeonCyan
+                                )
                                 .clip(CircleShape)
-                                .background(if (isSelected) AmberPrimary else Color(0xFF333544))
+                                .background(
+                                    if (isSelected) {
+                                        Brush.horizontalGradient(listOf(SpaceColors.NeonCyan, SpaceColors.NeonPurple))
+                                    } else {
+                                        Brush.horizontalGradient(listOf(SpaceColors.SurfaceElevated, SpaceColors.SurfaceElevated))
+                                    }
+                                )
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                GlowingButton(
+                NeonButton(
                     text = if (currentPage == pages.size - 1) "ابدأ الاستخدام الآن" else "التالي",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
+                    style = if (currentPage == pages.size - 1) NeonButtonStyle.PURPLE_AI else NeonButtonStyle.PRIMARY_GLOW,
                     onClick = {
                         if (currentPage < pages.size - 1) {
                             currentPage++
@@ -226,6 +265,7 @@ private data class OnboardingPageData(
     val title: String,
     val description: String,
     val icon: ImageVector,
-    val badge: String
+    val badge: String,
+    val accent: Color,
+    val secondary: Color
 )
-

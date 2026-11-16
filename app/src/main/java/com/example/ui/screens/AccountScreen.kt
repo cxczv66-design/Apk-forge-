@@ -10,7 +10,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -29,6 +28,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.GoogleUser
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 import com.example.ui.util.AppLanguage
 import com.example.ui.util.AppStrings
@@ -59,6 +61,7 @@ fun AccountScreen(
 ) {
     val context = LocalContext.current
     val currentLang = LocalAppLanguage.current
+    val spaceUiPrefs = LocalSpaceUiPreferences.current
 
     var showGoogleAccountChooser by remember { mutableStateOf(false) }
     var showTermsDialog by remember { mutableStateOf(false) }
@@ -126,119 +129,70 @@ fun AccountScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DarkBackground)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = AppStrings.back(currentLang),
-                        tint = TextPrimary
-                    )
-                }
-
-                Text(
-                    text = AppStrings.account(currentLang),
-                    fontFamily = CairoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = TextPrimary
-                )
-
-                Spacer(modifier = Modifier.width(48.dp))
-            }
+            PremiumTopBar(
+                title = if (showLanguageDialog) AppStrings.language(currentLang) else AppStrings.account(currentLang),
+                subtitle = if (showLanguageDialog) "اختر لغة الواجهة الفضائية" else "الهوية السحابية والنسخ الاحتياطي وتفضيلات الفضاء",
+                onBack = {
+                    if (showLanguageDialog) showLanguageDialog = false else onBack()
+                },
+                accentColor = SpaceColors.NeonCyan
+            )
         }
     ) { paddingValues ->
         if (showLanguageDialog) {
             // Language Selection Screen
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .background(DarkBackground)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 14.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { showLanguageDialog = false }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = AppStrings.back(currentLang),
-                            tint = TextPrimary
-                        )
-                    }
-                    Text(
-                        text = AppStrings.language(currentLang),
-                        fontFamily = CairoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = TextPrimary
-                    )
-                }
-
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(AppLanguage.entries) { lang ->
-                        val isSelected = currentLang == lang
-                        Box(
+                items(AppLanguage.entries) { lang ->
+                    val isSelected = currentLang == lang
+                    NeonGlassCard(
+                        accentColor = if (isSelected) SpaceColors.NeonCyan else SpaceColors.ElectricBlue,
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(16.dp),
+                        onClick = {
+                            onSelectLanguage(lang)
+                            showLanguageDialog = false
+                            Toast.makeText(context, "Language: ${lang.displayName}", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(DarkSurfaceElevated)
-                                .border(
-                                    1.dp,
-                                    if (isSelected) OrangePrimary else GlassBorderSubtle,
-                                    RoundedCornerShape(14.dp)
-                                )
-                                .clickable {
-                                    onSelectLanguage(lang)
-                                    showLanguageDialog = false
-                                    Toast.makeText(context, "Language: ${lang.displayName}", Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(horizontal = 16.dp, vertical = 14.dp)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = lang.displayName,
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        text = lang.nativeName,
-                                        fontFamily = TajawalFontFamily,
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                }
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = OrangePrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                            Column {
+                                Text(
+                                    text = lang.displayName,
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = SpaceColors.White
+                                )
+                                Text(
+                                    text = lang.nativeName,
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 12.sp,
+                                    color = SpaceColors.MutedText
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = SpaceColors.NeonCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
                     }
@@ -252,40 +206,40 @@ fun AccountScreen(
                     .padding(horizontal = 16.dp)
                     .testTag("account_screen"),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 32.dp)
+                contentPadding = PaddingValues(top = 10.dp, bottom = 36.dp)
             ) {
                 // Section 1: User Profile & Authentic Google Sign-In
                 item {
                     if (currentUser != null) {
-                        // Real Google signed-in profile card (Clean, no fake Pro, no fake upgrade)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(DarkSurfaceElevated)
-                                .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                                .padding(16.dp)
+                        NeonGlassCard(
+                            accentColor = SpaceColors.NeonCyan,
+                            secondaryAccent = SpaceColors.Emerald,
+                            shape = RoundedCornerShape(22.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                     Box(
                                         modifier = Modifier
-                                            .size(54.dp)
+                                            .size(56.dp)
+                                            .shadow(12.dp, CircleShape, spotColor = SpaceColors.ElectricBlue)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF4285F4))
-                                            .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                                            .background(Brush.linearGradient(listOf(SpaceColors.ElectricBlue, SpaceColors.NeonPurple)))
+                                            .border(2.dp, SpaceColors.NeonCyan.copy(alpha = 0.7f), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = currentUser.avatarLetter,
                                             fontFamily = CairoFontFamily,
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = FontWeight.ExtraBold,
                                             fontSize = 24.sp,
-                                            color = Color.White
+                                            color = SpaceColors.White
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(14.dp))
@@ -294,9 +248,9 @@ fun AccountScreen(
                                             Text(
                                                 text = currentUser.name,
                                                 fontFamily = CairoFontFamily,
-                                                fontWeight = FontWeight.Bold,
+                                                fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 16.sp,
-                                                color = TextPrimary
+                                                color = SpaceColors.White
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Image(
@@ -310,74 +264,77 @@ fun AccountScreen(
                                             text = currentUser.email,
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 11.sp,
-                                            color = TextSecondary
+                                            color = SpaceColors.MutedText
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = "حساب Google موثّق ✓",
                                             fontFamily = TajawalFontFamily,
+                                            fontWeight = FontWeight.SemiBold,
                                             fontSize = 11.sp,
-                                            color = StatusGreen
+                                            color = SpaceColors.Emerald
                                         )
                                     }
                                 }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    NeonIconButton(
+                                        icon = Icons.Default.SwitchAccount,
+                                        contentDescription = AppStrings.switchAccount(currentLang),
                                         onClick = { launchSystemGoogleAccountPicker() },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.SwitchAccount,
-                                            contentDescription = AppStrings.switchAccount(currentLang),
-                                            tint = OrangePrimary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    IconButton(
+                                        tint = SpaceColors.NeonCyan,
+                                        size = 44.dp
+                                    )
+                                    NeonIconButton(
+                                        icon = Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = AppStrings.signOut(currentLang),
                                         onClick = {
                                             onSignOut()
                                             Toast.makeText(context, "تم تسجيل الخروج", Toast.LENGTH_SHORT).show()
                                         },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                                            contentDescription = AppStrings.signOut(currentLang),
-                                            tint = TextMuted,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
+                                        tint = SpaceColors.MutedText,
+                                        borderAccent = SpaceColors.GlassBorderSubtle,
+                                        size = 44.dp
+                                    )
                                 }
                             }
                         }
                     } else {
-                        // Authentic Google Sign-In Container (with real Google colors, official logo, and terms)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(DarkSurfaceElevated)
-                                .border(1.dp, GlassBorderSubtle, RoundedCornerShape(20.dp))
-                                .padding(20.dp)
+                        NeonGlassCard(
+                            accentColor = SpaceColors.ElectricBlue,
+                            secondaryAccent = SpaceColors.NeonCyan,
+                            shape = RoundedCornerShape(22.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
+                                Space3DFeatureBadge(
+                                    icon = Icons.Default.PersonOutline,
+                                    accentColor = SpaceColors.NeonCyan,
+                                    secondaryColor = SpaceColors.NeonPurple,
+                                    size = 56.dp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
                                 Text(
                                     text = "تسجيل الدخول",
                                     fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 17.sp,
-                                    color = TextPrimary
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = SpaceColors.White
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "سجّل دخولك بحساب Google لمزامنة مشاريعك ومفاتيح التوقيع وحفظ ملفاتك بأمان.",
                                     fontFamily = TajawalFontFamily,
                                     fontSize = 12.sp,
-                                    color = TextSecondary,
+                                    color = SpaceColors.MutedText,
                                     textAlign = TextAlign.Center
                                 )
 
@@ -386,9 +343,9 @@ fun AccountScreen(
                                 // Official Google Branded Button
                                 Surface(
                                     color = Color.White,
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDADCE0)),
-                                    shadowElevation = 2.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, SpaceColors.NeonCyan.copy(alpha = 0.6f)),
+                                    shadowElevation = 6.dp,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(50.dp)
@@ -398,7 +355,9 @@ fun AccountScreen(
                                         .testTag("google_sign_in_button")
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 16.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.Center
                                     ) {
@@ -422,238 +381,260 @@ fun AccountScreen(
                     }
                 }
 
-                // Section 2: Storage & Backup (Import & Export from Phone Storage)
+                // Section 2: Space UI Preferences (Touch Sound & Reduced Motion)
                 item {
-                    Text(
-                        text = "التخزين والنسخ الاحتياطي",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    PremiumSectionHeader(
+                        title = "تفضيلات الواجهة الفضائية",
+                        icon = Icons.Default.AutoAwesome,
+                        accentColor = SpaceColors.NeonPurple
                     )
                 }
 
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(DarkSurfaceElevated)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(18.dp))
+                    NeonGlassCard(
+                        accentColor = SpaceColors.NeonPurple,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        AccountRowItem(
-                            title = "استيراد مشاريع من الهاتف (ملف JSON / ZIP)",
-                            subtitle = "اختر ملف من ذاكرة الهاتف",
-                            icon = Icons.Default.FileUpload,
-                            onClick = {
-                                importProjectLauncher.launch("*/*")
-                            }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "تصدير جميع المشاريع (نسخة احتياطية)",
-                            subtitle = "حفظ كملف JSON في مجلد التنزيلات",
-                            icon = Icons.Default.FileDownload,
-                            onClick = {
-                                Toast.makeText(
-                                    context,
-                                    "✓ تم تصدير كافة المشاريع بنجاح إلى: /Download/ApkForge_Backup.json",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CloudSync, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("المزامنة السحابية للمشاريع", fontFamily = CairoFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = TextPrimary)
-                                    Text("مزامنة التعديلات ومفاتيح التوقيع تلقائياً", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = TextSecondary)
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("أصوات التفاعل اللمسي", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = SpaceColors.White)
+                                        Text("تفعيل صوت نقر خفيف مع استجابة الأزرار", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
+                                    }
                                 }
-                            }
-                            Switch(
-                                checked = isCloudSyncEnabled,
-                                onCheckedChange = {
-                                    isCloudSyncEnabled = it
-                                    Toast.makeText(context, if (it) "تم تفعيل المزامنة السحابية" else "تم إيقاف المزامنة السحابية", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = OrangePrimary
+                                Switch(
+                                    checked = spaceUiPrefs.soundEnabled,
+                                    onCheckedChange = { spaceUiPrefs.updateSoundEnabled(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = SpaceColors.White,
+                                        checkedTrackColor = SpaceColors.NeonCyan
+                                    )
                                 )
+                            }
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Default.MotionPhotosPaused, contentDescription = null, tint = SpaceColors.NeonPurple, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("تقليل حركة الخلفية (Reduced Motion)", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = SpaceColors.White)
+                                        Text("تهدئة حركة النجوم والكواكب لتوفير البطارية", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
+                                    }
+                                }
+                                Switch(
+                                    checked = spaceUiPrefs.reducedMotion,
+                                    onCheckedChange = { spaceUiPrefs.updateReducedMotion(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = SpaceColors.White,
+                                        checkedTrackColor = SpaceColors.NeonPurple
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Section 3: Storage & Backup
+                item {
+                    PremiumSectionHeader(
+                        title = "التخزين والنسخ الاحتياطي",
+                        icon = Icons.Default.CloudDone,
+                        accentColor = SpaceColors.NeonCyan
+                    )
+                }
+
+                item {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.ElectricBlue,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            AccountRowItem(
+                                title = "استيراد مشاريع من الهاتف (ملف JSON / ZIP)",
+                                subtitle = "اختر ملف من ذاكرة الهاتف",
+                                icon = Icons.Default.FileUpload,
+                                onClick = {
+                                    importProjectLauncher.launch("*/*")
+                                }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "تصدير جميع المشاريع (نسخة احتياطية)",
+                                subtitle = "حفظ كملف JSON في مجلد التنزيلات",
+                                icon = Icons.Default.FileDownload,
+                                onClick = {
+                                    Toast.makeText(
+                                        context,
+                                        "✓ تم تصدير كافة المشاريع بنجاح إلى: /Download/ApkForge_Backup.json",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = SpaceColors.NeonCyan, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("المزامنة السحابية للمشاريع", fontFamily = CairoFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = SpaceColors.White)
+                                        Text("مزامنة التعديلات ومفاتيح التوقيع تلقائياً", fontFamily = TajawalFontFamily, fontSize = 11.sp, color = SpaceColors.MutedText)
+                                    }
+                                }
+                                Switch(
+                                    checked = isCloudSyncEnabled,
+                                    onCheckedChange = {
+                                        isCloudSyncEnabled = it
+                                        Toast.makeText(context, if (it) "تم تفعيل المزامنة السحابية" else "تم إيقاف المزامنة السحابية", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = SpaceColors.White,
+                                        checkedTrackColor = SpaceColors.NeonCyan
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Section 4: محرك Quantum وبيئة البناء المدمجة
+                item {
+                    PremiumSectionHeader(
+                        title = "محرك بناء Quantum (On-Device)",
+                        icon = Icons.Default.Memory,
+                        accentColor = SpaceColors.Emerald
+                    )
+                }
+
+                item {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.Emerald,
+                        secondaryAccent = SpaceColors.NeonCyan,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            AccountRowItem(
+                                title = "مسح كاش البناء المؤقت (Quantum Cache)",
+                                subtitle = "يحرر مساحة التخزين المؤقتة لمراحل aapt2 و d8",
+                                icon = Icons.Default.CleaningServices,
+                                onClick = {
+                                    Toast.makeText(context, "تم تنظيف كاش بناء aapt2 و d8 بنجاح ✓", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "مسار حزم APK المبنية",
+                                subtitle = "/storage/emulated/0/Download/",
+                                icon = Icons.Default.Folder,
+                                onClick = {
+                                    Toast.makeText(context, "يتم حفظ ملفات APK الناتجة تلقائياً في التنزيلات", Toast.LENGTH_SHORT).show()
+                                }
                             )
                         }
                     }
                 }
 
-                // Section 3: محرك Quantum وبيئة البناء المدمجة
+                // Section 5: عام وتفضيلات
                 item {
-                    Text(
-                        text = "محرك بناء Quantum (On-Device)",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    PremiumSectionHeader(
+                        title = "عام والتفضيلات",
+                        icon = Icons.Default.Tune,
+                        accentColor = SpaceColors.Gold
                     )
                 }
 
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(DarkSurfaceElevated)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(18.dp))
+                    NeonGlassCard(
+                        accentColor = SpaceColors.Gold,
+                        secondaryAccent = SpaceColors.NeonPurple,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        AccountRowItem(
-                            title = "مسح كاش البناء المؤقت (Quantum Cache)",
-                            subtitle = "يحرر مساحة التخزين المؤقتة لمراحل aapt2 و d8",
-                            icon = Icons.Default.CleaningServices,
-                            onClick = {
-                                Toast.makeText(context, "تم تنظيف كاش بناء aapt2 و d8 بنجاح ✓", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "مسار حزم APK المبنية",
-                            subtitle = "/storage/emulated/0/Download/",
-                            icon = Icons.Default.Folder,
-                            onClick = {
-                                Toast.makeText(context, "يتم حفظ ملفات APK الناتجة تلقائياً في التنزيلات", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
-                }
-
-                // Section 4: عام وتفضيلات
-                item {
-                    Text(
-                        text = "عام والتفضيلات",
-                        fontFamily = CairoFontFamily,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
-                }
-
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(DarkSurfaceElevated)
-                            .border(1.dp, GlassBorderSubtle, RoundedCornerShape(18.dp))
-                    ) {
-                        AccountRowItem(
-                            title = AppStrings.language(currentLang),
-                            subtitle = "${currentLang.displayName} (${currentLang.nativeName})",
-                            icon = Icons.Default.Translate,
-                            onClick = { showLanguageDialog = true }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "الدعم والتواصل مع المطور",
-                            subtitle = "ziorio950@gmail.com",
-                            icon = Icons.Default.Email,
-                            onClick = {
-                                val developerEmail = "ziorio950@gmail.com"
-                                val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                                    data = Uri.parse("mailto:$developerEmail")
-                                    putExtra(Intent.EXTRA_EMAIL, arrayOf(developerEmail))
-                                    putExtra(Intent.EXTRA_SUBJECT, "الدعم الفني - ApkForge")
+                        Column {
+                            AccountRowItem(
+                                title = AppStrings.language(currentLang),
+                                subtitle = "${currentLang.displayName} (${currentLang.nativeName})",
+                                icon = Icons.Default.Translate,
+                                onClick = { showLanguageDialog = true }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "الدعم والتواصل مع المطور",
+                                subtitle = "ziorio950@gmail.com",
+                                icon = Icons.Default.Email,
+                                onClick = {
+                                    val developerEmail = "ziorio950@gmail.com"
+                                    val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                                        data = Uri.parse("mailto:$developerEmail")
+                                        putExtra(Intent.EXTRA_EMAIL, arrayOf(developerEmail))
+                                        putExtra(Intent.EXTRA_SUBJECT, "الدعم الفني - ApkForge")
+                                    }
+                                    try {
+                                        context.startActivity(Intent.createChooser(emailIntent, "مراسلة المطور"))
+                                    } catch (_: Exception) {
+                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        cm.setPrimaryClip(ClipData.newPlainText("Developer Email", developerEmail))
+                                        Toast.makeText(context, "تم نسخ البريد: $developerEmail", Toast.LENGTH_LONG).show()
+                                    }
                                 }
-                                try {
-                                    context.startActivity(Intent.createChooser(emailIntent, "مراسلة المطور"))
-                                } catch (_: Exception) {
-                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    cm.setPrimaryClip(ClipData.newPlainText("Developer Email", developerEmail))
-                                    Toast.makeText(context, "تم نسخ البريد: $developerEmail", Toast.LENGTH_LONG).show()
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "دعم فني حي / اطلب ميزة جديدة",
+                                subtitle = "إرفاق لقطات شاشة وإرسال مباشر لفريق التطوير",
+                                icon = Icons.Default.SupportAgent,
+                                onClick = onOpenSupport
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "مسح جميع البيانات والمشاريع",
+                                subtitle = "حذف كافة المشاريع والتنزيلات وإعادة تهيئة المساحة المحلية",
+                                icon = Icons.Default.DeleteSweep,
+                                tint = SpaceColors.Gold,
+                                onClick = { showConfirmClearData = true }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "حذف الحساب نهائياً",
+                                subtitle = "إنهاء الجلسة ومسح بيانات الحساب والتفضيلات بالكامل",
+                                icon = Icons.Default.DeleteForever,
+                                tint = SpaceColors.ErrorRed,
+                                onClick = { showConfirmDeleteAccount = true }
+                            )
+                            HorizontalDivider(color = SpaceColors.GlassBorderSubtle)
+                            AccountRowItem(
+                                title = "شروط الاستخدام والسياسة",
+                                icon = Icons.Default.Security,
+                                onClick = {
+                                    Toast.makeText(context, "جميع ملفاتك ومشاريعك تبقى ملكك وتحت سيطرتك بالكامل.", Toast.LENGTH_SHORT).show()
                                 }
-                            }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "دعم فني حي / اطلب ميزة جديدة",
-                            subtitle = "إرفاق لقطات شاشة وإرسال مباشر لفريق التطوير",
-                            icon = Icons.Default.SupportAgent,
-                            onClick = onOpenSupport
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "مسح جميع البيانات والمشاريع",
-                            subtitle = "حذف كافة المشاريع والتنزيلات وإعادة تهيئة المساحة المحلية",
-                            icon = Icons.Default.DeleteSweep,
-                            onClick = { showConfirmClearData = true }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "حذف الحساب نهائياً",
-                            subtitle = "إنهاء الجلسة ومسح بيانات الحساب والتفضيلات بالكامل",
-                            icon = Icons.Default.DeleteForever,
-                            onClick = { showConfirmDeleteAccount = true }
-                        )
-                        HorizontalDivider(color = GlassBorderSubtle)
-                        AccountRowItem(
-                            title = "شروط الاستخدام والسياسة",
-                            icon = Icons.Default.Security,
-                            onClick = {
-                                Toast.makeText(context, "جميع ملفاتك ومشاريعك تبقى ملكك وتحت سيطرتك بالكامل.", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
-                }
-
-                // Confirmation Dialogs
-                if (showConfirmClearData) {
-                    item {
-                        AlertDialog(
-                            onDismissRequest = { showConfirmClearData = false },
-                            containerColor = DarkSurfaceElevated,
-                            title = { Text("مسح جميع البيانات والمشاريع", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                            text = { Text("سيتم حذف كل المشاريع والتنزيلات المحلية من الجهاز. هل تريد المتابعة؟", color = TextSecondary) },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        onClearAllData()
-                                        showConfirmClearData = false
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = WarningYellow)
-                                ) { Text("نعم، امسح الكل", color = Color.Black, fontWeight = FontWeight.Bold) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showConfirmClearData = false }) { Text("إلغاء") }
-                            }
-                        )
-                    }
-                }
-
-                if (showConfirmDeleteAccount) {
-                    item {
-                        AlertDialog(
-                            onDismissRequest = { showConfirmDeleteAccount = false },
-                            containerColor = DarkSurfaceElevated,
-                            title = { Text("حذف الحساب نهائياً", color = ErrorRed, fontWeight = FontWeight.Bold) },
-                            text = { Text("سيتم تسجيل الخروج وحذف جميع البيانات المحلية نهائياً. هل أنت متأكد؟", color = TextSecondary) },
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        onDeleteAccount()
-                                        showConfirmDeleteAccount = false
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-                                ) { Text("تأكيد الحذف", color = Color.White, fontWeight = FontWeight.Bold) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showConfirmDeleteAccount = false }) { Text("إلغاء") }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
 
@@ -669,106 +650,154 @@ fun AccountScreen(
                             text = "ApkForge Studio • 2.0",
                             fontFamily = TajawalFontFamily,
                             fontSize = 12.sp,
-                            color = TextMuted
+                            color = SpaceColors.SubtleText
                         )
                     }
                 }
             }
         }
 
+        // Confirmation SpaceDialogs
+        if (showConfirmClearData) {
+            SpaceDialog(
+                onDismissRequest = { showConfirmClearData = false },
+                title = "مسح جميع البيانات والمشاريع",
+                icon = Icons.Default.DeleteSweep,
+                accentColor = SpaceColors.Gold,
+                secondaryAccent = SpaceColors.ErrorRed
+            ) {
+                Text(
+                    text = "سيتم حذف كل المشاريع والتنزيلات المحلية من الجهاز. هل تريد المتابعة؟",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 13.sp,
+                    color = SpaceColors.MutedText,
+                    lineHeight = 20.sp
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    NeonButton(
+                        text = "إلغاء",
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        onClick = { showConfirmClearData = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                    NeonButton(
+                        text = "نعم، امسح الكل",
+                        style = NeonButtonStyle.GOLD_ENGINE,
+                        onClick = {
+                            onClearAllData()
+                            showConfirmClearData = false
+                        },
+                        modifier = Modifier.weight(1.3f)
+                    )
+                }
+            }
+        }
+
+        if (showConfirmDeleteAccount) {
+            SpaceDialog(
+                onDismissRequest = { showConfirmDeleteAccount = false },
+                title = "حذف الحساب نهائياً",
+                icon = Icons.Default.DeleteForever,
+                accentColor = SpaceColors.ErrorRed,
+                secondaryAccent = SpaceColors.NeonPurple
+            ) {
+                Text(
+                    text = "سيتم تسجيل الخروج وحذف جميع البيانات المحلية نهائياً. هل أنت متأكد؟",
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 13.sp,
+                    color = SpaceColors.MutedText,
+                    lineHeight = 20.sp
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    NeonButton(
+                        text = "إلغاء",
+                        style = NeonButtonStyle.CYBER_OUTLINE,
+                        onClick = { showConfirmDeleteAccount = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                    NeonButton(
+                        text = "تأكيد الحذف",
+                        style = NeonButtonStyle.DANGER_RED,
+                        onClick = {
+                            onDeleteAccount()
+                            showConfirmDeleteAccount = false
+                        },
+                        modifier = Modifier.weight(1.3f)
+                    )
+                }
+            }
+        }
+
         // Fallback Google Account Entry / Retry Chooser when system picker isn't available
         if (showGoogleAccountChooser) {
-            androidx.compose.ui.window.Dialog(
+            SpaceDialog(
                 onDismissRequest = { showGoogleAccountChooser = false },
-                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+                title = AppStrings.chooseGoogleAccount(currentLang),
+                subtitle = "أدخل بريد حسابك الفعلي في Google للمتابعة",
+                icon = Icons.Default.AccountCircle,
+                accentColor = SpaceColors.NeonCyan,
+                secondaryAccent = SpaceColors.ElectricBlue
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .clickable { showGoogleAccountChooser = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        color = Color(0xFF1E202B),
-                        shape = RoundedCornerShape(24.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                        modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .clickable(enabled = false) {}
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_google_logo),
+                            contentDescription = "Google",
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "أدخل بريد حسابك في Google أو اختر من حسابات النظام:",
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 12.sp,
+                            color = SpaceColors.MutedText
+                        )
+                    }
+
+                    NeonTextField(
+                        value = manualGmailInput,
+                        onValueChange = { manualGmailInput = it },
+                        label = "بريد Gmail الفعلي",
+                        placeholder = "example@gmail.com",
+                        leadingIcon = Icons.Default.Email,
+                        accentColor = SpaceColors.NeonCyan
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(20.dp)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_google_logo),
-                                    contentDescription = "Google",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = AppStrings.chooseGoogleAccount(currentLang),
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = TextPrimary
-                                )
-                            }
-
-                            Text(
-                                text = "أدخل بريد حسابك في Google أو افتح قائمة حسابات النظام لاختيار حسابك الفعلي:",
-                                fontFamily = TajawalFontFamily,
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-
-                            OutlinedTextField(
-                                value = manualGmailInput,
-                                onValueChange = { manualGmailInput = it },
-                                label = { Text("بريد Gmail الفعلي") },
-                                placeholder = { Text("example@gmail.com") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showGoogleAccountChooser = false },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(AppStrings.cancel(currentLang), fontFamily = CairoFontFamily, color = TextMuted)
+                        NeonButton(
+                            text = AppStrings.cancel(currentLang),
+                            style = NeonButtonStyle.CYBER_OUTLINE,
+                            onClick = { showGoogleAccountChooser = false },
+                            modifier = Modifier.weight(1f)
+                        )
+                        NeonButton(
+                            text = "متابعة",
+                            style = NeonButtonStyle.PRIMARY_GLOW,
+                            onClick = {
+                                val cleanEmail = manualGmailInput.trim()
+                                if (cleanEmail.contains("@") && cleanEmail.contains(".")) {
+                                    val name = cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                                    selectedPendingAccount = GoogleUser(name = name, email = cleanEmail)
+                                    isTermsAccepted = false
+                                    showGoogleAccountChooser = false
+                                    showTermsDialog = true
+                                } else {
+                                    Toast.makeText(context, "يرجى إدخال بريد إلكتروني صحيح", Toast.LENGTH_SHORT).show()
                                 }
-
-                                Button(
-                                    onClick = {
-                                        val cleanEmail = manualGmailInput.trim()
-                                        if (cleanEmail.contains("@") && cleanEmail.contains(".")) {
-                                            val name = cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
-                                            selectedPendingAccount = GoogleUser(name = name, email = cleanEmail)
-                                            isTermsAccepted = false
-                                            showGoogleAccountChooser = false
-                                            showTermsDialog = true
-                                        } else {
-                                            Toast.makeText(context, "يرجى إدخال بريد إلكتروني صحيح", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                    modifier = Modifier.weight(1.4f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("متابعة", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                                }
-                            }
-                        }
+                            },
+                            modifier = Modifier.weight(1.3f)
+                        )
                     }
                 }
             }
@@ -777,127 +806,87 @@ fun AccountScreen(
         // Terms of Service & Privacy Policy Agreement Dialog
         if (showTermsDialog && selectedPendingAccount != null) {
             val acc = selectedPendingAccount!!
-            androidx.compose.ui.window.Dialog(
+            SpaceDialog(
                 onDismissRequest = { showTermsDialog = false },
-                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+                title = AppStrings.termsAndPrivacy(currentLang),
+                subtitle = acc.email,
+                icon = Icons.Default.VerifiedUser,
+                accentColor = SpaceColors.Emerald,
+                secondaryAccent = SpaceColors.NeonCyan
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.8f))
-                        .clickable { showTermsDialog = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        color = Color(0xFF1B1D2A),
-                        shape = RoundedCornerShape(24.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderSubtle),
-                        modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .clickable(enabled = false) {}
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NeonGlassCard(
+                        accentColor = SpaceColors.NeonCyan,
+                        secondaryAccent = SpaceColors.ElectricBlue,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(22.dp)
-                                .fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_google_logo),
-                                    contentDescription = "Google",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = AppStrings.termsAndPrivacy(currentLang),
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = TextPrimary
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Surface(
-                                color = Color(0xFF131520),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp, max = 150.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "المتابعة بحساب Google: ${acc.email}",
-                                        fontFamily = CairoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = OrangePrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "• تظل جميع ملفات وأصول مشاريعك ملكك بالكامل.\n• يتم حفظ مفاتيح التوقيع Keystore داخل جهازك ولا تتم مشاركتها.\n• تلتزم بعدم بناء أو نشر تطبيقات تخالف سياسات Google Play.",
-                                        fontFamily = TajawalFontFamily,
-                                        fontSize = 11.sp,
-                                        color = TextSecondary,
-                                        lineHeight = 16.sp
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { isTermsAccepted = !isTermsAccepted }
-                            ) {
-                                Checkbox(
-                                    checked = isTermsAccepted,
-                                    onCheckedChange = { isTermsAccepted = it },
-                                    colors = CheckboxDefaults.colors(checkedColor = OrangePrimary)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = AppStrings.iAgree(currentLang),
-                                    fontFamily = CairoFontFamily,
-                                    fontSize = 12.sp,
-                                    color = TextPrimary
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showTermsDialog = false },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(AppStrings.cancel(currentLang), fontFamily = CairoFontFamily, color = TextMuted)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        if (isTermsAccepted) {
-                                            onSignInGoogle(acc)
-                                            showTermsDialog = false
-                                            Toast.makeText(context, "✓ مرحباً بك، تم تسجيل الدخول بحساب: ${acc.email}", Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(context, "يرجى الموافقة على الشروط للمتابعة", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    enabled = isTermsAccepted,
-                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1.5f)
-                                ) {
-                                    Text(AppStrings.agreeAndContinue(currentLang), fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                                }
-                            }
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "المتابعة بحساب Google: ${acc.email}",
+                                fontFamily = CairoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = SpaceColors.NeonCyan
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "• تظل جميع ملفات وأصول مشاريعك ملكك بالكامل.\n• يتم حفظ مفاتيح التوقيع Keystore داخل جهازك ولا تتم مشاركتها.\n• تلتزم بعدم بناء أو نشر تطبيقات تخالف سياسات Google Play.",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = SpaceColors.MutedText,
+                                lineHeight = 17.sp
+                            )
                         }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { isTermsAccepted = !isTermsAccepted }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = isTermsAccepted,
+                            onCheckedChange = { isTermsAccepted = it },
+                            colors = CheckboxDefaults.colors(checkedColor = SpaceColors.NeonCyan)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = AppStrings.iAgree(currentLang),
+                            fontFamily = CairoFontFamily,
+                            fontSize = 12.sp,
+                            color = SpaceColors.White
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        NeonButton(
+                            text = AppStrings.cancel(currentLang),
+                            style = NeonButtonStyle.CYBER_OUTLINE,
+                            onClick = { showTermsDialog = false },
+                            modifier = Modifier.weight(1f)
+                        )
+                        NeonButton(
+                            text = AppStrings.agreeAndContinue(currentLang),
+                            style = NeonButtonStyle.EMERALD_SUCCESS,
+                            enabled = isTermsAccepted,
+                            onClick = {
+                                if (isTermsAccepted) {
+                                    onSignInGoogle(acc)
+                                    showTermsDialog = false
+                                    Toast.makeText(context, "✓ مرحباً بك، تم تسجيل الدخول بحساب: ${acc.email}", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "يرجى الموافقة على الشروط للمتابعة", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1.4f)
+                        )
                     }
                 }
             }
@@ -910,7 +899,7 @@ private fun AccountRowItem(
     title: String,
     subtitle: String? = null,
     icon: ImageVector,
-    tint: Color = TextPrimary,
+    tint: Color = SpaceColors.White,
     onClick: () -> Unit
 ) {
     Row(
@@ -921,11 +910,11 @@ private fun AccountRowItem(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (tint == TextPrimary) OrangePrimary else tint,
+                tint = if (tint == SpaceColors.White) SpaceColors.NeonCyan else tint,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -942,7 +931,7 @@ private fun AccountRowItem(
                         text = subtitle,
                         fontFamily = TajawalFontFamily,
                         fontSize = 11.sp,
-                        color = TextSecondary
+                        color = SpaceColors.MutedText
                     )
                 }
             }
@@ -951,7 +940,7 @@ private fun AccountRowItem(
         Icon(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = TextMuted,
+            tint = SpaceColors.SubtleText,
             modifier = Modifier.size(18.dp)
         )
     }

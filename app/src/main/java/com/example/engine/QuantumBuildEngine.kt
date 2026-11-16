@@ -142,6 +142,10 @@ class QuantumBuildEngine(context: Context) {
         BuildStageInfo("package", 6, "الحفظ والتصدير للمستخدم", "PACKAGE", "نشر الحزمة في التنزيلات + .idsig")
     )
 
+    fun getCapabilitiesProfile(): LocalCapabilitiesProfile {
+        return BuildCapabilitiesInspector.inspect(appContext)
+    }
+
     fun runRealDiagnostic(alias: String = "apkforge_release"): QuantumDiagnosticReport {
         val report = computeDiagnosticReport(alias)
         _quantumReport.value = report
@@ -166,15 +170,16 @@ class QuantumBuildEngine(context: Context) {
             false
         }
         val vaultStatus = keyVault.getVaultStatus(alias)
-        val freeMb = try {
-            val stat = StatFs(appContext.filesDir.absolutePath)
-            (stat.availableBlocksLong * stat.blockSizeLong) / (1024L * 1024L)
-        } catch (_: Throwable) {
-            0L
-        }
-        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+        val capsProfile = BuildCapabilitiesInspector.inspect(appContext)
+        val freeMb = capsProfile.freeStorageMb
+        val abi = capsProfile.deviceAbi
+        val nativeToolsLabel = buildList {
+            if (capsProfile.hasExecutableNativeAapt2) add("aapt2-ELF")
+            if (capsProfile.hasExecutableNativeD8) add("d8-ELF")
+        }.takeIf { it.isNotEmpty() }?.joinToString("+") ?: "AXML/DEX035 Packager"
+
         val summary = if (bcLoaded && apkSigReady) {
-            "محرك Quantum جاهز 100% للبناء والتوقيع داخل التطبيق (aapt2 + d8 + zipalign + Google apksig v1-v4) • حماية المفاتيح: ${vaultStatus.protectionMode}"
+            "محرك Quantum المحلي جاهز للتغليف والتوقيع (Google apksig v1-v4 + ZipAlign + $nativeToolsLabel) • حماية المفاتيح: ${vaultStatus.protectionMode}. ترجمة Kotlin/Compose الكاملة و Play AAB الرسمي تتم عبر Cloud Gradle + Android SDK."
         } else {
             "جارٍ تهيئة مكتبات التشفير والتوقيع المدمجة داخل التطبيق..."
         }
@@ -404,7 +409,8 @@ class QuantumBuildEngine(context: Context) {
             addLog("🛠️ $ ${commandSpec.aapt2LinkCmd}")
             val (wsRoot, wsFilesCount) = assembler.prepareWorkspaceOnDisk(project, options)
             val aapt2Res = aapt2Compiler.compile(project, options, commandSpec)
-            addLog("[AAPT2] Linked AndroidManifest.xml (${aapt2Res.binaryManifestBytes.size} B AXML) + resources.arsc (${aapt2Res.resourcesArscBytes.size} B)")
+            val aaptMode = if (aapt2Res.usedNativeBinary) "Native aapt2 ELF" else "On-Device Binary AXML/ARSC Encoder"
+            addLog("[AAPT2][$aaptMode] Linked AndroidManifest.xml (${aapt2Res.binaryManifestBytes.size} B AXML) + resources.arsc (${aapt2Res.resourcesArscBytes.size} B)")
             addLog("🎨 AAPT2 الموارد المدمجة: ${aapt2Res.compiledResourcesMap.size} ملف • الأذونات: ${aapt2Res.encodedPermissions.joinToString(", ") { it.substringAfterLast('.') }}")
 
             val d2 = maxOf(1L, System.currentTimeMillis() - t2)
@@ -422,14 +428,18 @@ class QuantumBuildEngine(context: Context) {
             currentStageId = "d8"
             val t3 = System.currentTimeMillis()
             updateStage("d8", BuildStageStatus.RUNNING)
-            _engineState.value = EngineStatus.Running(0.52f, "تحويل الكود إلى classes.dex عبر d8")
-            onProgressUpdate?.invoke(0.52f, "ترجمة الكود (d8)")
+            _engineState.value = EngineStatus.Running(0.52f, "تجهيز classes.dex والأصول (D8 / Packager)")
+            onProgressUpdate?.invoke(0.52f, "ترجمة الكود والأصول (d8)")
 
-            addLog("[D8] Dexing bytecode & packaging assets...")
+            addLog("[D8] Building Dalvik container & packaging real workspace assets...")
             addLog("⚙️ $ ${commandSpec.d8CompileCmd}")
             val d8Res = d8Compiler.compile(project, buildType, options, commandSpec)
-            addLog("[D8] Built classes.dex (${d8Res.dexBytes.size} B • Dalvik 035 • Classes=${d8Res.dexClassCount})")
+            val d8Mode = if (d8Res.usedNativeBinary) "Native d8 ELF" else "DEX 035 Container + Hybrid Web Assets"
+            addLog("[D8][$d8Mode] Built classes.dex (${d8Res.dexBytes.size} B • Classes=${d8Res.dexClassCount})")
             addLog("🌐 الأصول المحقونة: ${d8Res.assetEntries.size} ملف + ${d8Res.sourceSnapshotEntries.size} ملف مصدر للمراجعة")
+            if (buildType.equals("aab", ignoreCase = true)) {
+                addLog("ℹ️ ملاحظة قدرات: التغليف المحلي ينتج حزمة AAB موقّعة للاختبار؛ لحزمة Play الرسمية (bundleRelease + bundletool) استخدم البناء السحابي Gradle.")
+            }
 
             val d3 = maxOf(1L, System.currentTimeMillis() - t3)
             _telemetry.value = _telemetry.value.copy(
@@ -668,8 +678,9 @@ class QuantumBuildEngine(context: Context) {
 
     private fun addLog(line: String) {
         val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        val safeLine = BuildLogSanitizer.redactSensitive(line)
         val updated = _logStream.value.toMutableList()
-        updated.add("[$timestamp] $line")
+        updated.add("[$timestamp] $safeLine")
         _logStream.value = updated
     }
 

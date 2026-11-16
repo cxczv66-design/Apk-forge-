@@ -4,7 +4,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,16 +20,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.space.NeonGlassCard
+import com.example.ui.components.space.Space3DFeatureBadge
 import com.example.ui.theme.*
 
 /**
- * Clean 3D UI Surface Card:
- * بطاقة نظيفة بعمق 3D حقيقي، حواف مضيئة، وظلال لونية متدرجة وفق إرشادات Material 3.
+ * Clean 3D UI Surface Card — مدمج مع نظام Space NeonGlassCard الموحد
  */
 @Composable
 fun ThreeDSurfaceCard(
@@ -39,76 +38,38 @@ fun ThreeDSurfaceCard(
     cornerRadius: Dp = 22.dp,
     elevation: Dp = 14.dp,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     testTag: String = "",
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
-    val baseModifier = modifier
-        .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
-        .shadow(
-            elevation = elevation,
-            shape = shape,
-            spotColor = accentColor.copy(alpha = 0.45f),
-            ambientColor = Color.Black.copy(alpha = 0.85f)
-        )
-        .clip(shape)
-        .background(
-            Brush.verticalGradient(
-                listOf(
-                    DarkSurfaceElevated,
-                    Color(0xFF141724),
-                    Color(0xFF10121C)
-                )
-            )
-        )
-        .border(
-            width = 1.2.dp,
-            brush = Brush.linearGradient(
-                listOf(
-                    accentColor.copy(alpha = 0.65f),
-                    Color.White.copy(alpha = 0.08f),
-                    accentColor.copy(alpha = 0.25f)
-                )
-            ),
-            shape = shape
-        )
-        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-
-    Column(modifier = baseModifier, content = content)
+    NeonGlassCard(
+        accentColor = accentColor,
+        secondaryAccent = SpaceColors.NeonPurple,
+        modifier = modifier,
+        shape = RoundedCornerShape(cornerRadius),
+        elevation = elevation,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        testTag = testTag,
+        content = content
+    )
 }
 
 @Composable
 fun ThreeDIconBadge(
     icon: ImageVector,
     accentColor: Color,
-    secondaryColor: Color = accentColor.copy(alpha = 0.65f),
+    secondaryColor: Color = SpaceColors.ElectricBlue,
     size: Dp = 50.dp,
     cornerRadius: Dp = 16.dp
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
-    Box(
-        modifier = Modifier
-            .size(size)
-            .shadow(10.dp, shape, spotColor = accentColor.copy(alpha = 0.55f))
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        accentColor.copy(alpha = 0.28f),
-                        secondaryColor.copy(alpha = 0.16f)
-                    )
-                )
-            )
-            .border(1.dp, accentColor.copy(alpha = 0.55f), shape),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = accentColor,
-            modifier = Modifier.size(size * 0.52f)
-        )
-    }
+    Space3DFeatureBadge(
+        icon = icon,
+        accentColor = accentColor,
+        secondaryColor = secondaryColor,
+        size = size,
+        modifier = Modifier.clip(RoundedCornerShape(cornerRadius))
+    )
 }
 
 @Composable
@@ -119,13 +80,18 @@ fun ThreeDStatPill(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = accentColor.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.32f)),
+        color = SpaceColors.SurfaceDeep.copy(alpha = 0.82f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(accentColor.copy(alpha = 0.65f), SpaceColors.NeonPurple.copy(alpha = 0.25f))
+            )
+        ),
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -139,7 +105,7 @@ fun ThreeDStatPill(
                 text = label,
                 fontFamily = TajawalFontFamily,
                 fontSize = 10.sp,
-                color = TextSecondary,
+                color = SpaceColors.MutedText,
                 maxLines = 1
             )
         }
@@ -148,34 +114,42 @@ fun ThreeDStatPill(
 
 /**
  * نواة الذكاء الاصطناعي الهولوغرافية المتحركة (Holographic 3D AI Orb)
- * لشاشة AI Wizard والمؤشرات الذكية.
  */
 @Composable
 fun HolographicAiOrb(
     icon: ImageVector,
-    accentColor: Color = Color(0xFFA855F7),
-    secondaryColor: Color = Color(0xFF38BDF8),
+    accentColor: Color = SpaceColors.NeonPurple,
+    secondaryColor: Color = SpaceColors.NeonCyan,
     size: Dp = 76.dp,
     isPulsing: Boolean = true
 ) {
+    val prefs = LocalSpaceUiPreferences.current
     val infinite = rememberInfiniteTransition(label = "ai_orb")
-    val pulse by infinite.animateFloat(
-        initialValue = if (isPulsing) 0.94f else 1f,
-        targetValue = if (isPulsing) 1.07f else 1f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "orb_scale"
-    )
-    val glowAlpha by infinite.animateFloat(
-        initialValue = 0.32f,
-        targetValue = 0.72f,
-        animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
-        label = "orb_glow"
-    )
+    val pulse by if (!prefs.reducedMotion && isPulsing) {
+        infinite.animateFloat(
+            initialValue = 0.94f,
+            targetValue = 1.07f,
+            animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "orb_scale"
+        )
+    } else {
+        androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    }
+    val glowAlpha by if (!prefs.reducedMotion) {
+        infinite.animateFloat(
+            initialValue = 0.34f,
+            targetValue = 0.78f,
+            animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
+            label = "orb_glow"
+        )
+    } else {
+        androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0.55f) }
+    }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(size + 16.dp)
+            .size(size + 18.dp)
             .graphicsLayer {
                 scaleX = pulse
                 scaleY = pulse
@@ -198,20 +172,20 @@ fun HolographicAiOrb(
         Box(
             modifier = Modifier
                 .size(size)
-                .shadow(16.dp, CircleShape, spotColor = accentColor)
+                .shadow(18.dp, CircleShape, spotColor = secondaryColor)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
-                        listOf(accentColor, secondaryColor)
+                        listOf(accentColor, SpaceColors.ElectricBlue, secondaryColor)
                     )
                 )
-                .border(1.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                .border(1.6.dp, SpaceColors.White.copy(alpha = 0.55f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White,
+                tint = SpaceColors.White,
                 modifier = Modifier.size(size * 0.48f)
             )
         }

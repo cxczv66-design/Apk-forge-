@@ -90,7 +90,9 @@ class ProjectExporter(private val context: Context) {
      */
     fun buildProjectTextEntries(
         project: AppProject,
-        options: BuildOptimizationOptions = BuildOptimizationOptions()
+        options: BuildOptimizationOptions = BuildOptimizationOptions(),
+        forceCloudWorkflow: Boolean = false,
+        cloudBuildTarget: String = "both"
     ): Map<String, String> {
         val safeName = project.name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "ApkForgeApp" }
         val pkg = project.packageConfig.packageName
@@ -146,54 +148,78 @@ class ProjectExporter(private val context: Context) {
             """    implementation("com.google.android.play:review-ktx:2.0.1")"""
         } else ""
 
-        entries["app/build.gradle.kts"] = """
-            plugins {
-                id("com.android.application")
-                id("org.jetbrains.kotlin.android")
-            }
+        val isComposeSource = ComposeProjectTemplateGenerator.isComposeSource(project)
 
-            android {
-                namespace = "$pkg"
-                compileSdk = ${maxOf(project.packageConfig.targetSdk, 34)}
-
-                defaultConfig {
-                    applicationId = "$pkg"
-                    minSdk = ${project.packageConfig.minSdk}
-                    targetSdk = ${maxOf(project.packageConfig.targetSdk, 34)}
-                    versionCode = ${project.packageConfig.versionCode}
-                    versionName = "${project.packageConfig.versionName}"
+        entries["app/build.gradle.kts"] = if (isComposeSource) {
+            ComposeProjectTemplateGenerator.buildAppGradleKts(project, options)
+        } else {
+            """
+                plugins {
+                    id("com.android.application")
+                    id("org.jetbrains.kotlin.android")
                 }
 
-                buildTypes {
-                    release {
-                        isMinifyEnabled = ${options.r8Minify}
-                        isShrinkResources = ${options.shrinkResources}
-                        proguardFiles(
-                            getDefaultProguardFile("proguard-android-optimize.txt"),
-                            "proguard-rules.pro"
-                        )
+                android {
+                    namespace = "$pkg"
+                    compileSdk = ${maxOf(project.packageConfig.targetSdk, 34)}
+
+                    defaultConfig {
+                        applicationId = "$pkg"
+                        minSdk = ${project.packageConfig.minSdk}
+                        targetSdk = ${maxOf(project.packageConfig.targetSdk, 34)}
+                        versionCode = ${project.packageConfig.versionCode}
+                        versionName = "${project.packageConfig.versionName}"
+                    }
+
+                    val envKeystorePath = System.getenv("APKFORGE_KEYSTORE_PATH")
+                    val hasCustomReleaseKeystore = !envKeystorePath.isNullOrBlank() && file(envKeystorePath).exists()
+                    signingConfigs {
+                        if (hasCustomReleaseKeystore) {
+                            create("release") {
+                                storeFile = file(envKeystorePath!!)
+                                storePassword = System.getenv("APKFORGE_STORE_PASS") ?: ""
+                                keyAlias = System.getenv("APKFORGE_KEY_ALIAS") ?: "${project.signingConfig.keyAlias.ifBlank { "apkforge_release" }}"
+                                keyPassword = System.getenv("APKFORGE_KEY_PASS") ?: ""
+                            }
+                        }
+                    }
+
+                    buildTypes {
+                        release {
+                            signingConfig = if (hasCustomReleaseKeystore) {
+                                signingConfigs.getByName("release")
+                            } else {
+                                signingConfigs.getByName("debug")
+                            }
+                            isMinifyEnabled = ${options.r8Minify}
+                            isShrinkResources = ${options.shrinkResources}
+                            proguardFiles(
+                                getDefaultProguardFile("proguard-android-optimize.txt"),
+                                "proguard-rules.pro"
+                            )
+                        }
+                    }
+                    $splitsBlock
+                    compileOptions {
+                        sourceCompatibility = JavaVersion.VERSION_17
+                        targetCompatibility = JavaVersion.VERSION_17
+                    }
+                    kotlinOptions {
+                        jvmTarget = "17"
                     }
                 }
-                $splitsBlock
-                compileOptions {
-                    sourceCompatibility = JavaVersion.VERSION_17
-                    targetCompatibility = JavaVersion.VERSION_17
-                }
-                kotlinOptions {
-                    jvmTarget = "17"
-                }
-            }
 
-            dependencies {
-                implementation("androidx.core:core-ktx:1.13.1")
-                implementation("androidx.appcompat:appcompat:1.7.0")
-                implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
-                implementation("androidx.drawerlayout:drawerlayout:1.2.0")
-                implementation("com.google.android.material:material:1.12.0")
-            $biometricDep
-            $playReviewDep
-            }
-        """.trimIndent()
+                dependencies {
+                    implementation("androidx.core:core-ktx:1.13.1")
+                    implementation("androidx.appcompat:appcompat:1.7.0")
+                    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+                    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
+                    implementation("com.google.android.material:material:1.12.0")
+                $biometricDep
+                $playReviewDep
+                }
+            """.trimIndent()
+        }
 
         entries["app/proguard-rules.pro"] = """
             -keepclassmembers class * {
@@ -215,7 +241,18 @@ class ProjectExporter(private val context: Context) {
                 "package=\"${project.packageConfig.packageName}\">\n    <uses-sdk android:minSdkVersion=\"$standaloneMinSdk\" android:targetSdkVersion=\"$standaloneTargetSdk\" />"
             )
         entries["standalone_cli/AndroidManifest.xml"] = ensureXmlStartsClean(standaloneManifest)
-        entries["app/src/main/java/$pkgPath/MainActivity.kt"] = buildGeneratedMainActivity(project, relEntryAsset)
+        if (isComposeSource) {
+            entries["app/src/main/java/$pkgPath/ui/theme/Theme.kt"] =
+                ComposeProjectTemplateGenerator.buildThemeKt(project)
+            entries["app/src/main/java/$pkgPath/MainActivity.kt"] =
+                ComposeProjectTemplateGenerator.buildComposeMainActivity(
+                    project = project,
+                    relEntryAsset = relEntryAsset,
+                    hasRealWorkspaceAssets = realAssets.isNotEmpty()
+                )
+        } else {
+            entries["app/src/main/java/$pkgPath/MainActivity.kt"] = buildGeneratedMainActivity(project, relEntryAsset)
+        }
         entries["standalone_cli/src/$pkgPath/MainActivity.java"] = buildStandaloneJavaActivity(project, relEntryAsset)
         val escapedAppName = escapeAndroidXmlString(project.name.ifBlank { "ApkForge App" })
         entries["app/src/main/res/values/strings.xml"] = ensureXmlStartsClean(
@@ -263,8 +300,8 @@ class ProjectExporter(private val context: Context) {
             entries["app/src/main/assets/index.html"] = buildDemoIndexHtml(project)
         }
 
-        if (project.bridgeConfig.gitHubCiEnabled) {
-            entries[".github/workflows/apkforge-build.yml"] = buildGitHubActionsWorkflow(safeName)
+        if (project.bridgeConfig.gitHubCiEnabled || forceCloudWorkflow) {
+            entries[".github/workflows/apkforge-build.yml"] = buildGitHubActionsWorkflow(safeName, cloudBuildTarget)
         }
 
         entries["PRIVACY_POLICY.md"] = generatePrivacyPolicy(project)
@@ -2276,9 +2313,17 @@ class ProjectExporter(private val context: Context) {
         """.trimIndent()
     }
 
-    private fun buildGitHubActionsWorkflow(appName: String): String {
+    private fun buildGitHubActionsWorkflow(
+        appName: String,
+        targetType: String = "both"
+    ): String {
+        val gradleTasks = when (targetType.lowercase()) {
+            "apk", "release", "debug" -> "assembleRelease"
+            "aab" -> "bundleRelease"
+            else -> "assembleRelease bundleRelease"
+        }
         return """
-            name: ApkForge Universal Release Build ($appName)
+            name: ApkForge Cloud Gradle Build ($appName)
 
             on:
               push:
@@ -2295,7 +2340,7 @@ class ProjectExporter(private val context: Context) {
 
             jobs:
               build-universal-release:
-                name: Build Universal APK (all ABIs) & Release AAB
+                name: Build Gradle ($gradleTasks) with Android SDK
                 runs-on: ubuntu-latest
                 steps:
                   - name: Checkout repository
@@ -2315,28 +2360,50 @@ class ProjectExporter(private val context: Context) {
                         yes | "${'$'}SDKMANAGER" --licenses > /dev/null || true
                       fi
 
+                  - name: Prepare Encrypted Signing Secret (if configured)
+                    shell: bash
+                    env:
+                      SIGNING_KEYSTORE_BASE64: ${'$'}{{ secrets.SIGNING_KEYSTORE_BASE64 }}
+                      SIGNING_STORE_PASSWORD: ${'$'}{{ secrets.SIGNING_STORE_PASSWORD }}
+                      SIGNING_KEY_ALIAS: ${'$'}{{ secrets.SIGNING_KEY_ALIAS }}
+                      SIGNING_KEY_PASSWORD: ${'$'}{{ secrets.SIGNING_KEY_PASSWORD }}
+                    run: |
+                      if [ -n "${'$'}SIGNING_KEYSTORE_BASE64" ]; then
+                        echo "${'$'}SIGNING_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+                        echo "APKFORGE_KEYSTORE_PATH=${'$'}(pwd)/app/release.keystore" >> ${'$'}GITHUB_ENV
+                        echo "APKFORGE_STORE_PASS=${'$'}SIGNING_STORE_PASSWORD" >> ${'$'}GITHUB_ENV
+                        echo "APKFORGE_KEY_ALIAS=${'$'}SIGNING_KEY_ALIAS" >> ${'$'}GITHUB_ENV
+                        echo "APKFORGE_KEY_PASS=${'$'}SIGNING_KEY_PASSWORD" >> ${'$'}GITHUB_ENV
+                        echo "Release keystore prepared from GitHub Secrets"
+                      else
+                        echo "No SIGNING_KEYSTORE_BASE64 secret set; using CI fallback signing"
+                      fi
+
                   - name: Setup Gradle
                     uses: gradle/actions/setup-gradle@v4
                     with:
                       gradle-version: '8.7'
 
-                  - name: Build Universal Release APK & Play AAB
-                    run: gradle assembleRelease bundleRelease --no-daemon
+                  - name: Build Android Package ($gradleTasks)
+                    run: gradle $gradleTasks --no-daemon
 
-                  - name: Stage Single Universal APK Artifact
+                  - name: Stage APK Artifact
                     run: |
                       mkdir -p dist_universal
                       APK_FILE="${'$'}(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" ! -name "*debug*" | head -n 1)"
-                      if [ -n "${'$'}APK_FILE" ]; then cp "${'$'}APK_FILE" "dist_universal/$appName-universal-release.apk"; fi
+                      if [ -z "${'$'}APK_FILE" ]; then
+                        APK_FILE="${'$'}(find app/build/outputs/apk/release -name "*.apk" | head -n 1)"
+                      fi
+                      if [ -n "${'$'}APK_FILE" ]; then cp "${'$'}APK_FILE" "dist_universal/$appName-cloud-release.apk"; fi
 
-                  - name: Upload Single Universal Release APK
+                  - name: Upload Cloud Release APK
                     uses: actions/upload-artifact@v4
                     with:
-                      name: $appName-universal-release-apk
+                      name: $appName-cloud-release-apk
                       path: dist_universal/*.apk
                       if-no-files-found: ignore
 
-                  - name: Upload Single Play Release AAB
+                  - name: Upload Play Release AAB
                     uses: actions/upload-artifact@v4
                     with:
                       name: $appName-release-aab

@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -39,8 +40,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.domain.model.*
 import com.example.engine.AdaptiveSourceAnalyzer
 import com.example.engine.LocalWorkspaceEngine
@@ -48,16 +47,15 @@ import com.example.ui.components.PhaseInteractivePhoneCard
 import com.example.ui.components.PwaSiteCustomizerDialog
 import com.example.ui.components.RealAppIconAvatar
 import com.example.ui.components.ThreeDStatPill
-import com.example.ui.components.ThreeDSurfaceCard
+import com.example.ui.components.space.*
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * استوديو المراحل التكيفية الموحد (Omni-Adaptive Phase Studio):
- * - يكيّف عدد المراحل والميزات تلقائياً حسب المصدر وحجمه (4 للـ APK، 5-100 للويب، 12+ للذكاء الاصطناعي).
- * - يعرض معاينة ويب حية تفاعلية في كل مرحلة ويب مع تحديث فوري لتعديلات الألوان والنصوص والصور والأزرار.
- * - ينقل المستخدم في النهاية إلى شاشة المعاينة الحية 3D ومنها حصراً إلى البناء النهائي (APK / AAB / APKS).
+ * استوديو المراحل التكيفية الفضائي (Omni-Adaptive Phase Studio):
+ * - يحافظ 100% على منطق التحليل التكيفي والمعاينة الحية داخل الهاتف وتوليد Keystore
+ * - واجهة فضائية متكاملة مع NeonProgressIndicator وNeonGlassCard وNeonButton وSpaceDialog
  */
 @Composable
 fun AdaptivePhaseStudioScreen(
@@ -110,7 +108,7 @@ fun AdaptivePhaseStudioScreen(
     var showPwaEditorDialog by remember { mutableStateOf(false) }
 
     val phaseAccent = remember(currentPhase.accentHex, activeProject.accentColorHex) {
-        parseColorSafe(currentPhase.accentHex, parseColorSafe(activeProject.accentColorHex, OrangePrimary))
+        parseColorSafe(currentPhase.accentHex, parseColorSafe(activeProject.accentColorHex, SpaceColors.NeonCyan))
     }
 
     val iconPickerLauncher = rememberLauncherForActivityResult(
@@ -137,32 +135,42 @@ fun AdaptivePhaseStudioScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = Color.Transparent,
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkBackground)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                SpaceColors.DeepSpace.copy(alpha = 0.96f),
+                                SpaceColors.MidnightBlue.copy(alpha = 0.88f)
+                            )
+                        )
+                    )
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
+                    NeonIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "رجوع",
                         onClick = {
                             onSaveProject(activeProject)
                             onBack()
                         },
-                        modifier = Modifier.testTag("adaptive_studio_back_btn")
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = TextPrimary)
-                    }
+                        borderAccent = phaseAccent,
+                        testTag = "adaptive_studio_back_btn"
+                    )
 
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
@@ -170,7 +178,7 @@ fun AdaptivePhaseStudioScreen(
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 16.sp,
-                            color = TextPrimary,
+                            color = SpaceColors.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -182,29 +190,26 @@ fun AdaptivePhaseStudioScreen(
                         )
                     }
 
-                    IconButton(
+                    NeonIconButton(
+                        icon = Icons.Filled.ViewList,
+                        contentDescription = "كل المراحل",
                         onClick = { showAllPhasesDialog = true },
-                        modifier = Modifier.testTag("open_all_phases_btn")
-                    ) {
-                        Icon(Icons.Filled.ViewList, contentDescription = "كل المراحل", tint = OrangePrimary)
-                    }
+                        tint = SpaceColors.NeonCyan,
+                        borderAccent = SpaceColors.NeonPurple,
+                        testTag = "open_all_phases_btn"
+                    )
                 }
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
 
-                LinearProgressIndicator(
-                    progress = {
-                        ((currentPhaseIndex + 1).toFloat() / adaptivePlan.phases.size.coerceAtLeast(1)).coerceIn(0f, 1f)
-                    },
-                    color = phaseAccent,
-                    trackColor = DarkSurfaceElevated,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                NeonProgressIndicator(
+                    progress = ((currentPhaseIndex + 1).toFloat() / adaptivePlan.phases.size.coerceAtLeast(1)).coerceIn(0f, 1f),
+                    height = 5.dp,
+                    startColor = phaseAccent,
+                    endColor = SpaceColors.NeonCyan
                 )
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
 
                 // Adaptive phase chips bar
                 LazyRow(
@@ -214,12 +219,17 @@ fun AdaptivePhaseStudioScreen(
                 ) {
                     itemsIndexed(adaptivePlan.phases) { idx, phase ->
                         val selected = idx == currentPhaseIndex
-                        val chipColor = parseColorSafe(phase.accentHex, OrangePrimary)
+                        val chipColor = parseColorSafe(phase.accentHex, SpaceColors.NeonCyan)
                         Surface(
-                            color = if (selected) chipColor.copy(alpha = 0.22f) else DarkSurfaceElevated,
+                            color = if (selected) chipColor.copy(alpha = 0.24f) else SpaceColors.MidnightBlue.copy(alpha = 0.78f),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, if (selected) chipColor else GlassBorderSubtle),
+                            border = BorderStroke(
+                                width = if (selected) 1.4.dp else 1.dp,
+                                color = if (selected) chipColor else SpaceColors.GlassBorderSubtle
+                            ),
                             modifier = Modifier
+                                .shadow(if (selected) 8.dp else 0.dp, RoundedCornerShape(12.dp), spotColor = chipColor)
+                                .clip(RoundedCornerShape(12.dp))
                                 .clickable { currentPhaseIndex = idx }
                                 .testTag("adaptive_phase_chip_$idx")
                         ) {
@@ -229,7 +239,7 @@ fun AdaptivePhaseStudioScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Surface(
-                                    color = if (selected) chipColor else Color.White.copy(alpha = 0.1f),
+                                    color = if (selected) chipColor else SpaceColors.SurfaceElevated,
                                     shape = CircleShape
                                 ) {
                                     Text(
@@ -237,7 +247,7 @@ fun AdaptivePhaseStudioScreen(
                                         fontFamily = CairoFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 10.sp,
-                                        color = Color.White,
+                                        color = SpaceColors.White,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                     )
                                 }
@@ -246,7 +256,7 @@ fun AdaptivePhaseStudioScreen(
                                     fontFamily = CairoFontFamily,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 11.sp,
-                                    color = if (selected) TextPrimary else TextSecondary,
+                                    color = if (selected) SpaceColors.White else SpaceColors.MutedText,
                                     maxLines = 1
                                 )
                             }
@@ -256,36 +266,51 @@ fun AdaptivePhaseStudioScreen(
             }
         },
         bottomBar = {
-            Surface(
-                color = DarkSurface,
-                border = BorderStroke(1.dp, GlassBorderSubtle),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                SpaceColors.MidnightBlue.copy(alpha = 0.95f),
+                                SpaceColors.DeepSpace.copy(alpha = 0.98f)
+                            )
+                        )
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.horizontalGradient(
+                            listOf(SpaceColors.NeonCyan.copy(alpha = 0.55f), phaseAccent.copy(alpha = 0.65f))
+                        ),
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (currentPhaseIndex > 0) {
-                        OutlinedButton(
-                            onClick = { currentPhaseIndex-- },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .height(50.dp)
-                                .testTag("adaptive_prev_phase_btn")
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("السابق", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
+                        NeonButton(
+                            text = "السابق",
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            style = NeonButtonStyle.CYBER_OUTLINE,
+                            height = 50.dp,
+                            testTag = "adaptive_prev_phase_btn",
+                            onClick = { currentPhaseIndex-- }
+                        )
                     }
 
                     val isLastPhase = currentPhaseIndex >= adaptivePlan.phases.lastIndex
-                    Button(
+                    NeonButton(
+                        text = if (isLastPhase) "المرحلة النهائية: المعاينة الحية 3D ← البناء 📱" else "المرحلة التالية (${currentPhaseIndex + 2}/${adaptivePlan.phases.size})",
+                        icon = if (isLastPhase) Icons.Default.RocketLaunch else Icons.AutoMirrored.Filled.ArrowForward,
+                        style = if (isLastPhase) NeonButtonStyle.EMERALD_SUCCESS else NeonButtonStyle.PRIMARY_GLOW,
+                        height = 50.dp,
+                        testTag = if (isLastPhase) "adaptive_finish_to_sandbox_btn" else "adaptive_next_phase_btn",
                         onClick = {
                             onSaveProject(activeProject)
                             if (!isLastPhase) {
@@ -294,258 +319,242 @@ fun AdaptivePhaseStudioScreen(
                                 onProceedToLiveSandbox(activeProject, currentPhaseIndex)
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                        contentPadding = PaddingValues(),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    if (isLastPhase) listOf(StatusGreen, CyanAccent) else listOf(phaseAccent, OrangePrimary)
-                                ),
-                                RoundedCornerShape(14.dp)
-                            )
-                            .testTag(if (isLastPhase) "adaptive_finish_to_sandbox_btn" else "adaptive_next_phase_btn")
-                    ) {
-                        Text(
-                            text = if (isLastPhase) "المرحلة النهائية: المعاينة الحية 3D ← البناء 📱" else "المرحلة التالية (${currentPhaseIndex + 2}/${adaptivePlan.phases.size})",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                        modifier = Modifier.weight(1f)
+                    )
 
                     if (!isLastPhase) {
-                        FilledTonalIconButton(
+                        NeonIconButton(
+                            icon = Icons.Filled.PhoneAndroid,
+                            contentDescription = "معاينة حية وبناء",
                             onClick = {
                                 onSaveProject(activeProject)
                                 onProceedToLiveSandbox(activeProject, currentPhaseIndex)
                             },
-                            modifier = Modifier
-                                .size(50.dp)
-                                .testTag("adaptive_quick_sandbox_btn")
-                        ) {
-                            Icon(Icons.Filled.PhoneAndroid, contentDescription = "معاينة حية وبناء", tint = CyanAccent)
-                        }
+                            tint = SpaceColors.NeonCyan,
+                            borderAccent = SpaceColors.NeonCyan,
+                            size = 50.dp,
+                            testTag = "adaptive_quick_sandbox_btn"
+                        )
                     }
                 }
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .imePadding()
-                .padding(horizontal = 16.dp)
-                .testTag("adaptive_phase_studio_screen")
+                .padding(paddingValues),
+            contentAlignment = Alignment.TopCenter
         ) {
-            PhaseInteractivePhoneCard(
-                project = activeProject,
-                currentPhase = currentPhase,
-                totalPhases = adaptivePlan.phases.size,
-                phaseAccent = phaseAccent,
-                isExpandedPane = showPreviewPane,
-                reloadTrigger = webReloadTrigger,
-                onToggleCollapsePane = { showPreviewPane = !showPreviewPane },
-                onReloadWebView = { webReloadTrigger++ },
-                onProceedToFullSandbox = {
-                    onSaveProject(activeProject)
-                    onProceedToLiveSandbox(activeProject, currentPhaseIndex)
-                },
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 6.dp)
-            )
-
-            LazyColumn(
-                state = featureListState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp)
+                    .fillMaxSize()
+                    .widthIn(max = SpaceDimensions.MaxContentWidth)
+                    .imePadding()
+                    .padding(horizontal = 16.dp)
+                    .testTag("adaptive_phase_studio_screen")
             ) {
-                // Complexity report telemetry header
-                item {
-                    val rep = adaptivePlan.report
-                    ThreeDSurfaceCard(accentColor = phaseAccent, elevation = 10.dp) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = currentPhase.title,
-                                    fontFamily = CairoFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 16.sp,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = currentPhase.subtitle,
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 12.sp,
-                                    color = TextSecondary
-                                )
-                            }
+                PhaseInteractivePhoneCard(
+                    project = activeProject,
+                    currentPhase = currentPhase,
+                    totalPhases = adaptivePlan.phases.size,
+                    phaseAccent = phaseAccent,
+                    isExpandedPane = showPreviewPane,
+                    reloadTrigger = webReloadTrigger,
+                    onToggleCollapsePane = { showPreviewPane = !showPreviewPane },
+                    onReloadWebView = { webReloadTrigger++ },
+                    onProceedToFullSandbox = {
+                        onSaveProject(activeProject)
+                        onProceedToLiveSandbox(activeProject, currentPhaseIndex)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 6.dp)
+                )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                LazyColumn(
+                    state = featureListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp)
+                ) {
+                    item {
+                        val rep = adaptivePlan.report
+                        NeonGlassCard(
+                            accentColor = phaseAccent,
+                            secondaryAccent = SpaceColors.NeonCyan,
+                            elevation = 12.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                ThreeDStatPill("المراحل", "${adaptivePlan.phases.size}", phaseAccent, Modifier.weight(1f))
-                                if (activeProject.sourceType == SourceType.APK_PACKAGE) {
-                                    ThreeDStatPill("الصلاحيات", "${rep.permissionCount}", CyanAccent, Modifier.weight(1f))
-                                    ThreeDStatPill("الميزات", "${currentPhase.features.size}", StatusGreen, Modifier.weight(1f))
-                                } else {
-                                    ThreeDStatPill("الصور", "${rep.imageCount}", CyanAccent, Modifier.weight(1f))
-                                    ThreeDStatPill("الأزرار", "${rep.buttonCount}", OrangePrimary, Modifier.weight(1f))
-                                    ThreeDStatPill("النصوص", "${rep.textBlockCount}", Color(0xFFA855F7), Modifier.weight(1f))
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = currentPhase.title,
+                                        fontFamily = CairoFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 16.sp,
+                                        color = SpaceColors.White
+                                    )
+                                    Text(
+                                        text = currentPhase.subtitle,
+                                        fontFamily = TajawalFontFamily,
+                                        fontSize = 12.sp,
+                                        color = SpaceColors.MutedText
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    ThreeDStatPill("المراحل", "${adaptivePlan.phases.size}", phaseAccent, Modifier.weight(1f))
+                                    if (activeProject.sourceType == SourceType.APK_PACKAGE) {
+                                        ThreeDStatPill("الصلاحيات", "${rep.permissionCount}", SpaceColors.NeonCyan, Modifier.weight(1f))
+                                        ThreeDStatPill("الميزات", "${currentPhase.features.size}", SpaceColors.Emerald, Modifier.weight(1f))
+                                    } else {
+                                        ThreeDStatPill("الصور", "${rep.imageCount}", SpaceColors.NeonCyan, Modifier.weight(1f))
+                                        ThreeDStatPill("الأزرار", "${rep.buttonCount}", SpaceColors.Gold, Modifier.weight(1f))
+                                        ThreeDStatPill("النصوص", "${rep.textBlockCount}", SpaceColors.NeonPurple, Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                // 3D APK Identity Card inside APK phases
-                if (!currentPhase.supportsLiveWebPreview && activeProject.sourceType == SourceType.APK_PACKAGE) {
-                item {
-                    ThreeDSurfaceCard(accentColor = StatusGreen, elevation = 10.dp) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            RealAppIconAvatar(project = activeProject, size = 56.dp, cornerRadius = 16.dp)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(activeProject.name, fontFamily = CairoFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = TextPrimary)
-                                Text(activeProject.packageConfig.packageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = CyanAccent)
-                                Text(
-                                    text = "الإصدار ${activeProject.packageConfig.versionName} (${activeProject.packageConfig.versionCode})",
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                            Surface(color = StatusGreen.copy(alpha = 0.16f), shape = RoundedCornerShape(10.dp)) {
-                                Text(
-                                    text = "APK Mode",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = StatusGreen,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                    if (!currentPhase.supportsLiveWebPreview && activeProject.sourceType == SourceType.APK_PACKAGE) {
+                        item {
+                            NeonGlassCard(
+                                accentColor = SpaceColors.Emerald,
+                                secondaryAccent = SpaceColors.NeonCyan,
+                                elevation = 12.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    RealAppIconAvatar(project = activeProject, size = 56.dp, cornerRadius = 16.dp)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(activeProject.name, fontFamily = CairoFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = SpaceColors.White)
+                                        Text(activeProject.packageConfig.packageName, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = SpaceColors.NeonCyan)
+                                        Text(
+                                            text = "الإصدار ${activeProject.packageConfig.versionName} (${activeProject.packageConfig.versionCode})",
+                                            fontFamily = TajawalFontFamily,
+                                            fontSize = 11.sp,
+                                            color = SpaceColors.MutedText
+                                        )
+                                    }
+                                    Surface(
+                                        color = SpaceColors.Emerald.copy(alpha = 0.16f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, SpaceColors.Emerald.copy(alpha = 0.45f))
+                                    ) {
+                                        Text(
+                                            text = "APK Mode",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            color = SpaceColors.Emerald,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            // Dynamic features inside the current adaptive phase
-            items(currentPhase.features, key = { "${currentPhase.index}_${it.id}" }) { feature ->
-                DynamicFeatureCard(
-                    feature = feature,
-                    accentColor = phaseAccent,
-                    onUpdateFeature = { newBool, newInt, newText ->
-                        val updated = AdaptiveSourceAnalyzer.applyFeatureEdit(
-                            context = context,
-                            project = activeProject,
+                    items(currentPhase.features, key = { "${currentPhase.index}_${it.id}" }) { feature ->
+                        DynamicFeatureCard(
                             feature = feature,
-                            newBool = newBool,
-                            newInt = newInt,
-                            newText = newText
-                        )
-                        activeProject = updated
-                        onSaveProject(updated)
-                        if (currentPhase.supportsLiveWebPreview) {
-                            webReloadTrigger++
-                        }
-                    },
-                    onTriggerAction = { bindingKey ->
-                        when (bindingKey) {
-                            "action.open_pwa_editor" -> showPwaEditorDialog = true
-                            "action.pick_icon" -> iconPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                            "action.generate_keystore" -> onGenerateKeystore(activeProject) { signedProj ->
-                                activeProject = signedProj
-                                onSaveProject(signedProj)
+                            accentColor = phaseAccent,
+                            onUpdateFeature = { newBool, newInt, newText ->
+                                val updated = AdaptiveSourceAnalyzer.applyFeatureEdit(
+                                    context = context,
+                                    project = activeProject,
+                                    feature = feature,
+                                    newBool = newBool,
+                                    newInt = newInt,
+                                    newText = newText
+                                )
+                                activeProject = updated
+                                onSaveProject(updated)
+                                if (currentPhase.supportsLiveWebPreview) {
+                                    webReloadTrigger++
+                                }
+                            },
+                            onTriggerAction = { bindingKey ->
+                                when (bindingKey) {
+                                    "action.open_pwa_editor" -> showPwaEditorDialog = true
+                                    "action.pick_icon" -> iconPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                    "action.generate_keystore" -> onGenerateKeystore(activeProject) { signedProj ->
+                                        activeProject = signedProj
+                                        onSaveProject(signedProj)
+                                    }
+                                }
                             }
-                        }
+                        )
                     }
-                )
-            }
+                }
             }
         }
     }
 
     if (showAllPhasesDialog) {
-        Dialog(
-            onDismissRequest = { showAllPhasesDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+        SpaceDialog(
+            title = "جميع المراحل المتولدة (${adaptivePlan.phases.size})",
+            accentColor = phaseAccent,
+            onDismissRequest = { showAllPhasesDialog = false }
         ) {
-            Surface(
-                color = DarkSurface,
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.45f)),
+            LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .fillMaxHeight(0.78f)
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "جميع المراحل المتولدة (${adaptivePlan.phases.size})",
-                            fontFamily = CairoFontFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                            color = TextPrimary
-                        )
-                        IconButton(onClick = { showAllPhasesDialog = false }) {
-                            Icon(Icons.Filled.Close, contentDescription = "إغلاق", tint = TextSecondary)
+                itemsIndexed(adaptivePlan.phases) { idx, ph ->
+                    val isCurr = idx == currentPhaseIndex
+                    val c = parseColorSafe(ph.accentHex, SpaceColors.NeonCyan)
+                    NeonGlassCard(
+                        accentColor = if (isCurr) c else SpaceColors.ElectricBlue.copy(alpha = 0.45f),
+                        secondaryAccent = c,
+                        elevation = if (isCurr) 10.dp else 4.dp,
+                        shape = RoundedCornerShape(14.dp),
+                        onClick = {
+                            currentPhaseIndex = idx
+                            showAllPhasesDialog = false
                         }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(adaptivePlan.phases) { idx, ph ->
-                            val isCurr = idx == currentPhaseIndex
-                            val c = parseColorSafe(ph.accentHex, OrangePrimary)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Surface(
-                                color = if (isCurr) c.copy(alpha = 0.2f) else DarkSurfaceElevated,
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, if (isCurr) c else GlassBorderSubtle),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        currentPhaseIndex = idx
-                                        showAllPhasesDialog = false
-                                    }
+                                color = c.copy(alpha = 0.22f),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text("${ph.index}", color = c, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(ph.title, color = TextPrimary, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text("${ph.features.size} ميزة تفاعلية", color = TextSecondary, fontFamily = TajawalFontFamily, fontSize = 11.sp)
-                                    }
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = c, modifier = Modifier.size(16.dp))
-                                }
+                                Text(
+                                    text = "${ph.index}",
+                                    color = SpaceColors.White,
+                                    fontFamily = CairoFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
                             }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(ph.title, color = SpaceColors.White, fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("${ph.features.size} ميزة تفاعلية", color = SpaceColors.MutedText, fontFamily = TajawalFontFamily, fontSize = 11.sp)
+                            }
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = c, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -585,13 +594,12 @@ private fun DynamicFeatureCard(
     var localInt by remember(feature.id, feature.intValue) { mutableIntStateOf(feature.intValue) }
     var localText by remember(feature.id, feature.textValue) { mutableStateOf(feature.textValue) }
 
-    Surface(
-        color = DarkSurfaceElevated,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.25f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("dynamic_feature_${feature.id}")
+    NeonGlassCard(
+        accentColor = accentColor,
+        secondaryAccent = SpaceColors.NeonPurple,
+        elevation = 8.dp,
+        shape = RoundedCornerShape(18.dp),
+        testTag = "dynamic_feature_${feature.id}"
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -604,7 +612,11 @@ private fun DynamicFeatureCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Surface(color = accentColor.copy(alpha = 0.16f), shape = RoundedCornerShape(6.dp)) {
+                        Surface(
+                            color = accentColor.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.45f))
+                        ) {
                             Text(
                                 text = feature.categoryTag,
                                 fontFamily = CairoFontFamily,
@@ -619,7 +631,7 @@ private fun DynamicFeatureCard(
                             fontFamily = CairoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = TextPrimary,
+                            color = SpaceColors.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -629,7 +641,7 @@ private fun DynamicFeatureCard(
                             text = feature.subtitle,
                             fontFamily = TajawalFontFamily,
                             fontSize = 11.sp,
-                            color = TextSecondary
+                            color = SpaceColors.MutedText
                         )
                     }
                 }
@@ -640,7 +652,12 @@ private fun DynamicFeatureCard(
                         onCheckedChange = { checked ->
                             localBool = checked
                             onUpdateFeature(checked, localInt, localText)
-                        }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = SpaceColors.DeepSpace,
+                            checkedTrackColor = accentColor,
+                            uncheckedTrackColor = SpaceColors.SurfaceCard
+                        )
                     )
                 }
             }
@@ -659,28 +676,23 @@ private fun DynamicFeatureCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
+                        NeonTextField(
                             value = localText,
                             onValueChange = { localText = it },
+                            accentColor = accentColor,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(
                                 onDone = { onUpdateFeature(localBool, localInt, localText) }
                             ),
-                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f)
                         )
-                        FilledTonalButton(
-                            onClick = { onUpdateFeature(localBool, localInt, localText) },
-                            modifier = Modifier.height(50.dp)
-                        ) {
-                            Text(
-                                text = if (isModified) "حفظ ✓" else "تطبيق",
-                                fontFamily = CairoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                        }
+                        NeonButton(
+                            text = if (isModified) "حفظ ✓" else "تطبيق",
+                            style = if (isModified) NeonButtonStyle.EMERALD_SUCCESS else NeonButtonStyle.CYBER_OUTLINE,
+                            height = 50.dp,
+                            onClick = { onUpdateFeature(localBool, localInt, localText) }
+                        )
                     }
                 }
 
@@ -689,7 +701,12 @@ private fun DynamicFeatureCard(
                         value = localInt.toFloat(),
                         onValueChange = { localInt = it.toInt() },
                         onValueChangeFinished = { onUpdateFeature(localBool, localInt, localText) },
-                        valueRange = feature.minInt.toFloat()..feature.maxInt.toFloat()
+                        valueRange = feature.minInt.toFloat()..feature.maxInt.toFloat(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = SpaceColors.SurfaceDeep
+                        )
                     )
                 }
 
@@ -716,7 +733,7 @@ private fun DynamicFeatureCard(
                                         .background(c)
                                         .border(
                                             if (selected) 3.dp else 1.dp,
-                                            if (selected) Color.White else Color.White.copy(alpha = 0.25f),
+                                            if (selected) SpaceColors.White else SpaceColors.White.copy(alpha = 0.25f),
                                             CircleShape
                                         )
                                 ) {
@@ -724,7 +741,7 @@ private fun DynamicFeatureCard(
                                         Icon(
                                             imageVector = Icons.Filled.Check,
                                             contentDescription = "مختار",
-                                            tint = Color.White,
+                                            tint = SpaceColors.White,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -737,29 +754,34 @@ private fun DynamicFeatureCard(
                 DynamicFeatureType.CHIP_GROUP -> {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(feature.options) { opt ->
+                            val chosen = localText == opt
                             FilterChip(
-                                selected = localText == opt,
+                                selected = chosen,
                                 onClick = {
                                     localText = opt
                                     onUpdateFeature(localBool, localInt, opt)
                                 },
-                                label = { Text(opt, fontFamily = TajawalFontFamily, fontSize = 11.sp) }
+                                label = { Text(opt, fontFamily = TajawalFontFamily, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = SpaceColors.SurfaceDeep,
+                                    labelColor = SpaceColors.MutedText,
+                                    selectedContainerColor = accentColor.copy(alpha = 0.24f),
+                                    selectedLabelColor = SpaceColors.White
+                                )
                             )
                         }
                     }
                 }
 
                 DynamicFeatureType.ACTION_TRIGGER -> {
-                    Button(
+                    NeonButton(
+                        text = "تنفيذ الآن",
+                        icon = Icons.Filled.Tune,
+                        style = NeonButtonStyle.PRIMARY_GLOW,
+                        height = 48.dp,
                         onClick = { onTriggerAction(feature.bindingKey) },
-                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
-                        Icon(Icons.Filled.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("تنفيذ الآن", fontFamily = CairoFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 DynamicFeatureType.SWITCH -> Unit

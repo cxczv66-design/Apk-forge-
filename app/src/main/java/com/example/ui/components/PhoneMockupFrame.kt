@@ -67,20 +67,24 @@ fun PhoneMockupFrame(
             .fillMaxWidth()
             .height(height)
             .shadow(
-                elevation = 16.dp,
+                elevation = 18.dp,
                 shape = RoundedCornerShape(28.dp),
-                spotColor = accentColor.copy(alpha = 0.35f),
-                ambientColor = Color.Black
+                spotColor = accentColor.copy(alpha = 0.50f),
+                ambientColor = SpaceColors.NeonPurple.copy(alpha = 0.30f)
             )
             .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFF151620))
+            .background(
+                Brush.verticalGradient(
+                    listOf(SpaceColors.MidnightBlue, SpaceColors.DeepSpace)
+                )
+            )
             .border(
                 width = 2.dp,
-                brush = Brush.verticalGradient(
+                brush = Brush.linearGradient(
                     listOf(
-                        accentColor.copy(alpha = 0.8f),
-                        Color(0xFF2C2F40),
-                        accentColor.copy(alpha = 0.3f)
+                        accentColor.copy(alpha = 0.90f),
+                        SpaceColors.ElectricBlue.copy(alpha = 0.55f),
+                        SpaceColors.NeonPurple.copy(alpha = 0.75f)
                     )
                 ),
                 shape = RoundedCornerShape(28.dp)
@@ -92,7 +96,7 @@ fun PhoneMockupFrame(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF0A0B10))
+                .background(SpaceColors.DeepSpace)
         ) {
             // Live step content
             AnimatedContent(

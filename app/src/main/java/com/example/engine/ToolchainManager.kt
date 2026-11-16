@@ -75,7 +75,10 @@ data class RealArchiveBreakdown(
     val hasDex: Boolean,
     val isSigned: Boolean,
     val certificateEntriesCount: Int,
-    val topEntriesSample: List<String>
+    val topEntriesSample: List<String>,
+    val signerCertSha256: String = "",
+    val signerCertSha1: String = "",
+    val signerSubject: String = ""
 ) {
     val formattedSize: String
         get() = formatBytesReadable(totalBytes)
@@ -333,6 +336,7 @@ class ToolchainManager(private val context: Context) {
                     if (n == "AndroidManifest.xml" || n.endsWith("/AndroidManifest.xml")) hasManifest = true
                 }
 
+                val sigInfo = GitHubCloudBuildEngine(context).inspectDownloadedArtifactSignature(file)
                 RealArchiveBreakdown(
                     fileName = file.name,
                     filePath = file.absolutePath,
@@ -345,9 +349,12 @@ class ToolchainManager(private val context: Context) {
                     signingAndMetaBytes = metaBytes,
                     hasManifest = hasManifest,
                     hasDex = hasDex,
-                    isSigned = certCount > 0,
+                    isSigned = certCount > 0 || sigInfo.isVerified,
                     certificateEntriesCount = certCount,
-                    topEntriesSample = entries.take(8).map { "${it.name} (${formatBytesReadable(maxOf(0L, it.size))})" }
+                    topEntriesSample = entries.take(8).map { "${it.name} (${formatBytesReadable(maxOf(0L, it.size))})" },
+                    signerCertSha256 = sigInfo.signerCertSha256,
+                    signerCertSha1 = sigInfo.signerCertSha1,
+                    signerSubject = sigInfo.signerSubject
                 )
             }
         } catch (_: Exception) {
@@ -362,10 +369,20 @@ class ToolchainManager(private val context: Context) {
             appendLog(TerminalLineType.WARN, msg)
             return@withContext msg
         }
+        val sig = GitHubCloudBuildEngine(context).inspectDownloadedArtifactSignature(File(filePath))
         val report = buildString {
             appendLine("📦 ${breakdown.fileName} (${breakdown.formattedSize} • ${breakdown.entryCount} ملف)")
             appendLine("   • Manifest: ${if (breakdown.hasManifest) "موجود ✓" else "مفقود"} | DEX: ${if (breakdown.hasDex) "مترجم عبر D8 ✓" else "غير متوفر"}")
-            appendLine("   • التوقيع الرقمي (Google apksig v1-v4): ${if (breakdown.isSigned) "موقّع RSA-2048 (${breakdown.certificateEntriesCount} شهادة/بصمة) ✓" else "غير موقّع"}")
+            appendLine("   • التوقيع الرقمي (v1=${sig.v1Verified}, v2=${sig.v2Verified}, v3=${sig.v3Verified}): ${if (sig.isVerified || breakdown.isSigned) "موقّع RSA-2048 (${breakdown.certificateEntriesCount} ملف شهادة) ✓" else "غير موقّع"}")
+            if (sig.signerCertSha256.isNotBlank()) {
+                appendLine("   • بصمة SHA-256 للشهادة: ${QuantumKeyVault.formatFingerprintColon(sig.signerCertSha256)}")
+            }
+            if (sig.signerCertSha1.isNotBlank()) {
+                appendLine("   • بصمة SHA-1 للشهادة: ${QuantumKeyVault.formatFingerprintColon(sig.signerCertSha1)}")
+            }
+            if (sig.signerSubject.isNotBlank()) {
+                appendLine("   • المالك (Subject): ${sig.signerSubject}")
+            }
             appendLine("   • الكود: ${formatBytesReadable(breakdown.codeBytes)} | الأصول: ${formatBytesReadable(breakdown.assetsBytes)} | الموارد: ${formatBytesReadable(breakdown.resBytes)}")
         }
         appendLog(TerminalLineType.SUCCESS, report)
